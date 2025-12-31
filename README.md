@@ -22,10 +22,10 @@ The server does all rendering work. The client just displays pre-rendered ANSI o
 Screen → wlr-screencopy → Frame buffer → Renderer → ANSI string → LZ4 → TCP → Client terminal
                                             ↓
                               ┌─────────────┴─────────────┐
-                              │  braille (2×4 subpixel)   │
-                              │  blocks (▀ half-blocks)   │
-                              │  ascii (character ramp)   │
-                              │  hybrid (auto-switch)     │
+                              │  braille (2×4 subpixel)        │
+                              │  blocks (▀ half-blocks)        │
+                              │  ascii (character ramp)        │
+                              │  hybrid (auto-switch)          │
                               └───────────────────────────┘
 ```
 
