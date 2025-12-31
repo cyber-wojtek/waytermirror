@@ -27,8 +27,7 @@ jobs:
           lz4 \
           rapidjson \
           systemd \
-          argparse \
-          cuda
+          argparse
 
     - uses: actions/checkout@v4
 
