@@ -200,11 +200,11 @@ This produces:
 
 | Port | Protocol | Purpose |
 |------|----------|---------|
-| 9999 | TCP | Video frames |
-| 10000 | TCP | Input events |
-| 10001 | TCP | System audio (server→client) |
-| 10002 | TCP | Configuration |
-| 10003 | TCP | Microphone (client→server) |
+| (Base port) | TCP | Video frames |
+| (Base port + 1) | TCP | Input events |
+| (Base port + 2) | TCP | System audio (server→client) |
+| (Base port + 3) | TCP | Configuration |
+| (Base port + 4) | TCP | Microphone (client→server) |
 
 ## Keyboard Shortcuts
 
