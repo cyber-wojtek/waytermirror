@@ -42,6 +42,9 @@ depends=(
 
     # JSON
     'rapidjson'
+
+    # CUDA (Need to include it, there is not conditional dependency support)
+    'cuda'
 )
 
 makedepends=(
