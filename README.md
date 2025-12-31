@@ -220,7 +220,7 @@ This produces:
 | Maximum quality | `-r cuda -d 100 -Q 100 -M true -R braille` |
 | Smooth video | `-d 30 -R hybrid -F 60` |
 | Low bandwidth | `-c -L 9 -d 30 -M 256 -F 15` |
-| Minimum latency | `-d 50 -Q 0 -F 60 --no-compress` |
+| Minimum latency | `-d 50 -Q 0 -F 60` |
 
 ### Detail Level vs Quality
 
