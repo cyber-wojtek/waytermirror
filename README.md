@@ -55,10 +55,7 @@ This gives the best balance of quality and performance.
 
 ```bash
 # Arch Linux
-sudo pacman -S wayland libinput pipewire lz4 rapidjson cuda
-
-# Plus header-only: argparse (from AUR or manual install)
-yay -S argparse
+sudo pacman -S wayland libinput pipewire lz4 rapidjson cuda argparse
 
 # Debian/Ubuntu  
 sudo apt install libwayland-dev libinput-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libwlroots-0.18-dev
