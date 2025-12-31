@@ -74,12 +74,12 @@ pkgver() {
 build() {
     cd waytermirror
 
-    if [[ -n "$WAYTERMIRROR_CUDA" ]] && command -v nvcc &>/dev/null; then
+    if [[ -n "$WAYTERMIRROR_NO_CUDA" ]] && command -v nvcc &>/dev/null; then
         echo "==> Building with CUDA support"
-        make CUDA=true
+        make CUDA=false
     else
         echo "==> Building CPU-only (set WAYTERMIRROR_CUDA=1 to enable CUDA)"
-        make
+        make CUDA=true
     fi
 }
 
