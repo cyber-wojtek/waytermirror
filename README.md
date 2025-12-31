@@ -61,7 +61,7 @@ sudo pacman -S wayland libinput pipewire lz4 rapidjson cuda
 yay -S argparse
 
 # Debian/Ubuntu  
-sudo apt install libwayland-dev libinput-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev
+sudo apt install libwayland-dev libinput-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libwlroots-0.18-dev
 # CUDA requires NVIDIA toolkit from nvidia.com
 ```
 
