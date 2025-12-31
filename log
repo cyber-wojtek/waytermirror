@@ -1,29 +1,599 @@
-Usage: wayterm_mirror_client [--help] [--version] --host VAR [--port VAR] [--output VAR] [--fps VAR] [--mode VAR] [--renderer VAR] [--scale VAR] [--keep-aspect-ratio] [--compress] [--compression-level VAR] [--center-mouse] [--no-video] [--no-audio] [--no-input] [--exclusive-input] [--no-microphone] [--detail-level VAR] [--zoom] [--zoom-level VAR] [--zoom-width VAR] [--zoom-height VAR] [--zoom-follow] [--zoom-smooth] [--zoom-speed VAR]
+=== Client Features ===
+Video: ON
+Audio: OFF
+Input: OFF
+Microphone: OFF
+=======================
 
-Optional arguments:
-  -h, --help               shows help message and exits 
-  -v, --version            prints version information and exits 
-  -H, --host               Server hostname or IP [required]
-  -P, --port               Server port [nargs=0..1] [default: 9999]
-  -o, --output             Output index (0, 1, 2...) or 'follow' [nargs=0..1] [default: "0"]
-  -F, --fps                Desired FPS [nargs=0..1] [default: 30]
-  -M, --mode               Color mode: 16, 256, true [nargs=0..1] [default: "256"]
-  -R, --renderer           Renderer [nargs=0..1] [default: "braille"]
-  -S, --scale              Scale [nargs=0..1] [default: 1]
-  -k, --keep-aspect-ratio  Keep aspect ratio 
-  -c, --compress           Enable compression 
-  -L, --compression-level  LZ4 compression level: 0=fast, 1–12=HC [nargs=0..1] [default: 0]
-  -C, --center-mouse       Start mouse at screen center 
-  -n, --no-video           Disable video 
-  -A, --no-audio           Disable audio 
-  -N, --no-input           Disable input forwarding 
-  -x, --exclusive-input    Exclusive access to input devices 
-  -p, --no-microphone      Disable microphone forwarding 
-  -d, --detail-level       Detail level: 0=smooth, 100=sharp [nargs=0..1] [default: 50]
-  -z, --zoom               Enable zoom feature 
-  -Z, --zoom-level         Zoom magnification (1.0-10.0) [nargs=0..1] [default: 2]
-  -W, --zoom-width         Zoom viewport width in pixels [nargs=0..1] [default: 800]
-  -H, --zoom-height        Zoom viewport height in pixels [nargs=0..1] [default: 600]
-  -f, --zoom-follow        Zoom follows mouse cursor 
-  -s, --zoom-smooth        Smooth zoom panning 
-  -D, --zoom-speed         Zoom pan speed (pixels per frame) [nargs=0..1] [default: 20]
+
+=== WARNING ===
+Not running as root. Input devices may not be accessible.
+Run with sudo or add your user to the 'input' group:
+  sudo usermod -a -G input $USER
+Then log out and back in.
+===============
+
+[INPUT] Opened device: /dev/input/event2
+[INPUT] Opened device: /dev/input/event1
+[INPUT] Opened device: /dev/input/event0
+[INPUT] Opened device: /dev/input/event14
+[INPUT] Opened device: /dev/input/event15
+[INPUT] Opened device: /dev/input/event17
+[INPUT] Opened device: /dev/input/event20
+[INPUT] Opened device: /dev/input/event3
+[INPUT] Opened device: /dev/input/event4
+[INPUT] Opened device: /dev/input/event5
+[INPUT] Opened device: /dev/input/event6
+[INPUT] Opened device: /dev/input/event7
+[INPUT] Opened device: /dev/input/event8
+[INPUT] Opened device: /dev/input/event9
+[INPUT] Opened device: /dev/input/event10
+[INPUT] Opened device: /dev/input/event13
+[INPUT] Opened device: /dev/input/event16
+[INPUT] Opened device: /dev/input/event18
+[INPUT] Opened device: /dev/input/event19
+[INPUT] Opened device: /dev/input/event21
+[INPUT] Opened device: /dev/input/event12
+[INPUT] Opened device: /dev/input/event11
+[INPUT] libinput initialized successfully
+[INPUT] Hotplug support enabled
+[INPUT] Initial devices:
+[HOTPLUG] Device added: Power Button
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: Power Button
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: Sleep Button
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries  Arctis Pro Wireless Consumer Control
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL Consumer Control
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL Mouse
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Logitech G502 HERO Gaming Mouse
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Logitech G502 HERO Gaming Mouse Keyboard
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Eee PC WMI hotkeys
+[HOTPLUG]   - Keyboard capability
+[INIT] Session ID: 5b852860-29fb-4bbf-a6f8-b4cc7946818b
+[CONFIG] Connected to 0.0.0.0:10002
+[VIDEO] Connected to 0.0.0.0:9999
+=== Zoom Configuration ===
+Enabled: NO
+Level: 2x
+Viewport: 800x600
+Follow Mouse: YES
+Smooth Pan: YES
+==========================
+
+=== Rendering Settings ===
+Detail Level: 100 (0=smooth, 100=sharp)
+Quality: 100 (0=fast, 100=best)
+Render Device: CPU
+===========================
+
+[CONFIG] Sent: 213x54 fps=60 renderer=3 detail=100
+[INIT] Waiting for screen info from server...
+[INIT] Received screen info: 2560x1440
+
+=== Waytermirror Client Started ===
+Session: 5b852860-29fb-4bbf-a6f8-b4cc7946818b
+Output: 1 | Resolution: 2560x1440
+Renderer: hybrid | Color mode: true
+FPS: 60 | Scale: 1
+Compression: OFF
+Exit combo: Ctrl+Alt+Shift+Delete+X
+Zoom toggle: Ctrl+Alt+Shift+Delete+Z
+Input forwarding: DISABLED (local shortcuts only)
+=============================
+
+[INPUT] Thread started with libinput and hotplug monitoring
+[ZOOM] Toggled: ON
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Sent config: ENABLED level=2 viewport=800x600 follow=YES
+[ZOOM] Toggled: OFF
+[ZOOM] Sent config: DISABLED level=2 viewport=800x600 follow=YES
+
+[EXIT] Exit combo detected!
+[INPUT] Thread stopped
+
+[EXIT] Shutting down...
+[EXIT] Shutdown complete.

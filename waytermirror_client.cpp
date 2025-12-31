@@ -926,8 +926,6 @@ static const struct libinput_interface interface = {
 
 // Input event handlers
 static void send_key_event(uint32_t keycode, bool pressed) {
-  if (input_socket < 0) return;
-  
   bool is_shift = (keycode == KEY_LEFTSHIFT || keycode == KEY_RIGHTSHIFT);
   bool is_ctrl = (keycode == KEY_LEFTCTRL || keycode == KEY_RIGHTCTRL);
   bool is_alt = (keycode == KEY_LEFTALT || keycode == KEY_RIGHTALT);
@@ -935,6 +933,7 @@ static void send_key_event(uint32_t keycode, bool pressed) {
   bool is_x = (keycode == KEY_X);
   bool is_z = (keycode == KEY_Z);
   
+  // Always track modifier state for local shortcuts
   if (is_shift) shift_pressed = pressed;
   if (is_ctrl) ctrl_pressed = pressed;
   if (is_alt) alt_pressed = pressed;
@@ -957,6 +956,9 @@ static void send_key_event(uint32_t keycode, bool pressed) {
     return;
   }
   
+  // Only forward to server if input forwarding is enabled
+  if (!feature_input || input_socket < 0) return;
+  
   // Send normal key event
   MessageType type = MessageType::KEY_EVENT;
   KeyEvent evt{
@@ -972,9 +974,7 @@ static void send_key_event(uint32_t keycode, bool pressed) {
 }
 
 static void send_mouse_move(int x, int y) {
-  if (input_socket < 0) return;
-  
-  // Update zoom center if zoom is enabled and following mouse
+  // Always update zoom center locally if enabled
   if (zoom_state.enabled.load() && zoom_state.follow_mouse.load()) {
     zoom_state.center_x = x;
     zoom_state.center_y = y;
@@ -988,6 +988,9 @@ static void send_mouse_move(int x, int y) {
     }
   }
   
+  // Only forward to server if input forwarding is enabled
+  if (!feature_input || input_socket < 0) return;
+  
   MessageType type = MessageType::MOUSE_MOVE;
   MouseMove evt{x, y, (uint32_t)screen_width.load(), (uint32_t)screen_height.load()};
   
@@ -996,7 +999,8 @@ static void send_mouse_move(int x, int y) {
 }
 
 static void send_mouse_button(uint32_t button, bool pressed) {
-  if (input_socket < 0) return;
+  // Only forward to server if input forwarding is enabled
+  if (!feature_input || input_socket < 0) return;
   
   MessageType type = MessageType::MOUSE_BUTTON;
   MouseButton evt{button, (uint8_t)pressed};
@@ -1006,7 +1010,8 @@ static void send_mouse_button(uint32_t button, bool pressed) {
 }
 
 static void send_mouse_scroll(double dx, double dy) {
-  if (input_socket < 0) return;
+  // Only forward to server if input forwarding is enabled
+  if (!feature_input || input_socket < 0) return;
   
   // Send vertical scroll
   if (dy != 0) {
@@ -1317,8 +1322,10 @@ int main(int argc, char** argv) {
   std::cerr << "Microphone: " << (feature_microphone ? "ON" : "OFF") << "\n";
   std::cerr << "=======================\n\n";
 
-  // Initialize libinput only if input is enabled
-  if (feature_input) {
+  // Always initialize libinput for local shortcuts (exit combo, zoom toggle)
+  // Input forwarding to server is controlled by feature_input flag
+  bool libinput_ok = false;
+  {
     // Check if running with sufficient privileges for libinput
     if (geteuid() != 0) {
       std::cerr << "\n=== WARNING ===\n";
@@ -1333,34 +1340,22 @@ int main(int argc, char** argv) {
     udev = udev_new();
     if (!udev) {
       std::cerr << "Failed to initialize udev\n";
-      if (feature_audio || feature_video || feature_microphone) {
-        std::cerr << "Continuing without input support\n";
-        feature_input = false;
-      } else {
-        return 1;
-      }
+      std::cerr << "Local shortcuts (exit combo, zoom) will not work\n";
     } else {
       li = libinput_udev_create_context(&interface, nullptr, udev);
       if (!li) {
         std::cerr << "Failed to initialize libinput\n";
+        std::cerr << "Local shortcuts (exit combo, zoom) will not work\n";
         udev_unref(udev);
-        if (feature_audio || feature_video || feature_microphone) {
-          std::cerr << "Continuing without input support\n";
-          feature_input = false;
-        } else {
-          return 1;
-        }
+        udev = nullptr;
       } else {
         if (libinput_udev_assign_seat(li, "seat0") != 0) {
           std::cerr << "Failed to assign seat to libinput\n";
+          std::cerr << "Local shortcuts (exit combo, zoom) will not work\n";
           libinput_unref(li);
+          li = nullptr;
           udev_unref(udev);
-          if (feature_audio || feature_video || feature_microphone) {
-            std::cerr << "Continuing without input support\n";
-            feature_input = false;
-          } else {
-            return 1;
-          }
+          udev = nullptr;
         } else {
           std::cerr << "[INPUT] libinput initialized successfully\n";
           std::cerr << "[INPUT] Hotplug support enabled\n";
@@ -1369,6 +1364,7 @@ int main(int argc, char** argv) {
           std::cerr << "[INPUT] Initial devices:\n";
           libinput_dispatch(li);
           process_libinput_events();
+          libinput_ok = true;
         }
       }
     }
@@ -1571,6 +1567,7 @@ int main(int argc, char** argv) {
     std::cerr << "Warning: compression level capped at 12\n";
     config.compression_level = 12;
   }
+  
 
   zoom_state.enabled = program.get<bool>("--zoom");
   zoom_state.zoom_level = std::clamp(program.get<double>("--zoom-level"), 1.0, 10.0);
@@ -1639,8 +1636,9 @@ int main(int argc, char** argv) {
   }
   
   // Start threads based on enabled features
+  // Input thread always runs for local shortcuts (exit combo, zoom toggle)
   std::thread input_thr;
-  if (feature_input) {
+  if (libinput_ok) {
     input_thr = std::thread(input_thread);
   }
   
@@ -1664,9 +1662,14 @@ int main(int argc, char** argv) {
               << (config.keep_aspect_ratio ? " (Auto-fit)" : "") << "\n";
     std::cerr << "Compression: " << (config.compress ? "ON" : "OFF") << "\n";
   }
-  if (feature_input) {
-    std::cerr << "Using libinput with hotplug support\n";
+  if (libinput_ok) {
     std::cerr << "Exit combo: Ctrl+Alt+Shift+Delete+X\n";
+    std::cerr << "Zoom toggle: Ctrl+Alt+Shift+Delete+Z\n";
+    if (feature_input) {
+      std::cerr << "Input forwarding: ENABLED\n";
+    } else {
+      std::cerr << "Input forwarding: DISABLED (local shortcuts only)\n";
+    }
   }
   if (feature_audio) {
     std::cerr << "Audio playback enabled (system audio from server)\n";
@@ -1724,7 +1727,8 @@ int main(int argc, char** argv) {
     microphone_thr.join();
   }
   
-  if (feature_input && input_thr.joinable()) {
+  // Input thread runs if libinput initialized (for local shortcuts)
+  if (input_thr.joinable()) {
     input_thr.join();
   }
   
@@ -1740,8 +1744,10 @@ int main(int argc, char** argv) {
   if (microphone_socket >= 0) close(microphone_socket);
   
   // Cleanup resources
-  if (feature_input && li) {
+  if (li) {
     libinput_unref(li);
+  }
+  if (udev) {
     udev_unref(udev);
   }
   
