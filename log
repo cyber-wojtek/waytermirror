@@ -1,0 +1,29 @@
+Usage: wayterm_mirror_client [--help] [--version] --host VAR [--port VAR] [--output VAR] [--fps VAR] [--mode VAR] [--renderer VAR] [--scale VAR] [--keep-aspect-ratio] [--compress] [--compression-level VAR] [--center-mouse] [--no-video] [--no-audio] [--no-input] [--exclusive-input] [--no-microphone] [--detail-level VAR] [--zoom] [--zoom-level VAR] [--zoom-width VAR] [--zoom-height VAR] [--zoom-follow] [--zoom-smooth] [--zoom-speed VAR]
+
+Optional arguments:
+  -h, --help               shows help message and exits 
+  -v, --version            prints version information and exits 
+  -H, --host               Server hostname or IP [required]
+  -P, --port               Server port [nargs=0..1] [default: 9999]
+  -o, --output             Output index (0, 1, 2...) or 'follow' [nargs=0..1] [default: "0"]
+  -F, --fps                Desired FPS [nargs=0..1] [default: 30]
+  -M, --mode               Color mode: 16, 256, true [nargs=0..1] [default: "256"]
+  -R, --renderer           Renderer [nargs=0..1] [default: "braille"]
+  -S, --scale              Scale [nargs=0..1] [default: 1]
+  -k, --keep-aspect-ratio  Keep aspect ratio 
+  -c, --compress           Enable compression 
+  -L, --compression-level  LZ4 compression level: 0=fast, 1–12=HC [nargs=0..1] [default: 0]
+  -C, --center-mouse       Start mouse at screen center 
+  -n, --no-video           Disable video 
+  -A, --no-audio           Disable audio 
+  -N, --no-input           Disable input forwarding 
+  -x, --exclusive-input    Exclusive access to input devices 
+  -p, --no-microphone      Disable microphone forwarding 
+  -d, --detail-level       Detail level: 0=smooth, 100=sharp [nargs=0..1] [default: 50]
+  -z, --zoom               Enable zoom feature 
+  -Z, --zoom-level         Zoom magnification (1.0-10.0) [nargs=0..1] [default: 2]
+  -W, --zoom-width         Zoom viewport width in pixels [nargs=0..1] [default: 800]
+  -H, --zoom-height        Zoom viewport height in pixels [nargs=0..1] [default: 600]
+  -f, --zoom-follow        Zoom follows mouse cursor 
+  -s, --zoom-smooth        Smooth zoom panning 
+  -D, --zoom-speed         Zoom pan speed (pixels per frame) [nargs=0..1] [default: 20]
