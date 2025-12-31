@@ -10,56 +10,53 @@ license=('Apache-2.0')
 
 depends=(
     # Core runtime
-    'glibc'
-    'gcc-libs'
+    glibc
+    gcc-libs
 
-    # Wayland / input / compositor stack
-    'wayland'
-    'libinput'
-    'wlroots0.19'
-    'wayland-protocols'
-    'wlr-protocols'
+    # Wayland / compositor stack
+    wayland
+    wlroots0.19
+    wayland-protocols
+    wlr-protocols
+
+    # Input
+    libinput
+    libevdev
+    libwacom
+    mtdev
 
     # IPC / multimedia
-    'pipewire'
+    pipewire
+
+    # System / glib stack
+    systemd-libs   # libudev
+    glib2
+    libffi
+    pcre2
 
     # Compression / data
-    'lz4'
-
-    # Device / udev / glib stack
-    'systemd-libs'   # libudev
-    'glib2'          # glib + gobject + gudev
-    'libffi'
-    'pcre2'
-
-    # Input helpers
-    'libevdev'
-    'libwacom'
-    'mtdev'
+    lz4
 
     # Scripting / config
-    'lua'
+    lua
 
     # JSON
-    'rapidjson'
-
-    # CUDA (Need to include it, there is not conditional dependency support)
-    'cuda'
+    rapidjson
 )
 
 makedepends=(
-    'git'
-    'gcc'
-    'make'
-    'pkgconf'
+    git
+    gcc
+    make
+    pkgconf
 )
 
 optdepends=(
-    'cuda: GPU-accelerated rendering (libcudart)'
+    'cuda: GPU-accelerated rendering via NVIDIA CUDA'
 )
 
-provides=('waytermirror')
-conflicts=('waytermirror')
+provides=(waytermirror)
+conflicts=(waytermirror)
 
 source=("git+${url}.git")
 sha256sums=('SKIP')
@@ -74,12 +71,23 @@ pkgver() {
 build() {
     cd waytermirror
 
-    if [[ -n "$WAYTERMIRROR_NO_CUDA" ]] && command -v nvcc &>/dev/null; then
+    # Decide CUDA mode
+    local cuda=false
+
+    if [[ -n "$WAYTERMIRROR_CUDA" ]]; then
+        cuda=true
+    elif [[ -n "$WAYTERMIRROR_NO_CUDA" ]]; then
+        cuda=false
+    elif command -v nvcc &>/dev/null; then
+        cuda=true
+    fi
+
+    if $cuda; then
         echo "==> Building with CUDA support"
-        make CUDA=false
-    else
-        echo "==> Building CPU-only (set WAYTERMIRROR_CUDA=1 to enable CUDA)"
         make CUDA=true
+    else
+        echo "==> Building CPU-only"
+        make CUDA=false
     fi
 }
 
@@ -88,6 +96,7 @@ package() {
 
     install -Dm755 waytermirror_server \
         "$pkgdir/usr/bin/waytermirror_server"
+
     install -Dm755 waytermirror_client \
         "$pkgdir/usr/bin/waytermirror_client"
 
