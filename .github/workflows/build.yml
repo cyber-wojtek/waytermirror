@@ -1,0 +1,87 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+    - name: Install dependencies
+      run: |
+        pacman -Syu --noconfirm
+        pacman -S --noconfirm --needed \
+          base-devel \
+          git \
+          gcc \
+          wayland \
+          wayland-protocols \
+          libinput \
+          pipewire \
+          lz4 \
+          rapidjson \
+          systemd
+
+    - uses: actions/checkout@v4
+
+    - name: Build (CPU-only)
+      run: |
+        # Build without CUDA - create stub for linking
+        cat > braille_renderer_cuda_stub.cpp << 'EOF'
+        #include <cstdint>
+        #include <cstring>
+        #include <cmath>
+        
+        extern "C" void render_braille_cuda(
+            const uint8_t* frame_data,
+            uint32_t frame_width,
+            uint32_t frame_height,
+            uint32_t frame_stride,
+            int w_scaled,
+            int h_scaled,
+            int cells_x,
+            int cells_y,
+            uint8_t detail_level,
+            uint8_t threshold_steps,
+            uint8_t* patterns,
+            uint8_t* fg_colors,
+            uint8_t* bg_colors) {
+            // CPU fallback - zero patterns (caller uses CPU path)
+            memset(patterns, 0, cells_x * cells_y);
+            memset(fg_colors, 255, cells_x * cells_y * 3);
+            memset(bg_colors, 0, cells_x * cells_y * 3);
+        }
+        
+        extern "C" void render_hybrid_cuda(
+            const uint8_t* frame,
+            uint32_t fw, uint32_t fh, uint32_t stride,
+            int w_scaled, int h_scaled,
+            int cells_x, int cells_y,
+            uint8_t detail, uint8_t threshold_steps,
+            uint8_t* modes,
+            uint8_t* patterns,
+            uint8_t* fg_colors,
+            uint8_t* bg_colors) {
+            memset(modes, 0, cells_x * cells_y);
+            memset(patterns, 0, cells_x * cells_y);
+            memset(fg_colors, 255, cells_x * cells_y * 3);
+            memset(bg_colors, 0, cells_x * cells_y * 3);
+        }
+        EOF
+        
+        # Compile stub instead of CUDA
+        g++ -O3 -c braille_renderer_cuda_stub.cpp -o braille_renderer_cuda.o
+        
+        # Build rest normally
+        make waytermirror_server waytermirror_client
+
+    - name: Verify binaries
+      run: |
+        ls -la waytermirror_server waytermirror_client
+        file waytermirror_server waytermirror_client
