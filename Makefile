@@ -3,7 +3,7 @@ CXX = g++
 CXXFLAGS = -std=c++23 -Wall -O3
 CFLAGS = -Wall -O3
 INCLUDES = -I/usr/include/wayland-client -I/usr/include/libinput -I/usr/include/libudev -I/usr/include/pipewire-0.3 -I/usr/include/spa-0.2
-LIBS_BASE = -lwayland-client -lm -lz -llz4 -lpthread -linput -ludev -lpipewire-0.3
+LIBS_BASE = -lwayland-client -lm -llz4 -lpthread -linput -ludev -lpipewire-0.3
 
 # CUDA support: make CUDA=true
 ifeq ($(CUDA),true)
