@@ -963,6 +963,8 @@ static const struct libinput_interface interface = {
 
 // Input event handlers
 
+static void process_libinput_events();
+
 static void toggle_exclusive_grab() {
   exclusive_grab_enabled = !exclusive_grab_enabled.load();
   std::cerr << "[INPUT] Exclusive grab: " << (exclusive_grab_enabled.load() ? "ON" : "OFF") << "\n";
