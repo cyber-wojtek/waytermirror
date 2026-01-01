@@ -58,6 +58,17 @@ static std::atomic<bool> up_pressed{false};
 static std::atomic<bool> down_pressed{false};
 static std::atomic<bool> left_pressed{false};
 static std::atomic<bool> right_pressed{false};
+static std::atomic<bool> h_pressed{false};
+static std::atomic<bool> t_pressed{false};
+static std::atomic<bool> o_pressed{false};
+static std::atomic<bool> w_pressed{false};
+static std::atomic<bool> e_pressed{false};
+static std::atomic<bool> n_pressed{false};
+static std::atomic<bool> b_pressed{false};
+static std::atomic<bool> v_pressed{false};
+static std::atomic<bool> l_pressed{false};
+static std::atomic<bool> home_pressed{false};
+static std::atomic<bool> end_pressed{false};
 
 static std::atomic<bool> video_paused{false};
 static std::atomic<bool> audio_muted{false};
@@ -1015,6 +1026,67 @@ static void adjust_zoom(double delta) {
   send_zoom_config();
 }
 
+static void adjust_quality(int delta) {
+  std::lock_guard<std::mutex> lock(config_mutex);
+  current_config.quality = std::clamp((int)current_config.quality + delta, 0, 100);
+  std::cerr << "[QUALITY] Level: " << (int)current_config.quality << "\n";
+  get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+  send_client_config(current_config);
+}
+
+static void print_shortcuts_help() {
+  std::cerr << "\n";
+  std::cerr << "╔══════════════════════════════════════════════════════════════════╗\n";
+  std::cerr << "║             WAYTERMIRROR CLIENT KEYBOARD SHORTCUTS               ║\n";
+  std::cerr << "╠══════════════════════════════════════════════════════════════════╣\n";
+  std::cerr << "║  All shortcuts use Ctrl+Alt+Shift as modifier prefix             ║\n";
+  std::cerr << "╠══════════════════════════════════════════════════════════════════╣\n";
+  std::cerr << "║ SESSION CONTROL                                                  ║\n";
+  std::cerr << "║   Q          Quit / disconnect gracefully                        ║\n";
+  std::cerr << "║   H          Show this help                                      ║\n";
+  std::cerr << "║   P          Pause / resume video rendering                      ║\n";
+  std::cerr << "╠══════════════════════════════════════════════════════════════════╣\n";
+  std::cerr << "║ INPUT CONTROL                                                    ║\n";
+  std::cerr << "║   I          Toggle input forwarding to server                   ║\n";
+  std::cerr << "║   G          Toggle exclusive grab (EVIOCGRAB)                   ║\n";
+  std::cerr << "╠══════════════════════════════════════════════════════════════════╣\n";
+  std::cerr << "║ ZOOM CONTROL                                                     ║\n";
+  std::cerr << "║   Z          Toggle zoom mode                                    ║\n";
+  std::cerr << "║   + / =      Zoom in (+0.5x)                                     ║\n";
+  std::cerr << "║   -          Zoom out (-0.5x)                                    ║\n";
+  std::cerr << "║   0          Reset zoom to default (2.0x)                        ║\n";
+  std::cerr << "║   N          Toggle zoom follow mouse                            ║\n";
+  std::cerr << "║   Arrow Keys Pan viewport (20px per press)                       ║\n";
+  std::cerr << "║   PageUp/Dn  Fast vertical pan (100px per press)                 ║\n";
+  std::cerr << "║   Home/End   Fast horizontal pan (100px per press)               ║\n";
+  std::cerr << "╠══════════════════════════════════════════════════════════════════╣\n";
+  std::cerr << "║ RENDERING                                                        ║\n";
+  std::cerr << "║   R          Cycle renderer (braille→blocks→ascii→hybrid)        ║\n";
+  std::cerr << "║   C          Cycle color mode (16→256→truecolor)                 ║\n";
+  std::cerr << "║   D          Increase detail level (+10)                         ║\n";
+  std::cerr << "║   S          Decrease detail level (-10)                         ║\n";
+  std::cerr << "║   W          Increase quality (+10)                              ║\n";
+  std::cerr << "║   E          Decrease quality (-10)                              ║\n";
+  std::cerr << "║   O          Toggle smooth panning                               ║\n";
+  std::cerr << "║   B          Toggle keep aspect ratio                            ║\n";
+  std::cerr << "║   V          Cycle render device (CPU→CUDA)                      ║\n";
+  std::cerr << "╠══════════════════════════════════════════════════════════════════╣\n";
+  std::cerr << "║ AUDIO/VIDEO                                                      ║\n";
+  std::cerr << "║   A          Toggle audio playback (mute/unmute)                 ║\n";
+  std::cerr << "║   M          Toggle microphone capture (mute/unmute)             ║\n";
+  std::cerr << "║   F          Toggle follow-focus mode                            ║\n";
+  std::cerr << "╠══════════════════════════════════════════════════════════════════╣\n";
+  std::cerr << "║ CURRENT STATE                                                    ║\n";
+  std::cerr << "║   Input Forwarding: " << (input_forwarding_enabled.load() ? "ON " : "OFF") << "                                        ║\n";
+  std::cerr << "║   Exclusive Grab:   " << (exclusive_grab_enabled.load() ? "ON " : "OFF") << "                                        ║\n";
+  std::cerr << "║   Zoom Enabled:     " << (zoom_state.enabled.load() ? "ON " : "OFF") << " (" << zoom_state.zoom_level.load() << "x)                                   ║\n";
+  std::cerr << "║   Video Paused:     " << (video_paused.load() ? "YES" : "NO ") << "                                        ║\n";
+  std::cerr << "║   Audio Muted:      " << (audio_muted.load() ? "YES" : "NO ") << "                                        ║\n";
+  std::cerr << "║   Microphone Muted:        " << (microphone_muted.load() ? "YES" : "NO ") << "                                        ║\n";
+  std::cerr << "╚══════════════════════════════════════════════════════════════════╝\n";
+  std::cerr << "\n";
+}
+
 static void pan_zoom(int dx, int dy) {
   if (!zoom_state.enabled.load()) return;
   
@@ -1054,6 +1126,17 @@ static void send_key_event(uint32_t keycode, bool pressed) {
   bool is_down = (keycode == KEY_DOWN);
   bool is_left = (keycode == KEY_LEFT);
   bool is_right = (keycode == KEY_RIGHT);
+  bool is_h = (keycode == KEY_H);
+  bool is_t = (keycode == KEY_T);
+  bool is_o = (keycode == KEY_O);
+  bool is_w = (keycode == KEY_W);
+  bool is_e = (keycode == KEY_E);
+  bool is_n = (keycode == KEY_N);
+  bool is_b = (keycode == KEY_B);
+  bool is_v = (keycode == KEY_V);
+  bool is_l = (keycode == KEY_L);
+  bool is_home = (keycode == KEY_HOME);
+  bool is_end = (keycode == KEY_END);
   
   // Track modifier state
   if (is_shift) shift_pressed = pressed;
@@ -1066,12 +1149,29 @@ static void send_key_event(uint32_t keycode, bool pressed) {
   
   // Check for all shortcuts on key press
   if (pressed && combo) {
+    // === SESSION CONTROL ===
+    
     // Quit (Ctrl+Alt+Shift+Q)
     if (is_q) {
       std::cerr << "\n[EXIT] Quit shortcut detected!\n";
       running = false;
       return;
     }
+    
+    // Show help (Ctrl+Alt+Shift+H)
+    if (is_h) {
+      print_shortcuts_help();
+      return;
+    }
+    
+    // Pause/resume video (Ctrl+Alt+Shift+P)
+    if (is_p) {
+      video_paused = !video_paused.load();
+      std::cerr << "[VIDEO] " << (video_paused.load() ? "PAUSED" : "RESUMED") << "\n";
+      return;
+    }
+    
+    // === INPUT CONTROL ===
     
     // Toggle input forwarding (Ctrl+Alt+Shift+I)
     if (is_i) {
@@ -1086,10 +1186,12 @@ static void send_key_event(uint32_t keycode, bool pressed) {
       return;
     }
     
+    // === ZOOM CONTROL ===
+    
     // Toggle zoom (Ctrl+Alt+Shift+Z)
     if (is_z) {
       zoom_state.enabled = !zoom_state.enabled.load();
-      std::cerr << "[ZOOM] Toggled: " << (zoom_state.enabled.load() ? "ON" : "OFF") << "\n";
+      std::cerr << "[ZOOM] " << (zoom_state.enabled.load() ? "ENABLED" : "DISABLED") << " (" << zoom_state.zoom_level.load() << "x)\n";
       send_zoom_config();
       return;
     }
@@ -1109,48 +1211,60 @@ static void send_key_event(uint32_t keycode, bool pressed) {
     // Reset zoom (Ctrl+Alt+Shift+0)
     if (is_zero) {
       zoom_state.zoom_level = 2.0;
-      std::cerr << "[ZOOM] Reset to 2.0x\n";
+      zoom_state.center_x = screen_width.load() / 2;
+      zoom_state.center_y = screen_height.load() / 2;
+      std::cerr << "[ZOOM] Reset to 2.0x (centered)\n";
       send_zoom_config();
       return;
     }
     
-    // Pan zoom with arrow keys
+    // Toggle zoom follow mouse (Ctrl+Alt+Shift+N)
+    if (is_n) {
+      zoom_state.follow_mouse = !zoom_state.follow_mouse.load();
+      std::cerr << "[ZOOM] Follow mouse: " << (zoom_state.follow_mouse.load() ? "ON" : "OFF") << "\n";
+      send_zoom_config();
+      return;
+    }
+    
+    // Pan zoom with arrow keys (normal speed)
     if (is_left) {
-      pan_zoom(-20, 0);
+      pan_zoom(-zoom_state.pan_speed.load(), 0);
       return;
     }
     if (is_right) {
-      pan_zoom(20, 0);
+      pan_zoom(zoom_state.pan_speed.load(), 0);
       return;
     }
     if (is_up) {
-      pan_zoom(0, -20);
+      pan_zoom(0, -zoom_state.pan_speed.load());
       return;
     }
     if (is_down) {
-      pan_zoom(0, 20);
+      pan_zoom(0, zoom_state.pan_speed.load());
       return;
     }
     
-    // Fast pan with PageUp/PageDown
+    // Fast vertical pan with PageUp/PageDown
     if (is_pageup) {
-      pan_zoom(0, -100);
+      pan_zoom(0, -zoom_state.pan_speed.load() * 5);
       return;
     }
     if (is_pagedown) {
-      pan_zoom(0, 100);
+      pan_zoom(0, zoom_state.pan_speed.load() * 5);
       return;
     }
     
-    // Toggle focus-follow (Ctrl+Alt+Shift+F)
-    if (is_f) {
-      std::lock_guard<std::mutex> lock(config_mutex);
-      current_config.follow_focus = !current_config.follow_focus;
-      std::cerr << "[FOCUS] Focus-follow: " << (current_config.follow_focus ? "ON" : "OFF") << "\n";
-      get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
-      send_client_config(current_config);
+    // Fast horizontal pan with Home/End
+    if (is_home) {
+      pan_zoom(-zoom_state.pan_speed.load() * 5, 0);
       return;
     }
+    if (is_end) {
+      pan_zoom(zoom_state.pan_speed.load() * 5, 0);
+      return;
+    }
+    
+    // === RENDERING ===
     
     // Cycle renderer (Ctrl+Alt+Shift+R)
     if (is_r) {
@@ -1176,10 +1290,56 @@ static void send_key_event(uint32_t keycode, bool pressed) {
       return;
     }
     
-    // Pause/resume video (Ctrl+Alt+Shift+P)
-    if (is_p) {
-      video_paused = !video_paused.load();
-      std::cerr << "[VIDEO] " << (video_paused.load() ? "PAUSED" : "RESUMED") << "\n";
+    // Increase quality (Ctrl+Alt+Shift+W)
+    if (is_w) {
+      adjust_quality(10);
+      return;
+    }
+    
+    // Decrease quality (Ctrl+Alt+Shift+E)
+    if (is_e) {
+      adjust_quality(-10);
+      return;
+    }
+    
+    // Toggle smooth panning (Ctrl+Alt+Shift+O)
+    if (is_o) {
+      zoom_state.smooth_pan = !zoom_state.smooth_pan.load();
+      std::cerr << "[ZOOM] Smooth panning: " << (zoom_state.smooth_pan.load() ? "ON" : "OFF") << "\n";
+      send_zoom_config();
+      return;
+    }
+    
+    // Toggle keep aspect ratio (Ctrl+Alt+Shift+B)
+    if (is_b) {
+      std::lock_guard<std::mutex> lock(config_mutex);
+      current_config.keep_aspect_ratio = !current_config.keep_aspect_ratio;
+      std::cerr << "[DISPLAY] Keep aspect ratio: " << (current_config.keep_aspect_ratio ? "ON" : "OFF") << "\n";
+      get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+      send_client_config(current_config);
+      return;
+    }
+    
+    // Cycle render device (Ctrl+Alt+Shift+V)
+    if (is_v) {
+      std::lock_guard<std::mutex> lock(config_mutex);
+      current_config.render_device = (current_config.render_device + 1) % 2;
+      const char* devices[] = {"CPU", "CUDA"};
+      std::cerr << "[RENDER] Device: " << devices[current_config.render_device] << "\n";
+      get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+      send_client_config(current_config);
+      return;
+    }
+    
+    // === AUDIO/VIDEO ===
+    
+    // Toggle focus-follow (Ctrl+Alt+Shift+F)
+    if (is_f) {
+      std::lock_guard<std::mutex> lock(config_mutex);
+      current_config.follow_focus = !current_config.follow_focus;
+      std::cerr << "[FOCUS] Focus-follow: " << (current_config.follow_focus ? "ON" : "OFF") << "\n";
+      get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+      send_client_config(current_config);
       return;
     }
     
@@ -1196,14 +1356,27 @@ static void send_key_event(uint32_t keycode, bool pressed) {
       std::cerr << "[MICROPHONE] " << (microphone_muted.load() ? "MUTED" : "UNMUTED") << "\n";
       return;
     }
-  }
-  
-  // Legacy exit combo (Ctrl+Alt+Shift+Delete+X)
-  if (pressed && shift_pressed.load() && ctrl_pressed.load() && alt_pressed.load() && 
-      delete_pressed.load() && x_pressed.load()) {
-    std::cerr << "\n[EXIT] Legacy exit combo detected!\n";
-    running = false;
-    return;
+    
+    // Cycle compression level (Ctrl+Alt+Shift+L)
+    if (is_l) {
+      std::lock_guard<std::mutex> lock(config_mutex);
+      if (!current_config.compress) {
+        current_config.compress = 1;
+        current_config.compression_level = 0;
+        std::cerr << "[COMPRESS] Enabled (fast LZ4)\n";
+      } else {
+        current_config.compression_level = (current_config.compression_level + 3) % 15;
+        if (current_config.compression_level == 0) {
+          current_config.compress = 0;
+          std::cerr << "[COMPRESS] Disabled\n";
+        } else {
+          std::cerr << "[COMPRESS] Level: " << (int)current_config.compression_level << " (HC)\n";
+        }
+      }
+      get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+      send_client_config(current_config);
+      return;
+    }
   }
   
   // Only forward to server if input forwarding is enabled
@@ -1750,7 +1923,7 @@ int main(int argc, char** argv) {
   if (feature_microphone) {
     microphone_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (microphone_socket < 0) {
-      std::cerr << "Warning: Failed to create mic socket\n";
+      std::cerr << "Warning: Failed to create microphone socket\n";
       feature_microphone = false;
     } else {
       sockaddr_in addr{};
@@ -1759,13 +1932,14 @@ int main(int argc, char** argv) {
       inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
       
       if (connect(microphone_socket, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        std::cerr << "Warning: Failed to connect mic socket to " << host << ":" << (port + 4) << "\n";
+        std::cerr << "Warning: Failed to connect microphone socket to " << host << ":" << (port + 4) << "\n";
         close(microphone_socket);
         microphone_socket = -1;
         feature_microphone = false;
       } else {
         if (!send_session_id(microphone_socket, session_id)) {
-          std::cerr << "Warning: Failed to send session ID to mic socket\n";
+          std::cerr << on_id(microphone_socket, session_id)) {
+          std::cerr << "Warning: Failed to send session ID to microphone socket\n";
           close(microphone_socket);
           microphone_socket = -1;
           feature_microphone = false;
@@ -1900,13 +2074,18 @@ int main(int argc, char** argv) {
     std::cerr << "Compression: " << (current_config.compress ? "ON" : "OFF") << "\n";
   }
   if (libinput_ok) {
-    std::cerr << "Exit combo: Ctrl+Alt+Shift+Delete+X\n";
-    std::cerr << "Zoom toggle: Ctrl+Alt+Shift+Delete+Z\n";
+    std::cerr << "\n=== Keyboard Shortcuts (Ctrl+Alt+Shift+Key) ===\n";
+    std::cerr << "  Q=Quit  H=Help  I=Toggle Input  G=Toggle Grab\n";
+    std::cerr << "  Z=Zoom  +/-=Zoom In/Out  0=Reset Zoom  Arrows=Pan\n";
+    std::cerr << "  R=Renderer  C=Color  D/S=Detail  W/E=Quality\n";
+    std::cerr << "  P=Pause  A=Audio Mute  M=Mic Mute  F=Focus-Follow\n";
+    std::cerr << "  Legacy exit: Ctrl+Alt+Shift+Delete+X\n";
     if (feature_input) {
       std::cerr << "Input forwarding: ENABLED\n";
     } else {
       std::cerr << "Input forwarding: DISABLED (local shortcuts only)\n";
     }
+    std::cerr << "Press Ctrl+Alt+Shift+H for full shortcut list\n";
   }
   if (feature_audio) {
     std::cerr << "Audio playback enabled (system audio from server)\n";
@@ -1914,7 +2093,7 @@ int main(int argc, char** argv) {
   if (feature_microphone) {
     std::cerr << "Microphone capture enabled (sending to server)\n";
   }
-  std::cerr << "=============================\n\n";
+  std::cerr << "================================================\n\n";
   
   // Main loop
   while (running) {

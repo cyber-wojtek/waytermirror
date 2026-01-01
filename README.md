@@ -212,30 +212,53 @@ Zoom / viewport
 
 ## Keyboard shortcuts (client)
 
-This table documents the most useful client-side keyboard shortcuts. Shortcuts are designed for local control of the client (zoom, audio, input capture, toggles). By convention the client uses the local-modifier prefix Ctrl+Alt+Shift for client commands so that normal keys are forwarded to the remote session. If you need to send the same Ctrl+Alt+Shift+Key combination to the remote instead of triggering the client shortcut, either use the command-line flags to disable local capturing (e.g. --no-input) or check the client behavior for "double-press" forwarding (see notes below).
+All client shortcuts use the **Ctrl+Alt+Shift** modifier prefix, so normal keys are forwarded to the remote session. Press **Ctrl+Alt+Shift+H** at any time to display the full shortcut list with current toggle states.
 
-Note: Exact bindings may vary by build. Run `./waytermirror_client --help` or inspect waytermirror_client.cpp for the current compiled-in keys.
-
-Default client shortcuts
+### Session control
 | Shortcut | Action | Notes |
 |---------:|--------|-------|
-| Ctrl+Alt+Shift+Q | Quit client / disconnect | Graceful disconnect (sends close to server) |
+| Ctrl+Alt+Shift+Q | Quit / disconnect | Graceful disconnect (sends close to server) |
+| Ctrl+Alt+Shift+H | Show help | Display all shortcuts and current state |
+| Ctrl+Alt+Shift+P | Pause / resume video | Stops rendering updates locally (input still forwarded) |
+
+### Input control
+| Shortcut | Action | Notes |
+|---------:|--------|-------|
 | Ctrl+Alt+Shift+I | Toggle input forwarding | Enable/disable forwarding of keyboard & mouse to server |
 | Ctrl+Alt+Shift+G | Toggle exclusive grab | EVIOCGRAB on local devices (when supported) |
+
+### Zoom control
+| Shortcut | Action | Notes |
+|---------:|--------|-------|
 | Ctrl+Alt+Shift+Z | Toggle zoom mode | When zoomed, use arrow keys to pan |
-| Ctrl+Alt+Shift++ (or Ctrl+Alt+Shift+=) | Zoom in | Increases zoom level (same as -Z) |
-| Ctrl+Alt+Shift+- | Zoom out | Decreases zoom level |
-| Ctrl+Alt+Shift+0 | Reset zoom | Reset to 1.0x (or configured -Z default) |
-| Ctrl+Alt+Shift+Arrow keys | Pan while zoomed | Left/Right/Up/Down — smooth panning if --zoom-smooth enabled |
-| Ctrl+Alt+Shift+PageUp / PageDown | Fast pan while zoomed | Larger vertical pan steps |
-| Ctrl+Alt+Shift+F | Toggle focus-follow | Follow focused output/window (if supported by compositor) |
-| Ctrl+Alt+Shift+R | Cycle renderer | Cycle: braille → blocks → ascii → hybrid |
-| Ctrl+Alt+Shift+C | Cycle color mode | Cycle: 16 → 256 → truecolor |
-| Ctrl+Alt+Shift+D | Increase detail | Equivalent to raising --detail-level |
-| Ctrl+Alt+Shift+S | Decrease detail | Equivalent to lowering --detail-level |
-| Ctrl+Alt+Shift+P | Pause / resume video | Stops rendering updates locally (input still forwarded) |
-| Ctrl+Alt+Shift+A | Toggle audio playback | Mute/unmute system audio stream |
-| Ctrl+Alt+Shift+M | Toggle microphone capture | Enable/disable mic from client → server |
+| Ctrl+Alt+Shift++ (or =) | Zoom in | Increases zoom level by 0.5x |
+| Ctrl+Alt+Shift+- | Zoom out | Decreases zoom level by 0.5x |
+| Ctrl+Alt+Shift+0 | Reset zoom | Reset to 2.0x and center viewport |
+| Ctrl+Alt+Shift+N | Toggle zoom follow | Enable/disable zoom following mouse cursor |
+| Ctrl+Alt+Shift+Arrow keys | Pan viewport | Left/Right/Up/Down — uses configured pan speed |
+| Ctrl+Alt+Shift+PageUp/PageDown | Fast vertical pan | 5× normal pan speed |
+| Ctrl+Alt+Shift+Home/End | Fast horizontal pan | 5× normal pan speed |
+
+### Rendering
+| Shortcut | Action | Notes |
+|---------:|--------|-------|
+| Ctrl+Alt+Shift+R | Cycle renderer | braille → blocks → ascii → hybrid |
+| Ctrl+Alt+Shift+C | Cycle color mode | 16 → 256 → truecolor |
+| Ctrl+Alt+Shift+D | Increase detail | +10 detail level |
+| Ctrl+Alt+Shift+S | Decrease detail | −10 detail level |
+| Ctrl+Alt+Shift+W | Increase quality | +10 quality level |
+| Ctrl+Alt+Shift+E | Decrease quality | −10 quality level |
+| Ctrl+Alt+Shift+O | Toggle smooth panning | Enable/disable smooth zoom panning |
+| Ctrl+Alt+Shift+B | Toggle aspect ratio | Keep/ignore aspect ratio when scaling |
+| Ctrl+Alt+Shift+V | Cycle render device | CPU → CUDA (if available) |
+| Ctrl+Alt+Shift+L | Cycle compression | Off → fast LZ4 → HC levels |
+
+### Audio/Video
+| Shortcut | Action | Notes |
+|---------:|--------|-------|
+| Ctrl+Alt+Shift+A | Toggle audio | Mute/unmute system audio playback |
+| Ctrl+Alt+Shift+M | Toggle microphone | Mute/unmute microphone capture |
+| Ctrl+Alt+Shift+F | Toggle focus-follow | Follow focused output/window |
 
 Quick usage tips
 - Zoom panning: when zoomed (Ctrl+Alt+Shift+Z), use arrow keys to pan the viewport. Hold PageUp/PageDown for faster vertical movement.
