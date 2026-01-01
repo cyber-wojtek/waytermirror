@@ -183,30 +183,7 @@ static std::vector<std::unique_ptr<PipeWireCapture>> pipewire_captures;
 
 static VirtualInputManager virtual_input_mgr;
 
-static CaptureBackend detect_capture_backend() {
-    // Check compositor type
-    if (compositor_type == "kde" || compositor_type == "gnome") {
-        if (pipewire_capture_available()) {
-            std::cerr << "[CAPTURE] KDE/GNOME detected, using PipeWire\n";
-            return PIPEWIRE;
-        }
-    }
-    
-    // Check if wlr-screencopy is available
-    if (manager != nullptr) {
-        std::cerr << "[CAPTURE] Using wlr-screencopy protocol\n";
-        return WLR_SCREENCOPY;
-    }
-    
-    // Fallback to PipeWire if available
-    if (pipewire_capture_available()) {
-        std::cerr << "[CAPTURE] Falling back to PipeWire\n";
-        return PIPEWIRE;
-    }
-    
-    std::cerr << "[CAPTURE] No capture backend available!\n";
-    return WLR_SCREENCOPY; // Will fail later
-}
+static CaptureBackend detect_capture_backend();
 
 struct SendQueue
 {
@@ -492,6 +469,31 @@ static zwp_virtual_keyboard_v1 *virtual_keyboard;
 static zwlr_foreign_toplevel_manager_v1 *toplevel_manager = nullptr;
 static std::vector<wl_output *> outputs;
 static std::vector<std::string> output_names;
+
+static CaptureBackend detect_capture_backend() {
+    // Check compositor type
+    if (compositor_type == "kde" || compositor_type == "gnome") {
+        if (pipewire_capture_available()) {
+            std::cerr << "[CAPTURE] KDE/GNOME detected, using PipeWire\n";
+            return PIPEWIRE;
+        }
+    }
+    
+    // Check if wlr-screencopy is available
+    if (manager != nullptr) {
+        std::cerr << "[CAPTURE] Using wlr-screencopy protocol\n";
+        return WLR_SCREENCOPY;
+    }
+    
+    // Fallback to PipeWire if available
+    if (pipewire_capture_available()) {
+        std::cerr << "[CAPTURE] Falling back to PipeWire\n";
+        return PIPEWIRE;
+    }
+    
+    std::cerr << "[CAPTURE] No capture backend available!\n";
+    return WLR_SCREENCOPY; // Will fail later
+}
 
 // Focus tracking for output following
 struct ToplevelInfo
