@@ -1,6 +1,7 @@
 #include "pipewire_capture.h"
 #include <iostream>
 #include <cstring>
+#include <cerrno>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -136,7 +137,7 @@ bool PipeWireCapture::init(uint32_t output_index) {
                                 params, 1);
     
     if (res < 0) {
-        std::cerr << "[PW] Failed to connect stream: " << spa_strerror(res) << "\n";
+        std::cerr << "[PW] Failed to connect stream: " << strerror(-res) << "\n";
         pw_thread_loop_unlock(loop);
         return false;
     }
