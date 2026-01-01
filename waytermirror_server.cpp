@@ -3060,10 +3060,6 @@ static void capture_thread(int output_index, int fps) {
                 frame_ready_cvs[output_index]->notify_all();
                 
                 static int frame_log_count = 0;
-                if (++frame_log_count % 60 == 1) {
-                    std::cerr << "[CAPTURE] Output " << output_index << " frame ready: " 
-                              << width << "x" << height << " (" << frame_data.size() << " bytes)\n";
-                }
             } else {
                 static int no_frame_count = 0;
                 if (++no_frame_count % 300 == 1) {
