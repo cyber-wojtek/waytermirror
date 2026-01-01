@@ -3,6 +3,9 @@
 #include <cstdint>
 #include <cmath>
 #include <algorithm>
+#include <cstring>
+#include <cstdlib>
+#include <cstdio>
 
 // ============================================================================
 // CUDA KERNEL HELPERS
@@ -33,20 +36,22 @@ __device__ inline double calculate_effective_luma(uint8_t r, uint8_t g, uint8_t 
 // REGIONAL COLOR ANALYSIS (for braille)
 // ============================================================================
 
+// NOTE: region_size up to 7 -> 7*7 cells * 8 dots = 392 samples max
+// Keep buffers large enough to avoid overflow when detail_level < 50
 __device__ void analyze_regional_colors_device(
-    const uint8_t *frame_data,
-    uint32_t frame_width,
-    uint32_t frame_height,
-    uint32_t frame_stride,
-    int cell_x,
-    int cell_y,
-    int w_scaled,
-    int h_scaled,
-    int cells_x,
-    int cells_y,
-    uint8_t detail_level,
-    uint8_t &dominant_fg_r, uint8_t &dominant_fg_g, uint8_t &dominant_fg_b,
-    uint8_t &dominant_bg_r, uint8_t &dominant_bg_g, uint8_t &dominant_bg_b)
+  const uint8_t *frame_data,
+  uint32_t frame_width,
+  uint32_t frame_height,
+  uint32_t frame_stride,
+  int cell_x,
+  int cell_y,
+  int w_scaled,
+  int h_scaled,
+  int cells_x,
+  int cells_y,
+  uint8_t detail_level,
+  uint8_t &dominant_fg_r, uint8_t &dominant_fg_g, uint8_t &dominant_fg_b,
+  uint8_t &dominant_bg_r, uint8_t &dominant_bg_g, uint8_t &dominant_bg_b)
 {
   int region_size = 5;
   if (detail_level >= 90)
@@ -54,15 +59,16 @@ __device__ void analyze_regional_colors_device(
   else if (detail_level < 50)
     region_size = 7;
 
-  uint32_t reds[200], greens[200], blues[200];
-  uint8_t lumas[200];
+  const int MAX_SAMPLES = 512; // safety margin above 392
+  uint32_t reds[MAX_SAMPLES], greens[MAX_SAMPLES], blues[MAX_SAMPLES];
+  uint8_t lumas[MAX_SAMPLES];
   int count = 0;
 
   int half_region = region_size / 2;
 
-  for (int dy = -half_region; dy <= half_region && count < 200; dy++)
+  for (int dy = -half_region; dy <= half_region && count < MAX_SAMPLES; dy++)
   {
-    for (int dx = -half_region; dx <= half_region && count < 200; dx++)
+    for (int dx = -half_region; dx <= half_region && count < MAX_SAMPLES; dx++)
     {
       int nx = cell_x + dx;
       int ny = cell_y + dy;
@@ -74,7 +80,7 @@ __device__ void analyze_regional_colors_device(
       int dot_positions[8][2] = {
           {0, 0}, {0, 1}, {0, 2}, {1, 0}, {1, 1}, {1, 2}, {0, 3}, {1, 3}};
 
-      for (int dot = 0; dot < 8 && count < 200; dot++)
+      for (int dot = 0; dot < 8 && count < MAX_SAMPLES; dot++)
       {
         int dot_x = dot_positions[dot][0];
         int dot_y = dot_positions[dot][1];
@@ -106,7 +112,7 @@ __device__ void analyze_regional_colors_device(
   }
 
   // Find median luma
-  uint8_t sorted_lumas[200];
+  uint8_t sorted_lumas[MAX_SAMPLES];
   for (int i = 0; i < count; i++)
     sorted_lumas[i] = lumas[i];
 
@@ -273,7 +279,8 @@ __device__ void analyze_braille_cell_device(
 
   has_edge = false;
   double max_edge = 0;
-  double edge_threshold = (detail_level >= 70) ? 30.0 : 50.0;
+  // 50...20 depending on detail level
+  double edge_threshold = fmax(20.0, 50.0 - (detail_level - 40) * (30.0 / 55.0));
 
   for (int i = 0; i < 13; i++)
   {
@@ -770,7 +777,7 @@ __global__ void render_hybrid_kernel(
 extern "C"
 {
   void cuda_render_braille(
-      const uint8_t *d_frame_data,
+      const uint8_t *frame_data,  // host pointer
       uint32_t frame_width,
       uint32_t frame_height,
       uint32_t frame_stride,
@@ -780,23 +787,54 @@ extern "C"
       int cells_y,
       uint8_t detail_level,
       uint8_t threshold_steps,
-      uint8_t *d_patterns,
-      uint8_t *d_fg_colors,
-      uint8_t *d_bg_colors)
+      uint8_t *patterns,    // host outputs
+      uint8_t *fg_colors,   // host outputs
+      uint8_t *bg_colors)   // host outputs
   {
+    size_t frame_bytes = (size_t)frame_stride * frame_height;
+    size_t cells = (size_t)cells_x * cells_y;
+
+    // Device buffers
+    uint8_t *d_frame = nullptr;
+    uint8_t *d_patterns = nullptr;
+    uint8_t *d_fg = nullptr;
+    uint8_t *d_bg = nullptr;
+
+    cudaMalloc(&d_frame, frame_bytes);
+    cudaMalloc(&d_patterns, cells);
+    cudaMalloc(&d_fg, cells * 3);
+    cudaMalloc(&d_bg, cells * 3);
+
+    cudaMemcpy(d_frame, frame_data, frame_bytes, cudaMemcpyHostToDevice);
+
     dim3 block(16, 16);
     dim3 grid((cells_x + block.x - 1) / block.x,
               (cells_y + block.y - 1) / block.y);
 
     render_braille_kernel<<<grid, block>>>(
-        d_frame_data, frame_width, frame_height, frame_stride,
+        d_frame, frame_width, frame_height, frame_stride,
         w_scaled, h_scaled, cells_x, cells_y,
         detail_level, threshold_steps,
-        d_patterns, d_fg_colors, d_bg_colors);
+        d_patterns, d_fg, d_bg);
+
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess)
+    {
+      fprintf(stderr, "[CUDA] render_braille_kernel error: %s\n", cudaGetErrorString(err));
+    }
+
+    cudaMemcpy(patterns, d_patterns, cells, cudaMemcpyDeviceToHost);
+    cudaMemcpy(fg_colors, d_fg, cells * 3, cudaMemcpyDeviceToHost);
+    cudaMemcpy(bg_colors, d_bg, cells * 3, cudaMemcpyDeviceToHost);
+
+    cudaFree(d_frame);
+    cudaFree(d_patterns);
+    cudaFree(d_fg);
+    cudaFree(d_bg);
   }
 
   void cuda_render_hybrid(
-      const uint8_t *d_frame_data,
+      const uint8_t *frame_data,  // host pointer
       uint32_t frame_width,
       uint32_t frame_height,
       uint32_t frame_stride,
@@ -806,20 +844,54 @@ extern "C"
       int cells_y,
       uint8_t detail_level,
       uint8_t threshold_steps,
-      uint8_t *d_modes,
-      uint8_t *d_patterns,
-      uint8_t *d_fg_colors,
-      uint8_t *d_bg_colors)
+      uint8_t *modes,     // host outputs
+      uint8_t *patterns,  // host outputs
+      uint8_t *fg_colors, // host outputs
+      uint8_t *bg_colors) // host outputs
   {
+    size_t frame_bytes = (size_t)frame_stride * frame_height;
+    size_t cells = (size_t)cells_x * cells_y;
+
+    uint8_t *d_frame = nullptr;
+    uint8_t *d_modes = nullptr;
+    uint8_t *d_patterns = nullptr;
+    uint8_t *d_fg = nullptr;
+    uint8_t *d_bg = nullptr;
+
+    cudaMalloc(&d_frame, frame_bytes);
+    cudaMalloc(&d_modes, cells);
+    cudaMalloc(&d_patterns, cells);
+    cudaMalloc(&d_fg, cells * 3);
+    cudaMalloc(&d_bg, cells * 3);
+
+    cudaMemcpy(d_frame, frame_data, frame_bytes, cudaMemcpyHostToDevice);
+
     dim3 block(16, 16);
     dim3 grid((cells_x + block.x - 1) / block.x,
               (cells_y + block.y - 1) / block.y);
 
     render_hybrid_kernel<<<grid, block>>>(
-        d_frame_data, frame_width, frame_height, frame_stride,
+        d_frame, frame_width, frame_height, frame_stride,
         w_scaled, h_scaled, cells_x, cells_y,
         detail_level, threshold_steps,
-        d_modes, d_patterns, d_fg_colors, d_bg_colors);
+        d_modes, d_patterns, d_fg, d_bg);
+
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess)
+    {
+      fprintf(stderr, "[CUDA] render_hybrid_kernel error: %s\n", cudaGetErrorString(err));
+    }
+
+    cudaMemcpy(modes, d_modes, cells, cudaMemcpyDeviceToHost);
+    cudaMemcpy(patterns, d_patterns, cells, cudaMemcpyDeviceToHost);
+    cudaMemcpy(fg_colors, d_fg, cells * 3, cudaMemcpyDeviceToHost);
+    cudaMemcpy(bg_colors, d_bg, cells * 3, cudaMemcpyDeviceToHost);
+
+    cudaFree(d_frame);
+    cudaFree(d_modes);
+    cudaFree(d_patterns);
+    cudaFree(d_fg);
+    cudaFree(d_bg);
   }
 
 } // extern "C"
