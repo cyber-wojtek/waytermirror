@@ -1938,7 +1938,6 @@ int main(int argc, char** argv) {
         feature_microphone = false;
       } else {
         if (!send_session_id(microphone_socket, session_id)) {
-          std::cerr << on_id(microphone_socket, session_id)) {
           std::cerr << "Warning: Failed to send session ID to microphone socket\n";
           close(microphone_socket);
           microphone_socket = -1;
