@@ -4,8 +4,6 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 
-[License: Apache-2.0](LICENSE)
-
 Table of contents
 - What it is
 - How it works (quick overview)
