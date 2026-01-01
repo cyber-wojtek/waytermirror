@@ -35,8 +35,6 @@ The `hybrid` renderer (default: `--renderer hybrid`) automatically chooses per-c
 - **Braille** for areas with edges/detail (detected via luminance variance)
 - **Half-blocks** for flat/smooth areas (faster, cleaner)
 
-This gives the best balance of quality and performance.
-
 ## Features
 
 - **4 renderers**: braille, blocks, ascii, hybrid
