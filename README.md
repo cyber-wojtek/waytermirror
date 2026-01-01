@@ -2,12 +2,11 @@
 
 Real-time Wayland screen mirroring to a terminal using Unicode braille characters, half‑blocks, or ASCII. Includes bidirectional input forwarding, audio streaming (PipeWire), zooming, focus-follow, and optional NVIDIA CUDA acceleration (server-side).
 
-<!--- [![Release](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=release)](https://github.com/cyber-wojtek/waytermirror/releases) --->
-
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)
-[![Stars](https://img.shields.io/github/stars/cyber-wojtek/waytermirror?style=)](https://github.com/cyber-wojtek/waytermirror/stargazers)
+[![Release](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=release)](https://github.com/cyber-wojtek/waytermirror/releases)
+[![Stars](https://img.shields.io/github/stars/cyber-wojtek/waytermirror?style=social)](https://github.com/cyber-wojtek/waytermirror/stargazers)
 [![Open Issues](https://img.shields.io/github/issues/cyber-wojtek/waytermirror?color=orange)](https://github.com/cyber-wojtek/waytermirror/issues)
 [![PKGBUILD](https://img.shields.io/badge/Packaging-Arch%20PKGBUILD-blue?logo=arch-linux)](https://github.com/cyber-wojtek/waytermirror/blob/main/PKGBUILD)
 
@@ -18,7 +17,8 @@ Table of contents
 - [Build & install (CPU / CUDA)](#build--install-cpu--cuda)
 - [Runtime requirements & supported compositors](#runtime-requirements--supported-compositors)
 - [Usage (server & client examples)](#usage)
-  - [Full command-line options (server & client)](#full-command-line-options-server--client)
+  - [Full server options](#full-server-options)
+  - [Full client options](#full-client-options)
 - [Network ports](#network-ports)
 - [Performance tuning](#performance-tuning)
 - [Troubleshooting](#troubleshooting)
@@ -124,7 +124,7 @@ Full server options
 |--------------:|-------------|-------------|---------|
 | -P <n> | --port <n> | Base TCP port (video base; other services use base+N) | 9999 |
 | -F <n> | --capture-fps <n> | Capture framerate from compositor | 30 |
-| -C <type> | --compositor <auto|hyprland|sway|kde|gnome|generic> | Compositor override (affects protocol handling/focus) | auto |
+| -C <type> | --compositor <auto\|hyprland\|sway\|kde\|gnome\|generic> | Compositor override (affects protocol handling/focus) | auto |
 | -n | --no-video | Disable screen capture / video streaming | off |
 | -A | --no-audio | Disable system audio streaming | off |
 | -N | --no-input | Disable input injection (do not create virtual devices) | off |
@@ -151,11 +151,11 @@ Connection
 Video & rendering
 | Flag / Short | Long / Name | Description | Default |
 |--------------:|-------------|-------------|---------|
-| -o <n|follow> | --output <n|follow> | Output index or `follow` to track focused window | 0 |
+| -o <n\|follow> | --output <n\|follow> | Output index or `follow` to track focused window | 0 |
 | -F <n> | --fps <n> | Target client FPS / target playback framerate | 30 |
-| -M <16\|256\|true> | --mode <16|256|true> | Color mode (16, 256, truecolor) | 256 |
-| -R <type> | --renderer <braille|blocks|ascii|hybrid> | Rendering method (hybrid auto-selects per-cell) | braille |
-| -r <cpu|cuda> | --render-device <cpu|cuda> | Prefer server-side rendering backend (cpu or cuda) | cpu |
+| -M <16\|256\|true> | --mode <16\|256\|true> | Color mode (16, 256, truecolor) | 256 |
+| -R <type> | --renderer <braille\|blocks\|ascii\|hybrid> | Rendering method (hybrid auto-selects per-cell) | braille |
+| -r <cpu\|cuda> | --render-device <cpu\|cuda> | Prefer server-side rendering backend (cpu or cuda) | cpu |
 | -d <0-100> | --detail-level <0-100> | Visual detail (0: fast/smooth, 100: sharp) | 50 |
 | -Q <0-100> | --quality <0-100> | Pattern search precision / quality threshold | 50 |
 | -S <factor> | --scale <factor> | Scale factor for rendered output | 1.0 |
@@ -300,3 +300,5 @@ Acknowledgments
 - PipeWire for audio — https://pipewire.org
 - LZ4 for compression — https://github.com/lz4/lz4
 - argparse (CLI parsing)
+
+If you need a smaller quick-help snippet or a sample systemd unit for running the server persistently, tell me your target distribution and I’ll provide a template.
