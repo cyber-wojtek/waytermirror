@@ -2,19 +2,20 @@
 
 Real-time Wayland screen mirroring to a terminal using Unicode braille characters, half‑blocks, or ASCII. Includes bidirectional input forwarding, audio streaming (PipeWire), zooming, focus-follow, and optional NVIDIA CUDA acceleration (server-side).
 
+<!-- [![Release](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=release)](https://github.com/cyber-wojtek/waytermirror/releases) --->
+
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)
-[![Release](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=release)](https://github.com/cyber-wojtek/waytermirror/releases)
 [![Stars](https://img.shields.io/github/stars/cyber-wojtek/waytermirror?style=social)](https://github.com/cyber-wojtek/waytermirror/stargazers)
 [![Open Issues](https://img.shields.io/github/issues/cyber-wojtek/waytermirror?color=orange)](https://github.com/cyber-wojtek/waytermirror/issues)
 [![PKGBUILD](https://img.shields.io/badge/Packaging-Arch%20PKGBUILD-blue?logo=arch-linux)](https://github.com/cyber-wojtek/waytermirror/blob/main/PKGBUILD)
 
-Table of contents
+## Table of contents
 - [What it is](#what-it-is)
-- [How it works (quick overview)](#how-it-works-quick-overview)
+- [How it works (short)](#how-it-works-short)
 - [Quickstart](#quickstart)
-- [Build & install (CPU / CUDA)](#build--install-cpu--cuda)
+- [Build & install](#build--install)
 - [Runtime requirements & supported compositors](#runtime-requirements--supported-compositors)
 - [Usage (server & client examples)](#usage)
   - [Full server options](#full-server-options)
@@ -23,9 +24,10 @@ Table of contents
 - [Performance tuning](#performance-tuning)
 - [Troubleshooting](#troubleshooting)
 - [Security & limitations](#security--limitations)
-- [Contributing & License](#contributing--license)
+- [Contributing](#contributing)
+- [License](#license)
 
-What it is
+## What it is
 - A client/server application:
   - Server runs on the Wayland host (captures screen & audio, performs rendering, injects input).
   - Client runs in a terminal (receives ANSI frames, displays them, captures local input, sends it to server).
@@ -33,12 +35,12 @@ What it is
 - Color modes: 16, 256, truecolor (24‑bit).
 - Optional CUDA acceleration for server-side rendering (NVIDIA only).
 
-How it works (short)
+## How it works (short)
 - Screen → wlr-screencopy → frame buffer → renderer (CPU/CUDA) → ANSI string → LZ4 → TCP → client terminal
 - Input capture on client → forwarded to server → virtual pointer/keyboard (Wayland) on host
 - Audio (system → client) and microphone (client → server) via PipeWire
 
-Quickstart (fast path)
+## Quickstart
 1. Build (CPU-only)
    ```bash
    git clone https://github.com/cyber-wojtek/waytermirror.git
@@ -57,7 +59,7 @@ Quickstart (fast path)
    ./waytermirror_client -H <host>
    ```
 
-Build & install
+## Build & install
 
 Prerequisites
 - Core: gcc/g++, make, wayland, libinput, libudev, pipewire, lz4, rapidjson
@@ -72,7 +74,7 @@ sudo apt install build-essential libwayland-dev libinput-dev libudev-dev libpipe
 # For CUDA: install NVIDIA CUDA toolkit from https://developer.nvidia.com/cuda-toolkit
 ```
 
-Building (details)
+## Building (details)
 - CPU-only (default):
   ```bash
   make
@@ -87,11 +89,11 @@ Building (details)
     # PKGBUILD build() supports WAYTERMIRROR_CUDA=1 or WAYTERMIRROR_NO_CUDA
     ```
 
-Artifacts
+## Artifacts
 - waytermirror_server
 - waytermirror_client
 
-Packaging (Arch)
+## Packaging (Arch)
 - Use the included PKGBUILD with `makepkg`:
   ```bash
   git clone https://github.com/cyber-wojtek/waytermirror.git
@@ -100,7 +102,7 @@ Packaging (Arch)
   ```
 - The PKGBUILD tries to auto-detect CUDA if `nvcc` is present. You can override with WAYTERMIRROR_CUDA or WAYTERMIRROR_NO_CUDA.
 
-Runtime requirements & supported compositors
+## Runtime requirements & supported compositors
 - Compositor: wlroots-based (Hyprland, Sway, River) or any compositor exposing:
   - [wlr-screencopy-unstable-v1](https://github.com/swaywm/wlroots/tree/master/protocols) — required for screen capture
   - [zwp_virtual_keyboard_v1](https://github.com/wayland-project/wayland-protocols) (virtual keyboard)
@@ -110,14 +112,14 @@ Runtime requirements & supported compositors
 - Input: access to input devices (user must be in the `input` group or run with sufficient privileges to read /dev/input/*).
 - NOT SUPPORTED: GNOME or KDE Plasma (they typically do not expose the required wlr protocols).
 
-Usage
+## Usage
 
 Server
 ```bash
 ./waytermirror_server [options]
 ```
 
-Full server options
+### Full server options
 > Note: This README consolidates the known server options from the project documentation. For the authoritative, up-to-date list use `./waytermirror_server --help`.
 
 | Flag / Short | Long / Name | Description | Default |
@@ -139,7 +141,7 @@ Client
 ./waytermirror_client -H <server_ip> [options]
 ```
 
-Full client options
+### Full client options
 > Note: This README consolidates the known client options from the project documentation. For the authoritative, up-to-date list use `./waytermirror_client --help`.
 
 Connection
@@ -188,7 +190,7 @@ Zoom / viewport
 | -s | --zoom-smooth | Smooth panning while zoomed | on |
 | -D <n> | --zoom-speed <n> | Pan speed (px/frame) | 20 |
 
-Examples
+## Examples
 - Basic LAN streaming:
   ```bash
   # Server (desktop)
@@ -218,7 +220,7 @@ Examples
   ./waytermirror_client -H 192.168.1.100 -n -x
   ```
 
-Network ports
+## Network ports
 - (base port)         TCP — video frames
 - (base port + 1)     TCP — input events
 - (base port + 2)     TCP — system audio (server → client)
@@ -227,7 +229,7 @@ Network ports
 
 Default base port is 9999 (see -P / --port).
 
-Performance tuning
+## Performance tuning
 - Maximum quality (more GPU/CPU work, higher bandwidth):
   - Server: render_device=cuda, renderer=braille, detail=100, quality=100, color=true
   - Client example: `-r cuda -R braille -d 100 -Q 100 -M true -F 30`
@@ -238,7 +240,7 @@ Performance tuning
 - Low latency:
   - Increase capture FPS and lower quality search: `-F 60 -Q 0 -d 50`
 
-Troubleshooting
+## Troubleshooting
 - "Failed to initialize libinput"
   ```bash
   sudo usermod -aG input $USER
@@ -278,24 +280,24 @@ Troubleshooting
   - The server prints status and detection lines to stdout/stderr. Inspect output for messages about compositor detection, screencopy frames, and virtual device creation.
   - If options differ from this README, prefer `--help` output from the built binaries for the latest flags.
 
-Security & limitations
+## Security & limitations
 - No built-in authentication: the protocol uses raw TCP streams. Avoid exposing the server to untrusted networks. Use an SSH tunnel or VPN if you need to connect over the internet.
 - Requires compositor support for the listed wlroots protocols. GNOME/KDE typically lack required wlr protocols — not supported.
 - Input injection requires compositor permission — some compositors will restrict virtual devices.
 
-Design notes & behavior
+## Design notes & behavior
 - Rendering is performed server-side. The client displays ANSI/escape sequences sent from server — client CPU requirements are minimal.
 - Optional CUDA renderer: when built with CUDA, server uses GPU for rendering; otherwise, CPU fallback is used (stub in braille_renderer_stub.cpp).
 - Hybrid renderer chooses per-cell between braille and half-blocks based on local variance (detail-level influences decisions).
 
-Contributing
+## Contributing
 - Bug reports, feature requests and PRs welcome. Please follow repository contribution guidelines (open issues & PRs on the [GitHub project](https://github.com/cyber-wojtek/waytermirror)).
 - See the [PKGBUILD](https://github.com/cyber-wojtek/waytermirror/blob/main/PKGBUILD) for a reproducible Arch packaging example.
 
-License
+## License
 - Apache License 2.0 — see [LICENSE](LICENSE)
 
-Acknowledgments
+## Acknowledgments
 - wlroots & Wayland protocols — https://github.com/swaywm/wlroots
 - PipeWire for audio — https://pipewire.org
 - LZ4 for compression — https://github.com/lz4/lz4
