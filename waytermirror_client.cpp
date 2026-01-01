@@ -245,264 +245,6 @@ struct MouseScroll {
 static ClientConfig current_config;
 static std::mutex config_mutex;
 
-static void toggle_exclusive_grab() {
-  exclusive_grab_enabled = !exclusive_grab_enabled.load();
-  std::cerr << "[INPUT] Exclusive grab: " << (exclusive_grab_enabled.load() ? "ON" : "OFF") << "\n";
-  
-  if (!li) return;
-  
-  exclusive_mode = exclusive_grab_enabled.load();
-  libinput_dispatch(li);
-  process_libinput_events();
-}
-
-static void cycle_renderer() {
-  std::lock_guard<std::mutex> lock(config_mutex);
-  current_config.renderer = (current_config.renderer + 1) % 4;
-  
-  const char* names[] = {"braille", "blocks", "ascii", "hybrid"};
-  std::cerr << "[RENDERER] Switched to: " << names[current_config.renderer] << "\n";
-  
-  get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
-  send_client_config(current_config);
-}
-
-static void cycle_color_mode() {
-  std::lock_guard<std::mutex> lock(config_mutex);
-  current_config.color_mode = (current_config.color_mode + 1) % 3;
-  
-  const char* names[] = {"16-color", "256-color", "truecolor"};
-  std::cerr << "[COLOR] Switched to: " << names[current_config.color_mode] << "\n";
-  
-  get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
-  send_client_config(current_config);
-}
-
-static void adjust_detail(int delta) {
-  std::lock_guard<std::mutex> lock(config_mutex);
-  current_config.detail_level = std::clamp((int)current_config.detail_level + delta, 0, 100);
-  
-  std::cerr << "[DETAIL] Level: " << (int)current_config.detail_level << "\n";
-  
-  get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
-  send_client_config(current_config);
-}
-
-static void adjust_zoom(double delta) {
-  double new_level = std::clamp(zoom_state.zoom_level.load() + delta, 1.0, 10.0);
-  zoom_state.zoom_level = new_level;
-  std::cerr << "[ZOOM] Level: " << new_level << "x\n";
-  send_zoom_config();
-}
-
-static void pan_zoom(int dx, int dy) {
-  if (!zoom_state.enabled.load()) return;
-  
-  int new_x = std::clamp(zoom_state.center_x.load() + dx, 0, screen_width.load() - 1);
-  int new_y = std::clamp(zoom_state.center_y.load() + dy, 0, screen_height.load() - 1);
-  
-  zoom_state.center_x = new_x;
-  zoom_state.center_y = new_y;
-  send_zoom_config();
-}
-
-static void send_key_event(uint32_t keycode, bool pressed) {
-  bool is_shift = (keycode == KEY_LEFTSHIFT || keycode == KEY_RIGHTSHIFT);
-  bool is_ctrl = (keycode == KEY_LEFTCTRL || keycode == KEY_RIGHTCTRL);
-  bool is_alt = (keycode == KEY_LEFTALT || keycode == KEY_RIGHTALT);
-  bool is_delete = (keycode == KEY_DELETE);
-  bool is_x = (keycode == KEY_X);
-  bool is_z = (keycode == KEY_Z);
-  bool is_q = (keycode == KEY_Q);
-  bool is_i = (keycode == KEY_I);
-  bool is_g = (keycode == KEY_G);
-  bool is_plus = (keycode == KEY_KPPLUS);
-  bool is_minus = (keycode == KEY_KPMINUS || keycode == KEY_MINUS);
-  bool is_zero = (keycode == KEY_0);
-  bool is_equals = (keycode == KEY_EQUAL);
-  bool is_f = (keycode == KEY_F);
-  bool is_r = (keycode == KEY_R);
-  bool is_c = (keycode == KEY_C);
-  bool is_d = (keycode == KEY_D);
-  bool is_s = (keycode == KEY_S);
-  bool is_p = (keycode == KEY_P);
-  bool is_a = (keycode == KEY_A);
-  bool is_m = (keycode == KEY_M);
-  bool is_pageup = (keycode == KEY_PAGEUP);
-  bool is_pagedown = (keycode == KEY_PAGEDOWN);
-  bool is_up = (keycode == KEY_UP);
-  bool is_down = (keycode == KEY_DOWN);
-  bool is_left = (keycode == KEY_LEFT);
-  bool is_right = (keycode == KEY_RIGHT);
-  
-  // Track modifier state
-  if (is_shift) shift_pressed = pressed;
-  if (is_ctrl) ctrl_pressed = pressed;
-  if (is_alt) alt_pressed = pressed;
-  if (is_delete) delete_pressed = pressed;
-  if (is_x) x_pressed = pressed;
-  
-  bool combo = shift_pressed.load() && ctrl_pressed.load() && alt_pressed.load();
-  
-  // Check for all shortcuts on key press
-  if (pressed && combo) {
-    // Quit (Ctrl+Alt+Shift+Q)
-    if (is_q) {
-      std::cerr << "\n[EXIT] Quit shortcut detected!\n";
-      running = false;
-      return;
-    }
-    
-    // Toggle input forwarding (Ctrl+Alt+Shift+I)
-    if (is_i) {
-      input_forwarding_enabled = !input_forwarding_enabled.load();
-      std::cerr << "[INPUT] Forwarding: " << (input_forwarding_enabled.load() ? "ON" : "OFF") << "\n";
-      return;
-    }
-    
-    // Toggle exclusive grab (Ctrl+Alt+Shift+G)
-    if (is_g) {
-      toggle_exclusive_grab();
-      return;
-    }
-    
-    // Toggle zoom (Ctrl+Alt+Shift+Z)
-    if (is_z) {
-      zoom_state.enabled = !zoom_state.enabled.load();
-      std::cerr << "[ZOOM] Toggled: " << (zoom_state.enabled.load() ? "ON" : "OFF") << "\n";
-      send_zoom_config();
-      return;
-    }
-    
-    // Zoom in (Ctrl+Alt+Shift++ or =)
-    if (is_plus || is_equals) {
-      adjust_zoom(0.5);
-      return;
-    }
-    
-    // Zoom out (Ctrl+Alt+Shift+-)
-    if (is_minus) {
-      adjust_zoom(-0.5);
-      return;
-    }
-    
-    // Reset zoom (Ctrl+Alt+Shift+0)
-    if (is_zero) {
-      zoom_state.zoom_level = 2.0;
-      std::cerr << "[ZOOM] Reset to 2.0x\n";
-      send_zoom_config();
-      return;
-    }
-    
-    // Pan zoom with arrow keys
-    if (is_left) {
-      pan_zoom(-20, 0);
-      return;
-    }
-    if (is_right) {
-      pan_zoom(20, 0);
-      return;
-    }
-    if (is_up) {
-      pan_zoom(0, -20);
-      return;
-    }
-    if (is_down) {
-      pan_zoom(0, 20);
-      return;
-    }
-    
-    // Fast pan with PageUp/PageDown
-    if (is_pageup) {
-      pan_zoom(0, -100);
-      return;
-    }
-    if (is_pagedown) {
-      pan_zoom(0, 100);
-      return;
-    }
-    
-    // Toggle focus-follow (Ctrl+Alt+Shift+F)
-    if (is_f) {
-      std::lock_guard<std::mutex> lock(config_mutex);
-      current_config.follow_focus = !current_config.follow_focus;
-      std::cerr << "[FOCUS] Focus-follow: " << (current_config.follow_focus ? "ON" : "OFF") << "\n";
-      get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
-      send_client_config(current_config);
-      return;
-    }
-    
-    // Cycle renderer (Ctrl+Alt+Shift+R)
-    if (is_r) {
-      cycle_renderer();
-      return;
-    }
-    
-    // Cycle color mode (Ctrl+Alt+Shift+C)
-    if (is_c) {
-      cycle_color_mode();
-      return;
-    }
-    
-    // Increase detail (Ctrl+Alt+Shift+D)
-    if (is_d) {
-      adjust_detail(10);
-      return;
-    }
-    
-    // Decrease detail (Ctrl+Alt+Shift+S)
-    if (is_s) {
-      adjust_detail(-10);
-      return;
-    }
-    
-    // Pause/resume video (Ctrl+Alt+Shift+P)
-    if (is_p) {
-      video_paused = !video_paused.load();
-      std::cerr << "[VIDEO] " << (video_paused.load() ? "PAUSED" : "RESUMED") << "\n";
-      return;
-    }
-    
-    // Toggle audio (Ctrl+Alt+Shift+A)
-    if (is_a) {
-      audio_muted = !audio_muted.load();
-      std::cerr << "[AUDIO] " << (audio_muted.load() ? "MUTED" : "UNMUTED") << "\n";
-      return;
-    }
-    
-    // Toggle microphone (Ctrl+Alt+Shift+M)
-    if (is_m) {
-      microphone_muted = !microphone_muted.load();
-      std::cerr << "[MICROPHONE] " << (microphone_muted.load() ? "MUTED" : "UNMUTED") << "\n";
-      return;
-    }
-  }
-  
-  // Legacy exit combo (Ctrl+Alt+Shift+Delete+X)
-  if (pressed && shift_pressed.load() && ctrl_pressed.load() && alt_pressed.load() && 
-      delete_pressed.load() && x_pressed.load()) {
-    std::cerr << "\n[EXIT] Legacy exit combo detected!\n";
-    running = false;
-    return;
-  }
-  
-  // Only forward to server if input forwarding is enabled
-  if (!feature_input || input_socket < 0 || !input_forwarding_enabled.load()) return;
-  
-  // Send normal key event
-  MessageType type = MessageType::KEY_EVENT;
-  KeyEvent evt{
-    keycode,
-    (uint8_t)pressed,
-    (uint8_t)shift_pressed.load(),
-    (uint8_t)ctrl_pressed.load(),
-    (uint8_t)alt_pressed.load()
-  };
-  
-  send(input_socket, &type, sizeof(type), MSG_NOSIGNAL);
-  send(input_socket, &evt, sizeof(evt), MSG_NOSIGNAL);
-}
-
 // Session ID generation
 static std::string generate_uuid() {
   std::random_device rd;
@@ -1220,6 +962,68 @@ static const struct libinput_interface interface = {
 };
 
 // Input event handlers
+
+static void toggle_exclusive_grab() {
+  exclusive_grab_enabled = !exclusive_grab_enabled.load();
+  std::cerr << "[INPUT] Exclusive grab: " << (exclusive_grab_enabled.load() ? "ON" : "OFF") << "\n";
+  
+  if (!li) return;
+  
+  exclusive_mode = exclusive_grab_enabled.load();
+  libinput_dispatch(li);
+  process_libinput_events();
+}
+
+static void cycle_renderer() {
+  std::lock_guard<std::mutex> lock(config_mutex);
+  current_config.renderer = (current_config.renderer + 1) % 4;
+  
+  const char* names[] = {"braille", "blocks", "ascii", "hybrid"};
+  std::cerr << "[RENDERER] Switched to: " << names[current_config.renderer] << "\n";
+  
+  get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+  send_client_config(current_config);
+}
+
+static void cycle_color_mode() {
+  std::lock_guard<std::mutex> lock(config_mutex);
+  current_config.color_mode = (current_config.color_mode + 1) % 3;
+  
+  const char* names[] = {"16-color", "256-color", "truecolor"};
+  std::cerr << "[COLOR] Switched to: " << names[current_config.color_mode] << "\n";
+  
+  get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+  send_client_config(current_config);
+}
+
+static void adjust_detail(int delta) {
+  std::lock_guard<std::mutex> lock(config_mutex);
+  current_config.detail_level = std::clamp((int)current_config.detail_level + delta, 0, 100);
+  
+  std::cerr << "[DETAIL] Level: " << (int)current_config.detail_level << "\n";
+  
+  get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+  send_client_config(current_config);
+}
+
+static void adjust_zoom(double delta) {
+  double new_level = std::clamp(zoom_state.zoom_level.load() + delta, 1.0, 10.0);
+  zoom_state.zoom_level = new_level;
+  std::cerr << "[ZOOM] Level: " << new_level << "x\n";
+  send_zoom_config();
+}
+
+static void pan_zoom(int dx, int dy) {
+  if (!zoom_state.enabled.load()) return;
+  
+  int new_x = std::clamp(zoom_state.center_x.load() + dx, 0, screen_width.load() - 1);
+  int new_y = std::clamp(zoom_state.center_y.load() + dy, 0, screen_height.load() - 1);
+  
+  zoom_state.center_x = new_x;
+  zoom_state.center_y = new_y;
+  send_zoom_config();
+}
+
 static void send_key_event(uint32_t keycode, bool pressed) {
   bool is_shift = (keycode == KEY_LEFTSHIFT || keycode == KEY_RIGHTSHIFT);
   bool is_ctrl = (keycode == KEY_LEFTCTRL || keycode == KEY_RIGHTCTRL);
@@ -1227,32 +1031,181 @@ static void send_key_event(uint32_t keycode, bool pressed) {
   bool is_delete = (keycode == KEY_DELETE);
   bool is_x = (keycode == KEY_X);
   bool is_z = (keycode == KEY_Z);
+  bool is_q = (keycode == KEY_Q);
+  bool is_i = (keycode == KEY_I);
+  bool is_g = (keycode == KEY_G);
+  bool is_plus = (keycode == KEY_KPPLUS);
+  bool is_minus = (keycode == KEY_KPMINUS || keycode == KEY_MINUS);
+  bool is_zero = (keycode == KEY_0);
+  bool is_equals = (keycode == KEY_EQUAL);
+  bool is_f = (keycode == KEY_F);
+  bool is_r = (keycode == KEY_R);
+  bool is_c = (keycode == KEY_C);
+  bool is_d = (keycode == KEY_D);
+  bool is_s = (keycode == KEY_S);
+  bool is_p = (keycode == KEY_P);
+  bool is_a = (keycode == KEY_A);
+  bool is_m = (keycode == KEY_M);
+  bool is_pageup = (keycode == KEY_PAGEUP);
+  bool is_pagedown = (keycode == KEY_PAGEDOWN);
+  bool is_up = (keycode == KEY_UP);
+  bool is_down = (keycode == KEY_DOWN);
+  bool is_left = (keycode == KEY_LEFT);
+  bool is_right = (keycode == KEY_RIGHT);
   
-  // Always track modifier state for local shortcuts
+  // Track modifier state
   if (is_shift) shift_pressed = pressed;
   if (is_ctrl) ctrl_pressed = pressed;
   if (is_alt) alt_pressed = pressed;
   if (is_delete) delete_pressed = pressed;
   if (is_x) x_pressed = pressed;
   
-  // ZOOM: Check for zoom toggle (Ctrl+Alt+Shift+Delete+Z)
-  if (pressed && is_z && shift_pressed.load() && ctrl_pressed.load() && alt_pressed.load() && delete_pressed.load()) {
-    zoom_state.enabled = !zoom_state.enabled.load();
-    std::cerr << "[ZOOM] Toggled: " << (zoom_state.enabled.load() ? "ON" : "OFF") << "\n";
-    send_zoom_config();
-    return;
+  bool combo = shift_pressed.load() && ctrl_pressed.load() && alt_pressed.load();
+  
+  // Check for all shortcuts on key press
+  if (pressed && combo) {
+    // Quit (Ctrl+Alt+Shift+Q)
+    if (is_q) {
+      std::cerr << "\n[EXIT] Quit shortcut detected!\n";
+      running = false;
+      return;
+    }
+    
+    // Toggle input forwarding (Ctrl+Alt+Shift+I)
+    if (is_i) {
+      input_forwarding_enabled = !input_forwarding_enabled.load();
+      std::cerr << "[INPUT] Forwarding: " << (input_forwarding_enabled.load() ? "ON" : "OFF") << "\n";
+      return;
+    }
+    
+    // Toggle exclusive grab (Ctrl+Alt+Shift+G)
+    if (is_g) {
+      toggle_exclusive_grab();
+      return;
+    }
+    
+    // Toggle zoom (Ctrl+Alt+Shift+Z)
+    if (is_z) {
+      zoom_state.enabled = !zoom_state.enabled.load();
+      std::cerr << "[ZOOM] Toggled: " << (zoom_state.enabled.load() ? "ON" : "OFF") << "\n";
+      send_zoom_config();
+      return;
+    }
+    
+    // Zoom in (Ctrl+Alt+Shift++ or =)
+    if (is_plus || is_equals) {
+      adjust_zoom(0.5);
+      return;
+    }
+    
+    // Zoom out (Ctrl+Alt+Shift+-)
+    if (is_minus) {
+      adjust_zoom(-0.5);
+      return;
+    }
+    
+    // Reset zoom (Ctrl+Alt+Shift+0)
+    if (is_zero) {
+      zoom_state.zoom_level = 2.0;
+      std::cerr << "[ZOOM] Reset to 2.0x\n";
+      send_zoom_config();
+      return;
+    }
+    
+    // Pan zoom with arrow keys
+    if (is_left) {
+      pan_zoom(-20, 0);
+      return;
+    }
+    if (is_right) {
+      pan_zoom(20, 0);
+      return;
+    }
+    if (is_up) {
+      pan_zoom(0, -20);
+      return;
+    }
+    if (is_down) {
+      pan_zoom(0, 20);
+      return;
+    }
+    
+    // Fast pan with PageUp/PageDown
+    if (is_pageup) {
+      pan_zoom(0, -100);
+      return;
+    }
+    if (is_pagedown) {
+      pan_zoom(0, 100);
+      return;
+    }
+    
+    // Toggle focus-follow (Ctrl+Alt+Shift+F)
+    if (is_f) {
+      std::lock_guard<std::mutex> lock(config_mutex);
+      current_config.follow_focus = !current_config.follow_focus;
+      std::cerr << "[FOCUS] Focus-follow: " << (current_config.follow_focus ? "ON" : "OFF") << "\n";
+      get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+      send_client_config(current_config);
+      return;
+    }
+    
+    // Cycle renderer (Ctrl+Alt+Shift+R)
+    if (is_r) {
+      cycle_renderer();
+      return;
+    }
+    
+    // Cycle color mode (Ctrl+Alt+Shift+C)
+    if (is_c) {
+      cycle_color_mode();
+      return;
+    }
+    
+    // Increase detail (Ctrl+Alt+Shift+D)
+    if (is_d) {
+      adjust_detail(10);
+      return;
+    }
+    
+    // Decrease detail (Ctrl+Alt+Shift+S)
+    if (is_s) {
+      adjust_detail(-10);
+      return;
+    }
+    
+    // Pause/resume video (Ctrl+Alt+Shift+P)
+    if (is_p) {
+      video_paused = !video_paused.load();
+      std::cerr << "[VIDEO] " << (video_paused.load() ? "PAUSED" : "RESUMED") << "\n";
+      return;
+    }
+    
+    // Toggle audio (Ctrl+Alt+Shift+A)
+    if (is_a) {
+      audio_muted = !audio_muted.load();
+      std::cerr << "[AUDIO] " << (audio_muted.load() ? "MUTED" : "UNMUTED") << "\n";
+      return;
+    }
+    
+    // Toggle microphone (Ctrl+Alt+Shift+M)
+    if (is_m) {
+      microphone_muted = !microphone_muted.load();
+      std::cerr << "[MICROPHONE] " << (microphone_muted.load() ? "MUTED" : "UNMUTED") << "\n";
+      return;
+    }
   }
   
-  // Check for exit combo
+  // Legacy exit combo (Ctrl+Alt+Shift+Delete+X)
   if (pressed && shift_pressed.load() && ctrl_pressed.load() && alt_pressed.load() && 
       delete_pressed.load() && x_pressed.load()) {
-    std::cerr << "\n[EXIT] Exit combo detected!\n";
+    std::cerr << "\n[EXIT] Legacy exit combo detected!\n";
     running = false;
     return;
   }
   
   // Only forward to server if input forwarding is enabled
-  if (!feature_input || input_socket < 0) return;
+  if (!feature_input || input_socket < 0 || !input_forwarding_enabled.load()) return;
   
   // Send normal key event
   MessageType type = MessageType::KEY_EVENT;
@@ -1263,31 +1216,6 @@ static void send_key_event(uint32_t keycode, bool pressed) {
     (uint8_t)ctrl_pressed.load(),
     (uint8_t)alt_pressed.load()
   };
-  
-  send(input_socket, &type, sizeof(type), MSG_NOSIGNAL);
-  send(input_socket, &evt, sizeof(evt), MSG_NOSIGNAL);
-}
-
-static void send_mouse_move(int x, int y) {
-  // Always update zoom center locally if enabled
-  if (zoom_state.enabled.load() && zoom_state.follow_mouse.load()) {
-    zoom_state.center_x = x;
-    zoom_state.center_y = y;
-    
-    // Send zoom config update to server (throttled - sent every frame anyway)
-    static auto last_zoom_update = std::chrono::steady_clock::now();
-    auto now = std::chrono::steady_clock::now();
-    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_zoom_update).count() >= 16) {
-      send_zoom_config();
-      last_zoom_update = now;
-    }
-  }
-  
-  // Only forward to server if input forwarding is enabled
-  if (!feature_input || input_socket < 0) return;
-  
-  MessageType type = MessageType::MOUSE_MOVE;
-  MouseMove evt{x, y, (uint32_t)screen_width.load(), (uint32_t)screen_height.load()};
   
   send(input_socket, &type, sizeof(type), MSG_NOSIGNAL);
   send(input_socket, &evt, sizeof(evt), MSG_NOSIGNAL);
