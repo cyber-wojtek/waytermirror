@@ -3306,7 +3306,8 @@ static std::vector<uint8_t> compress_frame(const std::vector<uint8_t> &data,
             (const char *)data.data(),
             (char *)compressed.data(),
             data.size(),
-            max_size,12
+            max_size,
+            compression_level);
     }
 
     if (comp_size <= 0)
