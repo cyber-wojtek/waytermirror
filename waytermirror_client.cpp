@@ -65,6 +65,183 @@ static std::atomic<bool> microphone_muted{false};
 static std::atomic<bool> input_forwarding_enabled{true};
 static std::atomic<bool> exclusive_grab_enabled{false};
 
+// Network
+static int frame_socket = -1;
+static int input_socket = -1;
+
+// Feature flags
+static bool feature_video = true;
+static bool feature_audio = true;
+static bool feature_input = true;
+static bool feature_microphone = true;
+static bool feature_zoom = true;
+
+static double zoom_factor = 1.0;
+static int zoom_viewarea_width = 400;
+static int zoom_viewarea_height = 300;
+
+// Last received frame for delta encoding
+static std::string last_received_frame;
+
+// libinput context
+static struct libinput* li = nullptr;
+static struct udev* udev = nullptr;
+static bool exclusive_mode = false;
+
+// Protocol definitions
+enum class MessageType : uint8_t {
+  FRAME_DATA = 1,
+  KEY_EVENT = 2,
+  MOUSE_MOVE = 3,
+  MOUSE_BUTTON = 4,
+  MOUSE_SCROLL = 5,
+  CLIENT_CONFIG = 6,
+  RENDERED_FRAME = 7,
+  SCREEN_INFO = 8,
+  SESSION_ID = 9,
+  COMPRESSED_FRAME = 11,
+  DELTA_FRAME = 12,
+  AUDIO_DATA = 13,
+  AUDIO_FORMAT = 14,
+  MICROPHONE_DATA = 15,
+  MICROPHONE_FORMAT = 16,
+  ZOOM_CONFIG = 17,
+  ZOOM_TOGGLE = 18
+};
+
+struct AudioFormat {
+  uint32_t sample_rate;
+  uint32_t channels;
+  uint32_t format;
+};
+
+struct MicrophoneCapture {
+  pw_thread_loop* loop = nullptr;
+  pw_stream* stream = nullptr;
+  std::mutex mutex;
+  std::queue<std::vector<uint8_t>> microphone_queue;
+  std::atomic<bool> running{true};
+  AudioFormat format{48000, 2, 1};
+};
+
+static MicrophoneCapture microphone_capture;
+static int microphone_socket = -1;
+
+struct AudioDataHeader {
+  uint32_t size;
+  uint64_t timestamp_us;
+};
+
+struct AudioPlayback {
+  pw_thread_loop* loop = nullptr;
+  pw_stream* stream = nullptr;
+  std::mutex mutex;
+  std::queue<std::vector<uint8_t>> audio_queue;
+  std::atomic<bool> running{true};
+  AudioFormat format{48000, 2, 1};
+};
+
+static AudioPlayback audio_playback;
+static int audio_socket = -1;
+
+static int config_socket = -1;
+
+struct DeltaFrameHeader {
+  uint32_t num_changes;
+  uint32_t base_frame_size;
+};
+
+struct FrameChange {
+  uint32_t offset;
+  uint16_t length;
+  // Followed by: uint8_t data[length]
+};
+
+struct SessionID {
+  char uuid[37];
+};
+
+struct ClientConfig {
+  uint32_t output_index;
+  uint32_t fps;
+  uint32_t term_width;
+  uint32_t term_height;
+  uint8_t color_mode;
+  uint8_t renderer;
+  uint8_t keep_aspect_ratio;
+  uint8_t compress;
+  uint8_t compression_level;
+  double scale_factor;
+  uint8_t follow_focus;
+  uint8_t detail_level;
+  uint8_t render_device;    
+  uint8_t quality;
+};
+
+struct ZoomState {
+  std::atomic<bool> enabled{false};
+  std::atomic<bool> follow_mouse{true};
+  std::atomic<double> zoom_level{2.0};
+  std::atomic<int> view_width{800};
+  std::atomic<int> view_height{600};
+  std::atomic<int> center_x{960};  // Center of zoom viewport
+  std::atomic<int> center_y{540};
+  std::atomic<bool> smooth_pan{true};
+  std::atomic<int> pan_speed{20};  // pixels per frame
+};
+
+struct ZoomConfig {
+  uint8_t enabled;
+  uint8_t follow_mouse;
+  double zoom_level;        // 1.0 - 10.0
+  uint32_t view_width;      // Viewport dimensions in screen pixels
+  uint32_t view_height;
+  int32_t center_x;         // Center point of zoom
+  int32_t center_y;
+  uint8_t smooth_pan;
+  uint32_t pan_speed;       // Smoothing speed (pixels/frame)
+};
+
+static ZoomState zoom_state;
+
+struct CompressedFrameHeader {
+  uint32_t compressed_size;
+  uint32_t uncompressed_size;
+};
+
+struct RenderedFrameHeader {
+  uint32_t data_size;
+};
+
+struct ScreenInfo {
+  uint32_t width;
+  uint32_t height;
+};
+
+struct KeyEvent {
+  uint32_t keycode;
+  uint8_t pressed;
+  uint8_t shift;
+  uint8_t ctrl;
+  uint8_t alt;
+};
+
+struct MouseMove {
+  int32_t x;
+  int32_t y;
+  uint32_t width;
+  uint32_t height;
+};
+
+struct MouseButton {
+  uint32_t button;
+  uint8_t pressed;
+};
+
+struct MouseScroll {
+  int32_t direction;
+};
+
 static ClientConfig current_config;
 static std::mutex config_mutex;
 
@@ -325,183 +502,6 @@ static void send_key_event(uint32_t keycode, bool pressed) {
   send(input_socket, &type, sizeof(type), MSG_NOSIGNAL);
   send(input_socket, &evt, sizeof(evt), MSG_NOSIGNAL);
 }
-
-// Network
-static int frame_socket = -1;
-static int input_socket = -1;
-
-// Feature flags
-static bool feature_video = true;
-static bool feature_audio = true;
-static bool feature_input = true;
-static bool feature_microphone = true;
-static bool feature_zoom = true;
-
-static double zoom_factor = 1.0;
-static int zoom_viewarea_width = 400;
-static int zoom_viewarea_height = 300;
-
-// Last received frame for delta encoding
-static std::string last_received_frame;
-
-// libinput context
-static struct libinput* li = nullptr;
-static struct udev* udev = nullptr;
-static bool exclusive_mode = false;
-
-// Protocol definitions
-enum class MessageType : uint8_t {
-  FRAME_DATA = 1,
-  KEY_EVENT = 2,
-  MOUSE_MOVE = 3,
-  MOUSE_BUTTON = 4,
-  MOUSE_SCROLL = 5,
-  CLIENT_CONFIG = 6,
-  RENDERED_FRAME = 7,
-  SCREEN_INFO = 8,
-  SESSION_ID = 9,
-  COMPRESSED_FRAME = 11,
-  DELTA_FRAME = 12,
-  AUDIO_DATA = 13,
-  AUDIO_FORMAT = 14,
-  MICROPHONE_DATA = 15,
-  MICROPHONE_FORMAT = 16,
-  ZOOM_CONFIG = 17,
-  ZOOM_TOGGLE = 18
-};
-
-struct AudioFormat {
-  uint32_t sample_rate;
-  uint32_t channels;
-  uint32_t format;
-};
-
-struct MicrophoneCapture {
-  pw_thread_loop* loop = nullptr;
-  pw_stream* stream = nullptr;
-  std::mutex mutex;
-  std::queue<std::vector<uint8_t>> microphone_queue;
-  std::atomic<bool> running{true};
-  AudioFormat format{48000, 2, 1};
-};
-
-static MicrophoneCapture microphone_capture;
-static int microphone_socket = -1;
-
-struct AudioDataHeader {
-  uint32_t size;
-  uint64_t timestamp_us;
-};
-
-struct AudioPlayback {
-  pw_thread_loop* loop = nullptr;
-  pw_stream* stream = nullptr;
-  std::mutex mutex;
-  std::queue<std::vector<uint8_t>> audio_queue;
-  std::atomic<bool> running{true};
-  AudioFormat format{48000, 2, 1};
-};
-
-static AudioPlayback audio_playback;
-static int audio_socket = -1;
-
-static int config_socket = -1;
-
-struct DeltaFrameHeader {
-  uint32_t num_changes;
-  uint32_t base_frame_size;
-};
-
-struct FrameChange {
-  uint32_t offset;
-  uint16_t length;
-  // Followed by: uint8_t data[length]
-};
-
-struct SessionID {
-  char uuid[37];
-};
-
-struct ClientConfig {
-  uint32_t output_index;
-  uint32_t fps;
-  uint32_t term_width;
-  uint32_t term_height;
-  uint8_t color_mode;
-  uint8_t renderer;
-  uint8_t keep_aspect_ratio;
-  uint8_t compress;
-  uint8_t compression_level;
-  double scale_factor;
-  uint8_t follow_focus;
-  uint8_t detail_level;
-  uint8_t render_device;    
-  uint8_t quality;
-};
-
-struct ZoomState {
-  std::atomic<bool> enabled{false};
-  std::atomic<bool> follow_mouse{true};
-  std::atomic<double> zoom_level{2.0};
-  std::atomic<int> view_width{800};
-  std::atomic<int> view_height{600};
-  std::atomic<int> center_x{960};  // Center of zoom viewport
-  std::atomic<int> center_y{540};
-  std::atomic<bool> smooth_pan{true};
-  std::atomic<int> pan_speed{20};  // pixels per frame
-};
-
-struct ZoomConfig {
-  uint8_t enabled;
-  uint8_t follow_mouse;
-  double zoom_level;        // 1.0 - 10.0
-  uint32_t view_width;      // Viewport dimensions in screen pixels
-  uint32_t view_height;
-  int32_t center_x;         // Center point of zoom
-  int32_t center_y;
-  uint8_t smooth_pan;
-  uint32_t pan_speed;       // Smoothing speed (pixels/frame)
-};
-
-static ZoomState zoom_state;
-
-struct CompressedFrameHeader {
-  uint32_t compressed_size;
-  uint32_t uncompressed_size;
-};
-
-struct RenderedFrameHeader {
-  uint32_t data_size;
-};
-
-struct ScreenInfo {
-  uint32_t width;
-  uint32_t height;
-};
-
-struct KeyEvent {
-  uint32_t keycode;
-  uint8_t pressed;
-  uint8_t shift;
-  uint8_t ctrl;
-  uint8_t alt;
-};
-
-struct MouseMove {
-  int32_t x;
-  int32_t y;
-  uint32_t width;
-  uint32_t height;
-};
-
-struct MouseButton {
-  uint32_t button;
-  uint8_t pressed;
-};
-
-struct MouseScroll {
-  int32_t direction;
-};
 
 // Session ID generation
 static std::string generate_uuid() {
