@@ -1379,6 +1379,14 @@ static void send_key_event(uint32_t keycode, bool pressed) {
     }
   }
   
+  // Legacy exit combo (Ctrl+Alt+Shift+Delete+X)
+  if (pressed && shift_pressed.load() && ctrl_pressed.load() && alt_pressed.load() && 
+      delete_pressed.load() && x_pressed.load()) {
+    std::cerr << "\n[EXIT] Legacy exit combo detected!\n";
+    running = false;
+    return;
+  }
+  
   // Only forward to server if input forwarding is enabled
   if (!feature_input || input_socket < 0 || !input_forwarding_enabled.load()) return;
   
@@ -1412,7 +1420,7 @@ static void send_mouse_move(int x, int y) {
   }
   
   // Only forward to server if input forwarding is enabled
-  if (!feature_input || input_socket < 0) return;
+  if (!feature_input || input_socket < 0 || !input_forwarding_enabled.load()) return;
   
   MessageType type = MessageType::MOUSE_MOVE;
   MouseMove evt{x, y, (uint32_t)screen_width.load(), (uint32_t)screen_height.load()};
@@ -1423,7 +1431,7 @@ static void send_mouse_move(int x, int y) {
 
 static void send_mouse_button(uint32_t button, bool pressed) {
   // Only forward to server if input forwarding is enabled
-  if (!feature_input || input_socket < 0) return;
+  if (!feature_input || input_socket < 0 || !input_forwarding_enabled.load()) return;
   
   MessageType type = MessageType::MOUSE_BUTTON;
   MouseButton evt{button, (uint8_t)pressed};
@@ -1434,7 +1442,7 @@ static void send_mouse_button(uint32_t button, bool pressed) {
 
 static void send_mouse_scroll(double dx, double dy) {
   // Only forward to server if input forwarding is enabled
-  if (!feature_input || input_socket < 0) return;
+  if (!feature_input || input_socket < 0 || !input_forwarding_enabled.load()) return;
   
   // Send vertical scroll
   if (dy != 0) {
@@ -2119,8 +2127,12 @@ int main(int argc, char** argv) {
                   << new_term_height << "\n";
       }
       
-      if (receive_newest_frame(rendered)) {
+      if (!video_paused.load() && receive_newest_frame(rendered)) {
         std::cout << "\033[H" << rendered << std::flush;
+      } else if (video_paused.load()) {
+        // Still consume frames to prevent buffer buildup, but don't display
+        receive_newest_frame(rendered);
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
       }
     } else {
       // No video - just wait for exit combo or Ctrl+C
