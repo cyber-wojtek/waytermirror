@@ -1789,7 +1789,6 @@ int main(int argc, char** argv) {
   std::string renderer = program.get<std::string>("--renderer");
   
   // Send initial config through config socket
-  ClientConfig config;
   {
     std::lock_guard<std::mutex> lock(config_mutex);
     current_config.output_index = (output_arg == "follow") ? 0xFFFFFFFF : std::stoi(output_arg);
@@ -1807,8 +1806,6 @@ int main(int argc, char** argv) {
     current_config.quality = std::clamp(program.get<int>("--quality"), 0, 100);
   }
   
-  send_client_config(current_config);
-
   zoom_state.enabled = program.get<bool>("--zoom");
   zoom_state.zoom_level = std::clamp(program.get<double>("--zoom-level"), 1.0, 10.0);
   zoom_state.view_width = program.get<int>("--zoom-width");
@@ -1828,12 +1825,12 @@ int main(int argc, char** argv) {
   std::cerr << "==========================\n\n";
   
   std::cerr << "=== Rendering Settings ===\n";
-  std::cerr << "Detail Level: " << (int)config.detail_level << " (0=smooth, 100=sharp)\n";
-  std::cerr << "Quality: " << (int)config.quality << " (0=fast, 100=best)\n";
-  std::cerr << "Render Device: " << (config.render_device == 1 ? "CUDA" : "CPU") << "\n";
+  std::cerr << "Detail Level: " << (int)current_config.detail_level << " (0=smooth, 100=sharp)\n";
+  std::cerr << "Quality: " << (int)current_config.quality << " (0=fast, 100=best)\n";
+  std::cerr << "Render Device: " << (current_config.render_device == 1 ? "CUDA" : "CPU") << "\n";
   std::cerr << "===========================\n\n";
 
-  send_client_config(config);
+  send_client_config(current_config);
   if (zoom_state.enabled.load()) {
     send_zoom_config();
   }
