@@ -212,35 +212,35 @@ Zoom / viewport
 
 ## Keyboard shortcuts (client)
 
-This table documents the most useful client-side keyboard shortcuts. Shortcuts are designed for local control of the client (zoom, audio, input capture, toggles). By convention the client uses the local-modifier prefix Ctrl+Shift for client commands so that normal keys are forwarded to the remote session. If you need to send the same Ctrl+Shift+Key combination to the remote instead of triggering the client shortcut, either use the command-line flags to disable local capturing (e.g. --no-input) or check the client behavior for "double-press" forwarding (see notes below).
+This table documents the most useful client-side keyboard shortcuts. Shortcuts are designed for local control of the client (zoom, audio, input capture, toggles). By convention the client uses the local-modifier prefix Ctrl+Alt+Shift for client commands so that normal keys are forwarded to the remote session. If you need to send the same Ctrl+Alt+Shift+Key combination to the remote instead of triggering the client shortcut, either use the command-line flags to disable local capturing (e.g. --no-input) or check the client behavior for "double-press" forwarding (see notes below).
 
 Note: Exact bindings may vary by build. Run `./waytermirror_client --help` or inspect waytermirror_client.cpp for the current compiled-in keys.
 
 Default client shortcuts
 | Shortcut | Action | Notes |
 |---------:|--------|-------|
-| Ctrl+Shift+Q | Quit client / disconnect | Graceful disconnect (sends close to server) |
-| Ctrl+Shift+I | Toggle input forwarding | Enable/disable forwarding of keyboard & mouse to server |
-| Ctrl+Shift+G | Toggle exclusive grab | EVIOCGRAB on local devices (when supported) |
-| Ctrl+Shift+Z | Toggle zoom mode | When zoomed, use arrow keys to pan |
-| Ctrl+Shift++ (or Ctrl+Shift+=) | Zoom in | Increases zoom level (same as -Z) |
-| Ctrl+Shift+- | Zoom out | Decreases zoom level |
-| Ctrl+Shift+0 | Reset zoom | Reset to 1.0x (or configured -Z default) |
-| Arrow keys | Pan while zoomed | Left/Right/Up/Down — smooth panning if --zoom-smooth enabled |
-| PageUp / PageDown | Fast pan while zoomed | Larger vertical pan steps |
-| Ctrl+Shift+F | Toggle focus-follow | Follow focused output/window (if supported by compositor) |
-| Ctrl+Shift+R | Cycle renderer | Cycle: braille → blocks → ascii → hybrid |
-| Ctrl+Shift+C | Cycle color mode | Cycle: 16 → 256 → truecolor |
-| Ctrl+Shift+D | Increase detail | Equivalent to raising --detail-level |
-| Ctrl+Shift+S | Decrease detail | Equivalent to lowering --detail-level |
-| Ctrl+Shift+P | Pause / resume video | Stops rendering updates locally (input still forwarded) |
-| Ctrl+Shift+A | Toggle audio playback | Mute/unmute system audio stream |
-| Ctrl+Shift+M | Toggle microphone capture | Enable/disable mic from client → server |
+| Ctrl+Alt+Shift+Q | Quit client / disconnect | Graceful disconnect (sends close to server) |
+| Ctrl+Alt+Shift+I | Toggle input forwarding | Enable/disable forwarding of keyboard & mouse to server |
+| Ctrl+Alt+Shift+G | Toggle exclusive grab | EVIOCGRAB on local devices (when supported) |
+| Ctrl+Alt+Shift+Z | Toggle zoom mode | When zoomed, use arrow keys to pan |
+| Ctrl+Alt+Shift++ (or Ctrl+Alt+Shift+=) | Zoom in | Increases zoom level (same as -Z) |
+| Ctrl+Alt+Shift+- | Zoom out | Decreases zoom level |
+| Ctrl+Alt+Shift+0 | Reset zoom | Reset to 1.0x (or configured -Z default) |
+| Ctrl+Alt+Shift+Arrow keys | Pan while zoomed | Left/Right/Up/Down — smooth panning if --zoom-smooth enabled |
+| Ctrl+Alt+Shift+PageUp / PageDown | Fast pan while zoomed | Larger vertical pan steps |
+| Ctrl+Alt+Shift+F | Toggle focus-follow | Follow focused output/window (if supported by compositor) |
+| Ctrl+Alt+Shift+R | Cycle renderer | Cycle: braille → blocks → ascii → hybrid |
+| Ctrl+Alt+Shift+C | Cycle color mode | Cycle: 16 → 256 → truecolor |
+| Ctrl+Alt+Shift+D | Increase detail | Equivalent to raising --detail-level |
+| Ctrl+Alt+Shift+S | Decrease detail | Equivalent to lowering --detail-level |
+| Ctrl+Alt+Shift+P | Pause / resume video | Stops rendering updates locally (input still forwarded) |
+| Ctrl+Alt+Shift+A | Toggle audio playback | Mute/unmute system audio stream |
+| Ctrl+Alt+Shift+M | Toggle microphone capture | Enable/disable mic from client → server |
 
 Quick usage tips
-- Zoom panning: when zoomed (Ctrl+Shift+Z), use arrow keys to pan the viewport. Hold PageUp/PageDown for faster vertical movement.
-- Input capture: enable exclusive grab (Ctrl+Shift+G) only if you trust the client host and want to avoid local desktop interaction while controlling remote.
-- Forwarding vs local: if you want to send one of the Ctrl+Shift+... combos to the remote, either temporarily disable local shortcuts (e.g. Ctrl+Shift+I to stop input capturing) or use a build/flag to change behavior. Check `waytermirror_client --help` or the source file waytermirror_client.cpp for the exact forwarding rules.
+- Zoom panning: when zoomed (Ctrl+Alt+Shift+Z), use arrow keys to pan the viewport. Hold PageUp/PageDown for faster vertical movement.
+- Input capture: enable exclusive grab (Ctrl+Alt+Shift+G) only if you trust the client host and want to avoid local desktop interaction while controlling remote.
+- Forwarding vs local: if you want to send one of the Ctrl+Alt+Shift+... combos to the remote, either temporarily disable local shortcuts (e.g. Ctrl+Alt+Shift+I to stop input capturing) or use a build/flag to change behavior. Check `waytermirror_client --help` or the source file waytermirror_client.cpp for the exact forwarding rules.
 - Customization: keyboard handling is implemented in the client source. To change shortcuts, edit waytermirror_client.cpp and rebuild.
 
 ## Network ports
