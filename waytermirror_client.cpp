@@ -842,7 +842,7 @@ static bool receive_newest_frame(std::string &rendered)
 {
     struct pollfd pfd = {frame_socket, POLLIN, 0};
 
-    int ret = poll(&pfd, 1, 100);
+    int ret = poll(&pfd, 1, 0);  // Non-blocking check
     if (ret <= 0)
         return false;
 
@@ -2644,6 +2644,11 @@ int main(int argc, char **argv)
                 // Still consume frames to prevent buffer buildup, but don't display
                 receive_newest_frame(rendered);
                 std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            }
+            else
+            {
+                // No frame available, sleep briefly to avoid busy-looping
+                std::this_thread::sleep_for(std::chrono::microseconds(1000));
             }
         }
         else
