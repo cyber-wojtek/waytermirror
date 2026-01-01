@@ -32,6 +32,8 @@
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
 #include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
+#include "pipewire_capture.h"
+#include "virtual_input.h"
 #include <pipewire-0.3/pipewire/pipewire.h>
 #include <spa-0.2/spa/param/audio/format-utils.h>
 #include <spa-0.2/spa/param/props.h>
@@ -169,6 +171,42 @@ struct ClientConfig
     uint8_t quality;
     double rotation_angle;
 };
+
+enum CaptureBackend {
+    WLR_SCREENCOPY,  // Original wlr-screencopy protocol
+    PIPEWIRE,        // PipeWire screencapture
+    AUTO_CAPTURE     // Auto-detect
+};
+
+static CaptureBackend capture_backend = AUTO_CAPTURE;
+static std::vector<std::unique_ptr<PipeWireCapture>> pipewire_captures;
+
+static VirtualInputManager virtual_input_mgr;
+
+static CaptureBackend detect_capture_backend() {
+    // Check compositor type
+    if (compositor_type == "kde" || compositor_type == "gnome") {
+        if (pipewire_capture_available()) {
+            std::cerr << "[CAPTURE] KDE/GNOME detected, using PipeWire\n";
+            return PIPEWIRE;
+        }
+    }
+    
+    // Check if wlr-screencopy is available
+    if (manager != nullptr) {
+        std::cerr << "[CAPTURE] Using wlr-screencopy protocol\n";
+        return WLR_SCREENCOPY;
+    }
+    
+    // Fallback to PipeWire if available
+    if (pipewire_capture_available()) {
+        std::cerr << "[CAPTURE] Falling back to PipeWire\n";
+        return PIPEWIRE;
+    }
+    
+    std::cerr << "[CAPTURE] No capture backend available!\n";
+    return WLR_SCREENCOPY; // Will fail later
+}
 
 struct SendQueue
 {
@@ -1151,111 +1189,62 @@ static void setup_virtual_keyboard_keymap()
     std::cerr << "Virtual keyboard keymap configured successfully\n";
 }
 
-static void handle_key_event(const KeyEvent &evt)
-{
-    if (!virtual_keyboard)
-    {
-        std::cerr << "[SERVER] No virtual keyboard available!\n";
-        return;
-    }
-
+static void handle_key_event(const KeyEvent &evt) {
     std::cerr << "[SERVER] Received key " << evt.keycode << " pressed=" << (int)evt.pressed
               << " [shift=" << (int)evt.shift << " ctrl=" << (int)evt.ctrl
               << " alt=" << (int)evt.alt << "]\n";
 
     uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::system_clock::now().time_since_epoch())
-                           .count();
+        std::chrono::system_clock::now().time_since_epoch()).count();
 
-    // Track ALL modifier keys for server state
     bool is_shift_key = (evt.keycode == KEY_LEFTSHIFT || evt.keycode == KEY_RIGHTSHIFT);
     bool is_ctrl_key = (evt.keycode == KEY_LEFTCTRL || evt.keycode == KEY_RIGHTCTRL);
     bool is_alt_key = (evt.keycode == KEY_LEFTALT || evt.keycode == KEY_RIGHTALT);
     bool is_super_key = (evt.keycode == KEY_LEFTMETA || evt.keycode == KEY_RIGHTMETA);
-    bool is_altgr_key = (evt.keycode == KEY_RIGHTALT); // AltGr is typically right alt
+    bool is_altgr_key = (evt.keycode == KEY_RIGHTALT);
     bool is_capslock_key = (evt.keycode == KEY_CAPSLOCK);
     bool is_numlock_key = (evt.keycode == KEY_NUMLOCK);
 
-    // Update server-side tracking
-    if (is_shift_key)
-        server_shift_pressed = evt.pressed;
-    if (is_ctrl_key)
-        server_ctrl_pressed = evt.pressed;
-    if (is_alt_key)
-        server_alt_pressed = evt.pressed;
-    if (is_super_key)
-        server_super_pressed = evt.pressed;
-    if (is_altgr_key)
-        server_altgr_pressed = evt.pressed;
+    if (is_shift_key) server_shift_pressed = evt.pressed;
+    if (is_ctrl_key) server_ctrl_pressed = evt.pressed;
+    if (is_alt_key) server_alt_pressed = evt.pressed;
+    if (is_super_key) server_super_pressed = evt.pressed;
+    if (is_altgr_key) server_altgr_pressed = evt.pressed;
 
-    // Toggle locks on press
-    if (evt.pressed)
-    {
-        if (is_capslock_key)
-            server_capslock_pressed = !server_capslock_pressed;
-        if (is_numlock_key)
-            server_numlock_pressed = !server_numlock_pressed;
+    if (evt.pressed) {
+        if (is_capslock_key) server_capslock_pressed = !server_capslock_pressed;
+        if (is_numlock_key) server_numlock_pressed = !server_numlock_pressed;
     }
 
-    // Send the key event
-    uint32_t state = evt.pressed ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED;
-    zwp_virtual_keyboard_v1_key(virtual_keyboard, time_ms, evt.keycode, state);
+    // Try virtual input manager first, fallback to Wayland protocols
+    if (virtual_input_mgr.backend == VirtualInputManager::UINPUT) {
+        virtual_input_mgr.send_key(evt.keycode, evt.pressed);
+    } else if (virtual_keyboard) {
+        uint32_t state = evt.pressed ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED;
+        zwp_virtual_keyboard_v1_key(virtual_keyboard, time_ms, evt.keycode, state);
 
-    // CRITICAL: Update modifier state after any key event
-    // Standard XKB modifier bit positions:
-    // Shift = bit 0 (0x01)
-    // Lock/Caps = bit 1 (0x02)
-    // Control = bit 2 (0x04)
-    // Mod1/Alt = bit 3 (0x08)
-    // Mod2/NumLock = bit 4 (0x10)
-    // Mod3 = bit 5 (0x20)
-    // Mod4/Super/Win = bit 6 (0x40)
-    // Mod5/AltGr = bit 7 (0x80)
+        uint32_t mods_depressed = 0;
+        uint32_t mods_locked = 0;
 
-    uint32_t mods_depressed = 0; // Currently held down
-    uint32_t mods_locked = 0;    // Toggle locks
+        if (server_shift_pressed) mods_depressed |= (1 << 0);
+        if (server_ctrl_pressed) mods_depressed |= (1 << 2);
+        if (server_alt_pressed) mods_depressed |= (1 << 3);
+        if (server_super_pressed) mods_depressed |= (1 << 6);
+        if (server_altgr_pressed) mods_depressed |= (1 << 7);
 
-    // Depressed modifiers (held down)
-    if (server_shift_pressed)
-        mods_depressed |= (1 << 0); // Shift
-    if (server_ctrl_pressed)
-        mods_depressed |= (1 << 2); // Control
-    if (server_alt_pressed)
-        mods_depressed |= (1 << 3); // Alt/Mod1
-    if (server_super_pressed)
-        mods_depressed |= (1 << 6); // Super/Win/Mod4
-    if (server_altgr_pressed)
-        mods_depressed |= (1 << 7); // AltGr/Mod5
+        if (server_capslock_pressed) mods_locked |= (1 << 1);
+        if (server_numlock_pressed) mods_locked |= (1 << 4);
 
-    // Locked modifiers (toggle keys)
-    if (server_capslock_pressed)
-        mods_locked |= (1 << 1); // CapsLock
-    if (server_numlock_pressed)
-        mods_locked |= (1 << 4); // NumLock
+        zwp_virtual_keyboard_v1_modifiers(virtual_keyboard,
+                                          mods_depressed, 0, mods_locked, 0);
 
-    // Send modifier update
-    zwp_virtual_keyboard_v1_modifiers(virtual_keyboard,
-                                      mods_depressed, // Currently pressed modifiers
-                                      0,              // Latched (sticky) modifiers
-                                      mods_locked,    // Locked modifiers (Caps/Num lock)
-                                      0);             // Group (keyboard layout group)
+        wl_display_flush(display);
+    }
 
-    wl_display_flush(display);
-
-    std::cerr << "[SERVER] Sent key " << evt.keycode << " state=" << state
-              << " mods=0x" << std::hex << mods_depressed
-              << " locked=0x" << mods_locked << std::dec << "\n";
+    std::cerr << "[SERVER] Key event sent\n";
 }
 
-static void handle_mouse_move(const MouseMove &evt, const std::string &client_id)
-{
-    if (!virtual_pointer)
-    {
-        std::cerr << "[SERVER] No virtual pointer available!\n";
-        return;
-    }
-
-    // FIX: Get the client's current output to properly map coordinates
+static void handle_mouse_move(const MouseMove &evt, const std::string &client_id) {
     std::shared_ptr<ClientConnection> conn;
     uint32_t output_index = 0;
     uint32_t output_width = 0;
@@ -1264,102 +1253,93 @@ static void handle_mouse_move(const MouseMove &evt, const std::string &client_id
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
         auto it = clients.find(client_id);
-        if (it != clients.end())
-        {
+        if (it != clients.end()) {
             conn = it->second;
             output_index = conn->config.follow_focus
-                               ? focus_tracker.focused_output_index.load()
-                               : conn->config.output_index;
+                ? focus_tracker.focused_output_index.load()
+                : conn->config.output_index;
             output_index = std::min(output_index, (uint32_t)(outputs.size() - 1));
 
-            // Get the actual output dimensions from the capture
             std::lock_guard<std::mutex> output_lock(*output_mutexes[output_index]);
             Capture &cap = output_captures[output_index];
-            if (cap.width > 0 && cap.height > 0)
-            {
+            if (cap.width > 0 && cap.height > 0) {
                 output_width = cap.width;
                 output_height = cap.height;
             }
         }
     }
 
-    // Fallback to client-provided dimensions if output not ready
-    if (output_width == 0 || output_height == 0)
-    {
+    if (output_width == 0 || output_height == 0) {
         output_width = evt.width;
         output_height = evt.height;
     }
 
-    // Update host cursor position for zoom tracking
     host_cursor_x = evt.x;
     host_cursor_y = evt.y;
 
-    uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::system_clock::now().time_since_epoch())
-                           .count();
+    // Try virtual input manager first
+    if (virtual_input_mgr.backend == VirtualInputManager::UINPUT) {
+        virtual_input_mgr.send_mouse_move(evt.x, evt.y, output_width, output_height);
+    } else if (virtual_pointer) {
+        uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
 
-    zwlr_virtual_pointer_v1_motion_absolute(virtual_pointer,
-                                            time_ms,
-                                            (uint32_t)evt.x,
-                                            (uint32_t)evt.y,
-                                            (uint32_t)evt.width,
-                                            (uint32_t)evt.height);
+        zwlr_virtual_pointer_v1_motion_absolute(virtual_pointer,
+                                                time_ms,
+                                                (uint32_t)evt.x,
+                                                (uint32_t)evt.y,
+                                                (uint32_t)output_width,
+                                                (uint32_t)output_height);
 
-    zwlr_virtual_pointer_v1_frame(virtual_pointer);
-    wl_display_flush(display);
+        zwlr_virtual_pointer_v1_frame(virtual_pointer);
+        wl_display_flush(display);
+    }
 }
 
-static void handle_mouse_button(const MouseButton &evt)
-{
-    if (!virtual_pointer)
-    {
-        std::cerr << "[SERVER] No virtual pointer available!\n";
-        return;
-    }
-
+static void handle_mouse_button(const MouseButton &evt) {
     std::cerr << "[SERVER] Mouse button: button=" << evt.button
               << " pressed=" << (int)evt.pressed << "\n";
 
-    uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::system_clock::now().time_since_epoch())
-                           .count();
-
     uint32_t linux_button = BTN_LEFT;
-    if (evt.button == 2)
-        linux_button = BTN_MIDDLE;
-    else if (evt.button == 3)
-        linux_button = BTN_RIGHT;
+    if (evt.button == 2) linux_button = BTN_MIDDLE;
+    else if (evt.button == 3) linux_button = BTN_RIGHT;
 
-    zwlr_virtual_pointer_v1_button(virtual_pointer, time_ms, linux_button,
-                                   evt.pressed ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
+    // Try virtual input manager first
+    if (virtual_input_mgr.backend == VirtualInputManager::UINPUT) {
+        virtual_input_mgr.send_mouse_button(linux_button, evt.pressed);
+    } else if (virtual_pointer) {
+        uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
 
-    zwlr_virtual_pointer_v1_frame(virtual_pointer);
-    wl_display_flush(display);
+        zwlr_virtual_pointer_v1_button(virtual_pointer, time_ms, linux_button,
+                                       evt.pressed ? WL_POINTER_BUTTON_STATE_PRESSED 
+                                                   : WL_POINTER_BUTTON_STATE_RELEASED);
+
+        zwlr_virtual_pointer_v1_frame(virtual_pointer);
+        wl_display_flush(display);
+    }
 
     std::cerr << "[SERVER] Mouse button sent\n";
 }
 
-static void handle_mouse_scroll(const MouseScroll &evt)
-{
-    if (!virtual_pointer)
-    {
-        std::cerr << "[SERVER] No virtual pointer available!\n";
-        return;
-    }
-
+static void handle_mouse_scroll(const MouseScroll &evt) {
     std::cerr << "[SERVER] Mouse scroll: direction=" << evt.direction << "\n";
 
-    uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::system_clock::now().time_since_epoch())
-                           .count();
+    // Try virtual input manager first
+    if (virtual_input_mgr.backend == VirtualInputManager::UINPUT) {
+        virtual_input_mgr.send_mouse_scroll(evt.direction);
+    } else if (virtual_pointer) {
+        uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
 
-    wl_fixed_t value = wl_fixed_from_int(evt.direction * 15);
+        wl_fixed_t value = wl_fixed_from_int(evt.direction * 15);
 
-    zwlr_virtual_pointer_v1_axis(virtual_pointer,
-                                 time_ms, WL_POINTER_AXIS_VERTICAL_SCROLL, value);
+        zwlr_virtual_pointer_v1_axis(virtual_pointer,
+                                     time_ms, WL_POINTER_AXIS_VERTICAL_SCROLL, value);
 
-    zwlr_virtual_pointer_v1_frame(virtual_pointer);
-    wl_display_flush(display);
+        zwlr_virtual_pointer_v1_frame(virtual_pointer);
+        wl_display_flush(display);
+    }
 
     std::cerr << "[SERVER] Mouse scroll sent\n";
 }
@@ -3034,144 +3014,155 @@ static std::string render_ascii(
     return out.str();
 }
 
-static void capture_thread(int output_index, int fps)
-{
+static void capture_thread(int output_index, int fps) {
     if (output_index >= (int)outputs.size())
         return;
 
     const long frame_delay = 1000000 / fps;
-    wl_output *output = outputs[output_index];
-
+    
     std::cerr << "[CAPTURE] Thread started for output " << output_index
-              << " at " << fps << " FPS\n";
+              << " at " << fps << " FPS using " 
+              << (capture_backend == PIPEWIRE ? "PipeWire" : "wlr-screencopy") << "\n";
 
-    CaptureContext ctx;
-    ctx.output_index = output_index;
-    ctx.capture = &output_captures[output_index];
-    ctx.mutex = output_mutexes[output_index].get();
-    ctx.ready = &output_ready[output_index];
-
-    auto last_frame_time = std::chrono::steady_clock::now();
-    int consecutive_timeouts = 0;
-
-    // OPTIMIZATION: Request first frame immediately
-    {
-        std::lock_guard<std::mutex> lock(*ctx.mutex);
-        auto *frame = zwlr_screencopy_manager_v1_capture_output(manager, 1, output);
-        zwlr_screencopy_frame_v1_add_listener(frame, &frame_listener, &ctx);
-        wl_display_flush(display);
-        ctx.capture->frame_in_flight = true;
-    }
-
-    while (running)
-    {
-        auto frame_start = std::chrono::steady_clock::now();
-
-        // Wait for frame ready
-        {
-            std::unique_lock<std::mutex> lock(*output_mutexes[output_index]);
-
-            bool got_frame = frame_ready_cvs[output_index]->wait_for(
-                lock,
-                std::chrono::milliseconds(100),
-                [&]
-                { return output_ready[output_index] || !running; });
-
-            if (!running)
-                break;
-
-            if (!got_frame)
-            {
-                consecutive_timeouts++;
-                if (consecutive_timeouts > 5)
-                {
-                    std::cerr << "[CAPTURE] Multiple timeouts on output " << output_index << "\n";
-                    consecutive_timeouts = 0;
-                }
-                continue;
+    if (capture_backend == PIPEWIRE) {
+        // PipeWire capture loop
+        auto &pw_cap = pipewire_captures[output_index];
+        auto last_frame_time = std::chrono::steady_clock::now();
+        
+        while (running) {
+            auto frame_start = std::chrono::steady_clock::now();
+            
+            std::vector<uint8_t> frame_data;
+            uint32_t width, height, stride;
+            
+            if (pw_cap->get_frame(frame_data, width, height, stride)) {
+                // Copy to output buffer
+                std::lock_guard<std::mutex> lock(*output_mutexes[output_index]);
+                Capture &cap = output_captures[output_index];
+                
+                cap.back_buffer = std::move(frame_data);
+                cap.width = width;
+                cap.height = height;
+                cap.stride = stride;
+                cap.format = 0; // BGRA
+                cap.back_ready = true;
+                cap.timestamp = std::chrono::steady_clock::now();
+                
+                output_ready[output_index] = true;
+                frame_ready_cvs[output_index]->notify_all();
             }
-
-            consecutive_timeouts = 0;
-            output_ready[output_index] = false;
-
-            // OPTIMIZATION: Fast buffer swap instead of memcpy
-            // The front buffer is now ready, swap it to back
-            if (ctx.capture->front_ready && ctx.capture->front_data)
-            {
-                // Only copy if we haven't already
-                if (!ctx.capture->back_ready ||
-                    ctx.capture->back_buffer.size() != ctx.capture->size)
-                {
-                    ctx.capture->back_buffer.resize(ctx.capture->size);
-                }
-
-                // Fast copy (consider using memcpy with huge pages or madvise)
-                memcpy(ctx.capture->back_buffer.data(),
-                       ctx.capture->front_data,
-                       ctx.capture->size);
-
-                ctx.capture->back_ready = true;
-                ctx.capture->front_ready = false;
+            
+            // Frame pacing
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                now - last_frame_time).count();
+            
+            if (elapsed < frame_delay) {
+                usleep(frame_delay - elapsed);
             }
+            
+            last_frame_time = std::chrono::steady_clock::now();
         }
+    } else {
+        // Original wlr-screencopy
+        wl_output *output = outputs[output_index];
+        
+        CaptureContext ctx;
+        ctx.output_index = output_index;
+        ctx.capture = &output_captures[output_index];
+        ctx.mutex = output_mutexes[output_index].get();
+        ctx.ready = &output_ready[output_index];
 
-        // OPTIMIZATION: Request next frame IMMEDIATELY (pipelining)
-        // Don't wait for rendering to finish
+        auto last_frame_time = std::chrono::steady_clock::now();
+        int consecutive_timeouts = 0;
+
         {
             std::lock_guard<std::mutex> lock(*ctx.mutex);
-
-            // Only request if no frame in flight
-            if (!ctx.capture->frame_in_flight)
-            {
-                auto *frame = zwlr_screencopy_manager_v1_capture_output(manager, 1, output);
-                zwlr_screencopy_frame_v1_add_listener(frame, &frame_listener, &ctx);
-                wl_display_flush(display);
-                ctx.capture->frame_in_flight = true;
-            }
+            auto *frame = zwlr_screencopy_manager_v1_capture_output(manager, 1, output);
+            zwlr_screencopy_frame_v1_add_listener(frame, &frame_listener, &ctx);
+            wl_display_flush(display);
+            ctx.capture->frame_in_flight = true;
         }
 
-        // Frame pacing - sleep remainder of frame time
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                           now - last_frame_time)
-                           .count();
+        while (running) {
+            auto frame_start = std::chrono::steady_clock::now();
 
-        if (elapsed < frame_delay)
-        {
-            long sleep_time = frame_delay - elapsed;
-
-            // OPTIMIZATION: More accurate sleep for high FPS
-            if (sleep_time > 2000)
             {
-                usleep(sleep_time - 1000); // Wake up 1ms early
+                std::unique_lock<std::mutex> lock(*output_mutexes[output_index]);
 
-                // Busy-wait for remaining time for accuracy
-                while (true)
-                {
-                    now = std::chrono::steady_clock::now();
-                    elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                                  now - last_frame_time)
-                                  .count();
-                    if (elapsed >= frame_delay)
-                        break;
+                bool got_frame = frame_ready_cvs[output_index]->wait_for(
+                    lock,
+                    std::chrono::milliseconds(100),
+                    [&] { return output_ready[output_index] || !running; });
+
+                if (!running) break;
+
+                if (!got_frame) {
+                    consecutive_timeouts++;
+                    if (consecutive_timeouts > 5) {
+                        std::cerr << "[CAPTURE] Multiple timeouts on output " << output_index << "\n";
+                        consecutive_timeouts = 0;
+                    }
+                    continue;
+                }
+
+                consecutive_timeouts = 0;
+                output_ready[output_index] = false;
+
+                if (ctx.capture->front_ready && ctx.capture->front_data) {
+                    if (!ctx.capture->back_ready ||
+                        ctx.capture->back_buffer.size() != ctx.capture->size) {
+                        ctx.capture->back_buffer.resize(ctx.capture->size);
+                    }
+
+                    memcpy(ctx.capture->back_buffer.data(),
+                           ctx.capture->front_data,
+                           ctx.capture->size);
+
+                    ctx.capture->back_ready = true;
+                    ctx.capture->front_ready = false;
                 }
             }
-            else
+
             {
-                // Short sleep, just busy-wait
-                while (true)
-                {
-                    now = std::chrono::steady_clock::now();
-                    elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                                  now - last_frame_time)
-                                  .count();
-                    if (elapsed >= frame_delay)
-                        break;
+                std::lock_guard<std::mutex> lock(*ctx.mutex);
+
+                if (!ctx.capture->frame_in_flight) {
+                    auto *frame = zwlr_screencopy_manager_v1_capture_output(manager, 1, output);
+                    zwlr_screencopy_frame_v1_add_listener(frame, &frame_listener, &ctx);
+                    wl_display_flush(display);
+                    ctx.capture->frame_in_flight = true;
                 }
             }
+
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                now - last_frame_time).count();
+
+            if (elapsed < frame_delay) {
+                long sleep_time = frame_delay - elapsed;
+
+                if (sleep_time > 2000) {
+                    usleep(sleep_time - 1000);
+
+                    while (true) {
+                        now = std::chrono::steady_clock::now();
+                        elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                            now - last_frame_time).count();
+                        if (elapsed >= frame_delay) break;
+                    }
+                } else {
+                    while (true) {
+                        now = std::chrono::steady_clock::now();
+                        elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                            now - last_frame_time).count();
+                        if (elapsed >= frame_delay) break;
+                    }
+                }
+            }
+
+            last_frame_time = std::chrono::steady_clock::now();
         }
-
-        last_frame_time = std::chrono::steady_clock::now();
     }
 
     std::cerr << "[CAPTURE] Thread stopped for output " << output_index << "\n";
@@ -4948,6 +4939,10 @@ int main(int argc, char **argv)
         .default_value(std::string("auto"))
         .help("Compositor type: auto, hyprland, sway, kde, gnome, generic");
 
+    program.add_argument("-B", "--capture-backend")
+        .default_value(std::string("auto"))
+        .help("Capture backend: auto, wlr, pipewire");
+
     try
     {
         program.parse_args(argc, argv);
@@ -4958,6 +4953,15 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    std::string backend_str = program.get<std::string>("--capture-backend");
+    if (backend_str == "pipewire") {
+        capture_backend = PIPEWIRE;
+    } else if (backend_str == "wlr") {
+        capture_backend = WLR_SCREENCOPY;
+    } else {
+        capture_backend = AUTO_CAPTURE;
+    }
+    
     std::string compositor_override = program.get<std::string>("--compositor");
     compositor_type = detect_compositor(compositor_override);
     std::cerr << "[INIT] Compositor: " << compositor_type << "\n";
@@ -5072,6 +5076,10 @@ int main(int argc, char **argv)
             }
             std::cerr << "================================\n\n";
         }
+    }
+
+    if (capture_backend == AUTO_CAPTURE) {
+        capture_backend = detect_capture_backend();
     }
 
     std::thread focus_updater;
@@ -5194,6 +5202,34 @@ int main(int argc, char **argv)
         }
 
         std::cerr << "Frame server listening on port " << port << "\n";
+
+        if (capture_backend == PIPEWIRE) {
+            std::cerr << "Initializing PipeWire capture for " << outputs.size() << " output(s)\n";
+            
+            pipewire_captures.resize(outputs.size());
+            for (size_t i = 0; i < outputs.size(); i++) {
+                pipewire_captures[i] = std::make_unique<PipeWireCapture>();
+                if (!pipewire_captures[i]->init(i)) {
+                    std::cerr << "Failed to initialize PipeWire capture for output " << i << "\n";
+                    return 1;
+                }
+                
+                output_mutexes.push_back(std::make_unique<std::mutex>());
+                frame_ready_cvs.push_back(std::make_unique<std::condition_variable>());
+            }
+            output_ready.resize(outputs.size(), false);
+            output_captures.resize(outputs.size());
+        } else {
+            // Original wlr-screencopy initialization
+            std::cerr << "Found " << outputs.size() << " output(s)\n";
+    
+            output_captures.resize(outputs.size());
+            for (size_t i = 0; i < outputs.size(); i++) {
+                output_mutexes.push_back(std::make_unique<std::mutex>());
+                frame_ready_cvs.push_back(std::make_unique<std::condition_variable>());
+            }
+            output_ready.resize(outputs.size(), false);
+        }
     }
 
     // Setup input server socket
@@ -5230,6 +5266,60 @@ int main(int argc, char **argv)
         std::cerr << "Input server listening on port " << (port + 1) << "\n";
     }
 
+    // Initialize capture based on backend:
+    if (feature_video) {
+        if (capture_backend == PIPEWIRE) {
+            std::cerr << "Initializing PipeWire capture for " << outputs.size() << " output(s)\n";
+            
+            pipewire_captures.resize(outputs.size());
+            for (size_t i = 0; i < outputs.size(); i++) {
+                pipewire_captures[i] = std::make_unique<PipeWireCapture>();
+                if (!pipewire_captures[i]->init(i)) {
+                    std::cerr << "Failed to initialize PipeWire capture for output " << i << "\n";
+                    return 1;
+                }
+                
+                output_mutexes.push_back(std::make_unique<std::mutex>());
+                frame_ready_cvs.push_back(std::make_unique<std::condition_variable>());
+            }
+            output_ready.resize(outputs.size(), false);
+            output_captures.resize(outputs.size());
+        } else {
+            // Original wlr-screencopy initialization
+            std::cerr << "Found " << outputs.size() << " output(s)\n";
+    
+            output_captures.resize(outputs.size());
+            for (size_t i = 0; i < outputs.size(); i++) {
+                output_mutexes.push_back(std::make_unique<std::mutex>());
+                frame_ready_cvs.push_back(std::make_unique<std::condition_variable>());
+            }
+            output_ready.resize(outputs.size(), false);
+        }
+    }
+    
+    // Initialize virtual input after checking protocols:
+    if (feature_input) {
+        // Check what's available
+        bool has_wlr_input = (seat && pointer_manager && keyboard_manager);
+        
+        VirtualInputManager::Backend input_backend;
+        if (has_wlr_input) {
+            input_backend = VirtualInputManager::WLR_PROTOCOLS;
+            // Keep using existing virtual_pointer and virtual_keyboard
+        } else if (uinput_available()) {
+            input_backend = VirtualInputManager::UINPUT;
+            if (!virtual_input_mgr.init(input_backend)) {
+                std::cerr << "Failed to initialize uinput backend\n";
+                feature_input = false;
+            } else {
+                std::cerr << "Using uinput for virtual input\n";
+            }
+        } else {
+            std::cerr << "No virtual input backend available!\n";
+            feature_input = false;
+        }
+    }
+    
     // Setup config server socket (ALWAYS enabled)
     config_server_socket = socket(AF_INET, SOCK_STREAM, 0);
     all_server_sockets.push_back(config_server_socket);
@@ -5425,6 +5515,16 @@ int main(int argc, char **argv)
     if (feature_video || feature_input)
     {
         wl_display_disconnect(display);
+    }
+
+    if (feature_input) {
+        virtual_input_mgr.cleanup();
+    }
+    
+    if (capture_backend == PIPEWIRE) {
+        for (auto &cap : pipewire_captures) {
+            if (cap) cap->cleanup();
+        }
     }
 
     std::cerr << "Shutdown complete.\n";
