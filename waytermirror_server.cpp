@@ -3306,9 +3306,7 @@ static std::vector<uint8_t> compress_frame(const std::vector<uint8_t> &data,
             (const char *)data.data(),
             (char *)compressed.data(),
             data.size(),
-            max_size,
-            compression_level // 1-12, higher = better compression, slower
-        );
+            max_size,12
     }
 
     if (comp_size <= 0)
@@ -3320,7 +3318,7 @@ static std::vector<uint8_t> compress_frame(const std::vector<uint8_t> &data,
     compressed.resize(comp_size);
 
     // Stats
-    total_bytes_original += data.size();
+    total_bytes_original += data.size(); 
     total_bytes_compressed += comp_size;
     
     if (total_frames_sent % 100 == 0)
@@ -4424,6 +4422,36 @@ cleanup:
 
 static void reset_modifier_state()
 {
+    // Release all modifier keys first
+    if (virtual_input_mgr.backend == VirtualInputManager::UINPUT) {
+        // Release all modifier keys via uinput
+        if (server_shift_pressed) {
+            virtual_input_mgr.send_key(KEY_LEFTSHIFT, false);
+            virtual_input_mgr.send_key(KEY_RIGHTSHIFT, false);
+        }
+        if (server_ctrl_pressed) {
+            virtual_input_mgr.send_key(KEY_LEFTCTRL, false);
+            virtual_input_mgr.send_key(KEY_RIGHTCTRL, false);
+        }
+        if (server_alt_pressed) {
+            virtual_input_mgr.send_key(KEY_LEFTALT, false);
+        }
+        if (server_altgr_pressed) {
+            virtual_input_mgr.send_key(KEY_RIGHTALT, false);
+        }
+        if (server_super_pressed) {
+            virtual_input_mgr.send_key(KEY_LEFTMETA, false);
+            virtual_input_mgr.send_key(KEY_RIGHTMETA, false);
+        }
+        std::cerr << "[INPUT] Released modifier keys via uinput\n";
+    } else if (virtual_keyboard) {
+        // Send modifier reset to compositor via virtual keyboard
+        zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
+        wl_display_flush(display);
+        std::cerr << "[INPUT] Modifier state reset via virtual keyboard\n";
+    }
+
+    // Reset internal state
     server_shift_pressed = false;
     server_ctrl_pressed = false;
     server_alt_pressed = false;
@@ -4431,14 +4459,6 @@ static void reset_modifier_state()
     server_altgr_pressed = false;
     server_capslock_pressed = false;
     server_numlock_pressed = false;
-
-    // Send modifier reset to compositor
-    if (virtual_keyboard)
-    {
-        zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
-        wl_display_flush(display);
-        std::cerr << "[INPUT] Modifier state reset\n";
-    }
 }
 
 static void handle_config_client(int client_socket, sockaddr_in client_addr)
