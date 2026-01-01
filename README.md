@@ -2,14 +2,9 @@
 
 Real-time Wayland screen mirroring to a terminal using Unicode braille characters, half‑blocks, or ASCII. Includes bidirectional input forwarding, audio streaming (PipeWire), zooming, focus-follow, and optional NVIDIA CUDA acceleration (server-side).
 
-<!-- [![Release](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=release)](https://github.com/cyber-wojtek/waytermirror/releases) --->
-
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)
-[![Stars](https://img.shields.io/github/stars/cyber-wojtek/waytermirror?style=)](https://github.com/cyber-wojtek/waytermirror/stargazers)
-[![Open Issues](https://img.shields.io/github/issues/cyber-wojtek/waytermirror?color=orange)](https://github.com/cyber-wojtek/waytermirror/issues)
-[![PKGBUILD](https://img.shields.io/badge/Packaging-Arch%20PKGBUILD-blue?logo=arch-linux)](https://github.com/cyber-wojtek/waytermirror/blob/main/PKGBUILD)
 
 ## Table of contents
 - [What it is](#what-it-is)
@@ -17,15 +12,17 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 - [Quickstart](#quickstart)
 - [Build & install](#build--install)
 - [Runtime requirements & supported compositors](#runtime-requirements--supported-compositors)
-- [Usage (server & client examples)](#usage)
+- [Usage (server & client)](#usage)
   - [Full server options](#full-server-options)
   - [Full client options](#full-client-options)
+- [Keyboard shortcuts (client)](#keyboard-shortcuts-client)
 - [Network ports](#network-ports)
 - [Performance tuning](#performance-tuning)
 - [Troubleshooting](#troubleshooting)
 - [Security & limitations](#security--limitations)
 - [Contributing](#contributing)
 - [License](#license)
+- [Acknowledgments](#acknowledgments)
 
 ## What it is
 - A client/server application:
@@ -54,10 +51,12 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
    ./waytermirror_server
    ```
 
-3. Run the client in the terminal (replace <host>):
+3. Run the client in your terminal (replace <host>):
    ```bash
    ./waytermirror_client -H <host>
    ```
+
+Tip: run `./waytermirror_client --help` or `./waytermirror_server --help` to see current/compiled-in flags and defaults on your build.
 
 ## Build & install
 
@@ -65,7 +64,7 @@ Prerequisites
 - Core: gcc/g++, make, wayland, libinput, libudev, pipewire, lz4, rapidjson
 - Optional: NVIDIA CUDA toolkit for GPU rendering (nvcc) — see NVIDIA CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit
 
-Arch Linux (packages listed in [PKGBUILD](https://github.com/cyber-wojtek/waytermirror/blob/main/PKGBUILD))
+Arch Linux (packages listed in [PKGBUILD](PKGBUILD))
 - Example installable dependencies: wayland, wlroots0.19, wayland-protocols, libinput, libevdev, pipewire, lz4, rapidjson, lua, systemd-libs, glib2
 
 Debian/Ubuntu
@@ -74,41 +73,36 @@ sudo apt install build-essential libwayland-dev libinput-dev libudev-dev libpipe
 # For CUDA: install NVIDIA CUDA toolkit from https://developer.nvidia.com/cuda-toolkit
 ```
 
-## Building (details)
+Building (details)
 - CPU-only (default):
   ```bash
   make
   ```
 - CUDA-enabled (if you have nvcc and CUDA libs):
-  - Option 1: explicit make flag
-    ```bash
-    make CUDA=true
-    ```
-  - Option 2: let PKGBUILD detect nvcc or use env override (when using the provided PKGBUILD)
-    ```bash
-    # PKGBUILD build() supports WAYTERMIRROR_CUDA=1 or WAYTERMIRROR_NO_CUDA
-    ```
+  ```bash
+  make CUDA=true
+  ```
+- The provided PKGBUILD auto-detects nvcc. You can override with WAYTERMIRROR_CUDA=1 or WAYTERMIRROR_NO_CUDA when building on Arch.
 
-## Artifacts
+Artifacts
 - waytermirror_server
 - waytermirror_client
 
-## Packaging (Arch)
+Packaging (Arch)
 - Use the included PKGBUILD with `makepkg`:
   ```bash
   git clone https://github.com/cyber-wojtek/waytermirror.git
   cd waytermirror
   makepkg -si
   ```
-- The PKGBUILD tries to auto-detect CUDA if `nvcc` is present. You can override with WAYTERMIRROR_CUDA or WAYTERMIRROR_NO_CUDA.
 
 ## Runtime requirements & supported compositors
 - Compositor: wlroots-based (Hyprland, Sway, River) or any compositor exposing:
-  - [wlr-screencopy-unstable-v1](https://github.com/swaywm/wlroots/tree/master/protocols) — required for screen capture
-  - [zwp_virtual_keyboard_v1](https://github.com/wayland-project/wayland-protocols) (virtual keyboard)
-  - [zwlr_virtual_pointer_v1](https://github.com/swaywm/wlroots/tree/master/protocols) (virtual pointer)
+  - wlr-screencopy-unstable-v1 — required for screen capture
+  - zwp_virtual_keyboard_v1 (virtual keyboard)
+  - zwlr_virtual_pointer_v1 (virtual pointer)
   - wlr-foreign-toplevel-management (optional — focus following)
-- Audio: [PipeWire](https://pipewire.org) (for system audio streaming).
+- Audio: PipeWire (for system audio streaming).
 - Input: access to input devices (user must be in the `input` group or run with sufficient privileges to read /dev/input/*).
 - NOT SUPPORTED: GNOME or KDE Plasma (they typically do not expose the required wlr protocols).
 
@@ -120,21 +114,17 @@ Server
 ```
 
 ### Full server options
-> Note: This README consolidates the known server options from the project documentation. For the authoritative, up-to-date list use `./waytermirror_server --help`.
+> For the authoritative list use `./waytermirror_server --help`.
 
 | Flag / Short | Long / Name | Description | Default |
 |--------------:|-------------|-------------|---------|
 | -P <n> | --port <n> | Base TCP port (video base; other services use base+N) | 9999 |
 | -F <n> | --capture-fps <n> | Capture framerate from compositor | 30 |
-| -C <type> | --compositor <auto\|hyprland\|sway\|kde\|gnome\|generic> | Compositor override (affects protocol handling/focus) | auto |
+| -C <type> | --compositor <auto\|hyprland\|sway\|kde\|gnome\|generic> | Compositor override | auto |
 | -n | --no-video | Disable screen capture / video streaming | off |
 | -A | --no-audio | Disable system audio streaming | off |
 | -N | --no-input | Disable input injection (do not create virtual devices) | off |
 | -m | --no-microphone | Disable microphone reception (client→server mic) | off |
-
-Common additional server behaviors:
-- Server detects compositor type automatically (env XDG_CURRENT_DESKTOP / WAYLAND_DISPLAY heuristics) unless overridden with --compositor.
-- Server prints diagnostic lines about virtual device creation and screencopy availability on startup.
 
 Client
 ```bash
@@ -142,7 +132,7 @@ Client
 ```
 
 ### Full client options
-> Note: This README consolidates the known client options from the project documentation. For the authoritative, up-to-date list use `./waytermirror_client --help`.
+> For the authoritative list use `./waytermirror_client --help`.
 
 Connection
 | Flag / Short | Long / Name | Description | Default |
@@ -154,17 +144,17 @@ Video & rendering
 | Flag / Short | Long / Name | Description | Default |
 |--------------:|-------------|-------------|---------|
 | -o <n\|follow> | --output <n\|follow> | Output index or `follow` to track focused window | 0 |
-| -F <n> | --fps <n> | Target client FPS / target playback framerate | 30 |
+| -F <n> | --fps <n> | Target client FPS / playback framerate | 30 |
 | -M <16\|256\|true> | --mode <16\|256\|true> | Color mode (16, 256, truecolor) | 256 |
-| -R <type> | --renderer <braille\|blocks\|ascii\|hybrid> | Rendering method (hybrid auto-selects per-cell) | braille |
-| -r <cpu\|cuda> | --render-device <cpu\|cuda> | Prefer server-side rendering backend (cpu or cuda) | cpu |
+| -R <type> | --renderer <braille\|blocks\|ascii\|hybrid> | Rendering method | braille |
+| -r <cpu\|cuda> | --render-device <cpu\|cuda> | Prefer server-side renderer | cpu |
 | -d <0-100> | --detail-level <0-100> | Visual detail (0: fast/smooth, 100: sharp) | 50 |
-| -Q <0-100> | --quality <0-100> | Pattern search precision / quality threshold | 50 |
+| -Q <0-100> | --quality <0-100> | Pattern search precision | 50 |
 | -S <factor> | --scale <factor> | Scale factor for rendered output | 1.0 |
 | -k | --keep-aspect-ratio | Maintain aspect ratio when scaling | off |
-| -c | --compress | Enable LZ4 compression (client↔server frames) | off |
-| -L <0-12> | --compression-level <0-12> | LZ4 HC level (0=fast, 12=best ratio) | 0 |
-| -n | --no-video | Disable video display (useful for input-only sessions) | off |
+| -c | --compress | Enable LZ4 compression | off |
+| -L <0-12> | --compression-level <0-12> | LZ4 HC level (0=fast, 12=best) | 0 |
+| -n | --no-video | Disable video display | off |
 
 Input (local client input capture / forwarding)
 | Flag / Short | Long / Name | Description | Default |
@@ -186,7 +176,7 @@ Zoom / viewport
 | -Z <1-10> | --zoom-level <1-10> | Magnification | 2.0 |
 | -X <px> | --zoom-width <px> | Viewport width (px) | 800 |
 | -Y <px> | --zoom-height <px> | Viewport height (px) | 600 |
-| -f | --zoom-follow | Follow mouse cursor while zoomed | on |
+| -f | --zoom-follow | Follow mouse while zoomed | on |
 | -s | --zoom-smooth | Smooth panning while zoomed | on |
 | -D <n> | --zoom-speed <n> | Pan speed (px/frame) | 20 |
 
@@ -200,7 +190,7 @@ Zoom / viewport
   ./waytermirror_client -H 192.168.1.100 -F 60 -M true -R hybrid
   ```
 
-- High quality with CUDA (server must be built with CUDA support):
+- High quality with CUDA (server built with CUDA support):
   ```bash
   ./waytermirror_client -H 192.168.1.100 -r cuda -d 90 -Q 100 -M true -R braille
   ```
@@ -220,6 +210,39 @@ Zoom / viewport
   ./waytermirror_client -H 192.168.1.100 -n -x
   ```
 
+## Keyboard shortcuts (client)
+
+This table documents the most useful client-side keyboard shortcuts. Shortcuts are designed for local control of the client (zoom, audio, input capture, toggles). By convention the client uses the local-modifier prefix Ctrl+Shift for client commands so that normal keys are forwarded to the remote session. If you need to send the same Ctrl+Shift+Key combination to the remote instead of triggering the client shortcut, either use the command-line flags to disable local capturing (e.g. --no-input) or check the client behavior for "double-press" forwarding (see notes below).
+
+Note: Exact bindings may vary by build. Run `./waytermirror_client --help` or inspect waytermirror_client.cpp for the current compiled-in keys.
+
+Default client shortcuts
+| Shortcut | Action | Notes |
+|---------:|--------|-------|
+| Ctrl+Shift+Q | Quit client / disconnect | Graceful disconnect (sends close to server) |
+| Ctrl+Shift+I | Toggle input forwarding | Enable/disable forwarding of keyboard & mouse to server |
+| Ctrl+Shift+G | Toggle exclusive grab | EVIOCGRAB on local devices (when supported) |
+| Ctrl+Shift+Z | Toggle zoom mode | When zoomed, use arrow keys to pan |
+| Ctrl+Shift++ (or Ctrl+Shift+=) | Zoom in | Increases zoom level (same as -Z) |
+| Ctrl+Shift+- | Zoom out | Decreases zoom level |
+| Ctrl+Shift+0 | Reset zoom | Reset to 1.0x (or configured -Z default) |
+| Arrow keys | Pan while zoomed | Left/Right/Up/Down — smooth panning if --zoom-smooth enabled |
+| PageUp / PageDown | Fast pan while zoomed | Larger vertical pan steps |
+| Ctrl+Shift+F | Toggle focus-follow | Follow focused output/window (if supported by compositor) |
+| Ctrl+Shift+R | Cycle renderer | Cycle: braille → blocks → ascii → hybrid |
+| Ctrl+Shift+C | Cycle color mode | Cycle: 16 → 256 → truecolor |
+| Ctrl+Shift+D | Increase detail | Equivalent to raising --detail-level |
+| Ctrl+Shift+S | Decrease detail | Equivalent to lowering --detail-level |
+| Ctrl+Shift+P | Pause / resume video | Stops rendering updates locally (input still forwarded) |
+| Ctrl+Shift+A | Toggle audio playback | Mute/unmute system audio stream |
+| Ctrl+Shift+M | Toggle microphone capture | Enable/disable mic from client → server |
+
+Quick usage tips
+- Zoom panning: when zoomed (Ctrl+Shift+Z), use arrow keys to pan the viewport. Hold PageUp/PageDown for faster vertical movement.
+- Input capture: enable exclusive grab (Ctrl+Shift+G) only if you trust the client host and want to avoid local desktop interaction while controlling remote.
+- Forwarding vs local: if you want to send one of the Ctrl+Shift+... combos to the remote, either temporarily disable local shortcuts (e.g. Ctrl+Shift+I to stop input capturing) or use a build/flag to change behavior. Check `waytermirror_client --help` or the source file waytermirror_client.cpp for the exact forwarding rules.
+- Customization: keyboard handling is implemented in the client source. To change shortcuts, edit waytermirror_client.cpp and rebuild.
+
 ## Network ports
 - (base port)         TCP — video frames
 - (base port + 1)     TCP — input events
@@ -230,7 +253,7 @@ Zoom / viewport
 Default base port is 9999 (see -P / --port).
 
 ## Performance tuning
-- Maximum quality (more GPU/CPU work, higher bandwidth):
+- Maximum quality:
   - Server: render_device=cuda, renderer=braille, detail=100, quality=100, color=true
   - Client example: `-r cuda -R braille -d 100 -Q 100 -M true -F 30`
 - Smooth video:
@@ -250,10 +273,10 @@ Default base port is 9999 (see -P / --port).
   ```bash
   wayland-info 2>/dev/null | grep -i screencopy
   ```
-  If no screencopy global is present, the compositor doesn't support `wlr-screencopy-unstable-v1` — see wlroots protocols: https://github.com/swaywm/wlroots/tree/master/protocols
+  If no screencopy global is present, the compositor doesn't support `wlr-screencopy-unstable-v1`.
 
 - Virtual input not working
-  - Server will print messages about virtual devices. Look for:
+  - Server prints messages about virtual devices on startup. Look for messages like:
     ```
     Virtual pointer created: YES
     Virtual keyboard created: YES
@@ -264,35 +287,33 @@ Default base port is 9999 (see -P / --port).
   ```bash
   systemctl --user status pipewire
   ```
-  PipeWire docs: https://pipewire.org
 
 - CUDA errors / verify GPU:
   ```bash
   nvcc --version
   nvidia-smi
   ```
-  NVIDIA CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit
 
 - Permissions to /dev/input
   - Ensure client (when capturing local input) can read devices or run with privileges. Exclusive grab (-x) uses EVIOCGRAB and requires access.
 
 - Logs & debugging:
   - The server prints status and detection lines to stdout/stderr. Inspect output for messages about compositor detection, screencopy frames, and virtual device creation.
-  - If options differ from this README, prefer `--help` output from the built binaries for the latest flags.
+  - For current flags and runtime behavior, prefer `--help` output for the built binaries.
 
 ## Security & limitations
-- No built-in authentication: the protocol uses raw TCP streams. Avoid exposing the server to untrusted networks. Use an SSH tunnel or VPN if you need to connect over the internet.
+- No built-in authentication: protocol uses raw TCP streams. Do not expose the server to untrusted networks. Use an SSH tunnel or VPN for remote connections.
 - Requires compositor support for the listed wlroots protocols. GNOME/KDE typically lack required wlr protocols — not supported.
-- Input injection requires compositor permission — some compositors will restrict virtual devices.
+- Input injection requires compositor permission — some compositors may restrict virtual devices.
 
 ## Design notes & behavior
 - Rendering is performed server-side. The client displays ANSI/escape sequences sent from server — client CPU requirements are minimal.
-- Optional CUDA renderer: when built with CUDA, server uses GPU for rendering; otherwise, CPU fallback is used (stub in braille_renderer_stub.cpp).
+- Optional CUDA renderer: when built with CUDA, server uses GPU for rendering; otherwise, CPU fallback is used (braille_renderer_stub.cpp).
 - Hybrid renderer chooses per-cell between braille and half-blocks based on local variance (detail-level influences decisions).
 
 ## Contributing
-- Bug reports, feature requests and PRs welcome. Please follow repository contribution guidelines (open issues & PRs on the [GitHub project](https://github.com/cyber-wojtek/waytermirror)).
-- See the [PKGBUILD](https://github.com/cyber-wojtek/waytermirror/blob/main/PKGBUILD) for a reproducible Arch packaging example.
+- Bug reports, feature requests and PRs welcome. Please open issues/PRs on the GitHub project: https://github.com/cyber-wojtek/waytermirror
+- See the PKGBUILD for packaging guidance.
 
 ## License
 - Apache License 2.0 — see [LICENSE](LICENSE)
@@ -303,4 +324,4 @@ Default base port is 9999 (see -P / --port).
 - LZ4 for compression — https://github.com/lz4/lz4
 - argparse (CLI parsing)
 
-If you need a smaller quick-help snippet or a sample systemd unit for running the server persistently, tell me your target distribution and I’ll provide a template.
+If you need a smaller quick-help snippet, a printable cheat-sheet for shortcuts, or a sample systemd unit for running the server persistently on a particular distribution, tell me your target and I’ll provide a template.
