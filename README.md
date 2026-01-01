@@ -2,7 +2,9 @@
 
 Real-time Wayland screen mirroring to a terminal using Unicode braille characters, half‑blocks, or ASCII. Includes bidirectional input forwarding, audio streaming (PipeWire), zooming, focus-follow, and optional NVIDIA CUDA acceleration (server-side).
 
-![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
+![License](https://img.shields.io/badge/License-Apache--2.0-blue)
+![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
+![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)
 
 Table of contents
 - What it is
