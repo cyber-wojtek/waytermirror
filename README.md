@@ -239,10 +239,23 @@ All client shortcuts use the **Ctrl+Alt+Shift** modifier prefix, so normal keys 
 | Ctrl+Alt+Shift+PageUp/PageDown | Fast vertical pan | 5× normal pan speed |
 | Ctrl+Alt+Shift+Home/End | Fast horizontal pan | 5× normal pan speed |
 
+### Rotation
+| Shortcut | Action | Notes |
+|---------:|--------|-------|
+| Ctrl+Alt+Shift+[ | Rotate left 15° | Counter-clockwise rotation |
+| Ctrl+Alt+Shift+] | Rotate right 15° | Clockwise rotation |
+| Ctrl+Alt+Shift+\ | Reset rotation | Return to 0° |
+| Ctrl+Alt+Shift+T | Rotate 90° CW | Quick 90° clockwise rotation |
+| Ctrl+Alt+Shift+Y | Rotate 90° CCW | Quick 90° counter-clockwise rotation |
+
 ### Rendering
 | Shortcut | Action | Notes |
 |---------:|--------|-------|
 | Ctrl+Alt+Shift+R | Cycle renderer | braille → blocks → ascii → hybrid |
+| Ctrl+Alt+Shift+1 | Braille renderer | Quick switch to braille |
+| Ctrl+Alt+Shift+2 | Blocks renderer | Quick switch to half-blocks |
+| Ctrl+Alt+Shift+3 | ASCII renderer | Quick switch to ASCII characters |
+| Ctrl+Alt+Shift+4 | Hybrid renderer | Quick switch to hybrid (auto per-cell) |
 | Ctrl+Alt+Shift+C | Cycle color mode | 16 → 256 → truecolor |
 | Ctrl+Alt+Shift+D | Increase detail | +10 detail level |
 | Ctrl+Alt+Shift+S | Decrease detail | −10 detail level |
@@ -251,17 +264,30 @@ All client shortcuts use the **Ctrl+Alt+Shift** modifier prefix, so normal keys 
 | Ctrl+Alt+Shift+O | Toggle smooth panning | Enable/disable smooth zoom panning |
 | Ctrl+Alt+Shift+B | Toggle aspect ratio | Keep/ignore aspect ratio when scaling |
 | Ctrl+Alt+Shift+V | Cycle render device | CPU → CUDA (if available) |
-| Ctrl+Alt+Shift+L | Cycle compression | Off → fast LZ4 → HC levels |
+| Ctrl+Alt+Shift+U | Toggle compression | Enable/disable LZ4 compression |
+| Ctrl+Alt+Shift+L | Cycle compression level | Off → fast LZ4 → HC levels |
 
-### Audio/Video
+### Output & FPS
+| Shortcut | Action | Notes |
+|---------:|--------|-------|
+| Ctrl+Alt+Shift+` | Cycle output | Next output or toggle follow-focus |
+| Ctrl+Alt+Shift+J | Increase FPS | +5 FPS |
+| Ctrl+Alt+Shift+K | Decrease FPS | −5 FPS (min 0) |
+| Ctrl+Alt+Shift+F | Toggle focus-follow | Follow focused output/window |
+
+### Audio
 | Shortcut | Action | Notes |
 |---------:|--------|-------|
 | Ctrl+Alt+Shift+A | Toggle audio | Mute/unmute system audio playback |
 | Ctrl+Alt+Shift+M | Toggle microphone | Mute/unmute microphone capture |
-| Ctrl+Alt+Shift+F | Toggle focus-follow | Follow focused output/window |
 
 Quick usage tips
 - Zoom panning: when zoomed (Ctrl+Alt+Shift+Z), use arrow keys to pan the viewport. Hold PageUp/PageDown for faster vertical movement.
+- Rotation: use **[** and **]** to rotate in 15° steps, **T**/**Y** for 90° jumps, **\\** to reset. Rotation is handled natively by CUDA when available.
+- Quick renderer switch: use **1-4** to instantly select braille/blocks/ascii/hybrid renderers instead of cycling with **R**.
+- FPS adjustment: use **J** to increase and **K** to decrease FPS by 5 (range: 1-120).
+- Output cycling: press **`** (backtick) to cycle through outputs or toggle follow-focus mode.
+- Compression toggle: use **U** to quickly enable/disable LZ4 compression.
 - Input capture: enable exclusive grab (Ctrl+Alt+Shift+G) only if you trust the client host and want to avoid local desktop interaction while controlling remote.
 - Forwarding vs local: if you want to send one of the Ctrl+Alt+Shift+... combos to the remote, either temporarily disable local shortcuts (e.g. Ctrl+Alt+Shift+I to stop input capturing) or use a build/flag to change behavior. Check `waytermirror_client --help` or the source file waytermirror_client.cpp for the exact forwarding rules.
 - Customization: keyboard handling is implemented in the client source. To change shortcuts, edit waytermirror_client.cpp and rebuild.
