@@ -4150,295 +4150,271 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
             output_index = std::min(output_index, (uint32_t)(outputs.size() - 1));
         }
 
-        std::chrono::steady_clock::time_point last_frame_timestamp;
+        struct RenderedFrame {
+            std::vector<uint8_t> data;
+            std::chrono::steady_clock::time_point timestamp;
+        };
 
-        std::cerr << "[FRAME] Starting frame loop for session " << session_id
-                  << " on output " << output_index << "\n";
+        std::queue<RenderedFrame> rendered_queue;
+        std::mutex render_mutex;
+        std::condition_variable render_cv;
+        std::atomic<bool> renderer_running{true};
 
-        auto last_send = std::chrono::steady_clock::now();
-        long client_frame_delay = 1000000 / config.fps; // Client's requested FPS
-
-        // Main frame sending loop
-        while (running && conn->active && send_queue->running)
-        {
-            // Update output_index dynamically for focus following
-            if (config.follow_focus)
-            {
-                uint32_t new_output = focus_tracker.focused_output_index.load();
-                new_output = std::min(new_output, (uint32_t)(outputs.size() - 1));
-                if (new_output != output_index)
-                {
-                    std::cerr << "[FRAME] Focus-follow switching to output " << new_output << "\n";
-                    output_index = new_output;
+        // Rendering thread - runs independently
+        auto render_thread_func = [&]() {
+            std::cerr << "[RENDER] Thread started for session " << session_id << "\n";
+            
+            auto last_render = std::chrono::steady_clock::now();
+            long render_delay = 1000000 / config.fps;
+            
+            while (running && conn->active && renderer_running) {
+                auto render_start = std::chrono::steady_clock::now();
+                
+                // Update output index for focus following
+                uint32_t current_output = output_index;
+                if (config.follow_focus) {
+                    current_output = focus_tracker.focused_output_index.load();
+                    current_output = std::min(current_output, (uint32_t)(outputs.size() - 1));
+                } else {
+                    current_output = config.output_index;
+                    current_output = std::min(current_output, (uint32_t)(outputs.size() - 1));
                 }
-            }
-            else
-            {
-                // Non-follow mode: use client-specified output
-                uint32_t new_output = config.output_index;
-                new_output = std::min(new_output, (uint32_t)(outputs.size() - 1));
-                if (new_output != output_index)
+                
+                // Capture frame
+                std::vector<uint8_t> local_frame;
+                uint32_t width = 0, height = 0, stride = 0;
+                
                 {
-                    std::cerr << "[FRAME] Switching to output " << new_output << "\n";
-                    output_index = new_output;
+                    std::lock_guard<std::mutex> lock(*output_mutexes[current_output]);
+                    Capture &cap = output_captures[current_output];
+                    
+                    if (!cap.back_ready) {
+                        std::this_thread::sleep_for(std::chrono::microseconds(500));
+                        continue;
+                    }
+                    
+                    local_frame = cap.back_buffer;
+                    width = cap.width;
+                    height = cap.height;
+                    stride = cap.stride;
                 }
-            }
-
-            std::vector<uint8_t> local_frame;
-            uint32_t width = 0, height = 0, stride = 0;
-
-            {
-                std::lock_guard<std::mutex> lock(*output_mutexes[output_index]);
-                Capture &cap = output_captures[output_index];
-
-                if (!cap.back_ready)
-                {
-                    std::this_thread::sleep_for(std::chrono::microseconds(500));
+                
+                // Apply zoom if enabled
+                std::vector<uint8_t> frame_to_render = local_frame;
+                uint32_t render_width = width;
+                uint32_t render_height = height;
+                uint32_t render_stride = stride;
+                
+                if (conn->zoom.enabled) {
+                    update_zoom_smooth_pan(conn->zoom);
+                    
+                    std::vector<uint8_t> zoomed_frame;
+                    uint32_t zoomed_width, zoomed_height, zoomed_stride;
+                    
+                    apply_zoom_transform(
+                        local_frame.data(), width, height, stride,
+                        zoomed_frame, zoomed_width, zoomed_height, zoomed_stride,
+                        conn->zoom);
+                    
+                    frame_to_render = zoomed_frame;
+                    render_width = zoomed_width;
+                    render_height = zoomed_height;
+                    render_stride = zoomed_stride;
+                }
+                
+                // Render frame
+                ColorMode mode = static_cast<ColorMode>(config.color_mode);
+                bool keep_aspect_ratio = config.keep_aspect_ratio != 0;
+                
+                std::string rendered;
+                switch (config.renderer) {
+                    case 0:
+                        if (config.render_device == 1) {
+                            rendered = render_braille_cuda_wrapper(
+                                frame_to_render.data(), render_width, render_height, render_stride,
+                                config.term_width, config.term_height,
+                                mode, keep_aspect_ratio, config.scale_factor, 
+                                config.detail_level, config.quality, config.rotation_angle);
+                        } else {
+                            rendered = render_braille(
+                                frame_to_render.data(), render_width, render_height, render_stride,
+                                config.term_width, config.term_height,
+                                mode, keep_aspect_ratio, config.scale_factor, 
+                                config.detail_level, config.quality, config.rotation_angle);
+                        }
+                        break;
+                    case 1:
+                        rendered = render_blocks(
+                            frame_to_render.data(), render_width, render_height, render_stride,
+                            config.term_width, config.term_height,
+                            mode, keep_aspect_ratio, config.scale_factor, 
+                            config.detail_level, config.quality, config.rotation_angle);
+                        break;
+                    case 2:
+                        rendered = render_ascii(
+                            frame_to_render.data(), render_width, render_height, render_stride,
+                            config.term_width, config.term_height,
+                            mode, keep_aspect_ratio, config.scale_factor, 
+                            config.detail_level, config.quality, config.rotation_angle);
+                        break;
+                    case 3:
+                    default:
+                        if (config.render_device == 1) {
+                            rendered = render_hybrid_cuda_wrapper(
+                                frame_to_render.data(), render_width, render_height, render_stride,
+                                config.term_width, config.term_height,
+                                mode, keep_aspect_ratio, config.scale_factor, 
+                                config.detail_level, config.quality, config.rotation_angle);
+                        } else {
+                            rendered = render_hybrid(
+                                frame_to_render.data(), render_width, render_height, render_stride,
+                                config.term_width, config.term_height,
+                                mode, keep_aspect_ratio, config.scale_factor, 
+                                config.detail_level, config.quality, config.rotation_angle);
+                        }
+                        break;
+                }
+                
+                if (rendered.empty()) {
+                    std::cerr << "[RENDER] Warning: Empty rendered frame\n";
                     continue;
                 }
-
-                local_frame = cap.back_buffer;
-                width = cap.width;
-                height = cap.height;
-                stride = cap.stride;
-            }
-
-            // Render frame
-            ColorMode mode = static_cast<ColorMode>(config.color_mode);
-            bool keep_aspect_ratio = config.keep_aspect_ratio != 0;
-
-            std::vector<uint8_t> frame_to_render = local_frame;
-            uint32_t render_width = width;
-            uint32_t render_height = height;
-            uint32_t render_stride = stride;
-
-            if (conn->zoom.enabled)
-            {
-                update_zoom_smooth_pan(conn->zoom);
-
-                std::vector<uint8_t> zoomed_frame;
-                uint32_t zoomed_width, zoomed_height, zoomed_stride;
-
-                apply_zoom_transform(
-                    local_frame.data(), width, height, stride,
-                    zoomed_frame, zoomed_width, zoomed_height, zoomed_stride,
-                    conn->zoom);
-
-                frame_to_render = zoomed_frame;
-                render_width = zoomed_width;
-                render_height = zoomed_height;
-                render_stride = zoomed_stride;
-            }
-
-            std::string rendered;
-            switch (config.renderer)
-            {
-            case 0:
-                if (config.render_device == 1)
-                {
-                    rendered = render_braille_cuda_wrapper(
-                        frame_to_render.data(), render_width, render_height, render_stride,
-                        config.term_width, config.term_height,
-                        mode, keep_aspect_ratio, config.scale_factor, config.detail_level, config.quality, config.rotation_angle);
-                }
-                else
-                {
-                    rendered = render_braille(frame_to_render.data(), render_width, render_height, render_stride,
-                                              config.term_width, config.term_height,
-                                              mode, keep_aspect_ratio, config.scale_factor, config.detail_level, config.quality, config.rotation_angle);
-                }
-                break;
-            case 1:
-                rendered = render_blocks(frame_to_render.data(), render_width, render_height, render_stride,
-                                         config.term_width, config.term_height,
-                                         mode, keep_aspect_ratio, config.scale_factor, config.detail_level, config.quality, config.rotation_angle);
-                break;
-            case 2:
-                rendered = render_ascii(frame_to_render.data(), render_width, render_height, render_stride,
-                                        config.term_width, config.term_height,
-                                        mode, keep_aspect_ratio, config.scale_factor, config.detail_level, config.quality, config.rotation_angle);
-                break;
-            case 3:
-            default:
-                if (config.render_device == 1)
-                {
-                    rendered = render_hybrid_cuda_wrapper(
-                        frame_to_render.data(), render_width, render_height, render_stride,
-                        config.term_width, config.term_height,
-                        mode, keep_aspect_ratio, config.scale_factor, config.detail_level, config.quality, config.rotation_angle);
-                }
-                else
-                {
-                    rendered = render_hybrid(frame_to_render.data(), render_width, render_height, render_stride,
-                                             config.term_width, config.term_height,
-                                             mode, keep_aspect_ratio, config.scale_factor, config.detail_level, config.quality, config.rotation_angle);
-                }
-                break;
-            }
-
-            if (rendered.empty())
-            {
-                std::cerr << "[FRAME] Warning: Empty rendered frame\n";
-                continue;
-            }
-
-            // === NEW DELTA ENCODING LOGIC STARTS HERE ===
-
-            // Get or create cache for this client
-            ClientFrameCache *cache;
-            {
-                std::lock_guard<std::mutex> lock(frame_cache_mutex);
-                cache = &client_frame_cache[session_id];
-            }
-
-            cache->frames_since_full++;
-
-            // Build screen info message (unchanged)
-            std::vector<uint8_t> info_msg;
-            MessageType info_type = MessageType::SCREEN_INFO;
-            ScreenInfo info{width, height};
-
-            const uint8_t *type_bytes = reinterpret_cast<const uint8_t *>(&info_type);
-            info_msg.insert(info_msg.end(), type_bytes, type_bytes + sizeof(info_type));
-            const uint8_t *info_bytes = reinterpret_cast<const uint8_t *>(&info);
-            info_msg.insert(info_msg.end(), info_bytes, info_bytes + sizeof(info));
-
-            // Try delta encoding
-            std::vector<uint8_t> frame_msg;
-            bool used_delta = false;
-
-            /*if (!cache->last_full_frame.empty() &&
-                cache->last_full_frame.size() == rendered.size() &&
-                cache->frames_since_full < 100) {  // Send full frame every 100 frames
-
-              std::vector<uint8_t> delta = encode_delta_frame(
-                cache->last_full_frame,
-                rendered,
-                config.compress,
-                config.compression_level
-              );
-
-              if (delta.empty() && cache->last_full_frame == rendered) {
-                // Frame is identical - skip sending
-                continue;
-              }
-
-              if (!delta.empty() && delta.size() < rendered.size() * 0.5) {
-                // Delta is good - use it
-                MessageType msg_type = config.compress ?
-                  MessageType::COMPRESSED_FRAME : MessageType::DELTA_FRAME;
-
+                
+                // Build complete message with screen info
+                std::vector<uint8_t> info_msg;
+                MessageType info_type = MessageType::SCREEN_INFO;
+                ScreenInfo info{width, height};
+                
+                const uint8_t *type_bytes = reinterpret_cast<const uint8_t *>(&info_type);
+                info_msg.insert(info_msg.end(), type_bytes, type_bytes + sizeof(info_type));
+                const uint8_t *info_bytes = reinterpret_cast<const uint8_t *>(&info);
+                info_msg.insert(info_msg.end(), info_bytes, info_bytes + sizeof(info));
+                
+                // Build frame message
+                std::vector<uint8_t> frame_msg;
+                
                 if (config.compress) {
-                  // Wrap delta in compression envelope
-                  std::vector<uint8_t> inner;
-                  MessageType inner_type = MessageType::DELTA_FRAME;
-                  const uint8_t* inner_type_bytes = reinterpret_cast<const uint8_t*>(&inner_type);
-                  inner.insert(inner.end(), inner_type_bytes, inner_type_bytes + sizeof(inner_type));
-                  inner.insert(inner.end(), delta.begin(), delta.end());
-
-                  type_bytes = reinterpret_cast<const uint8_t*>(&msg_type);
-                  frame_msg.insert(frame_msg.end(), type_bytes, type_bytes + sizeof(msg_type));
-
-                  CompressedFrameHeader comp_header;
-                  comp_header.compressed_size = delta.size();
-                  comp_header.uncompressed_size = inner.size();
-                  const uint8_t* comp_bytes = reinterpret_cast<const uint8_t*>(&comp_header);
-                  frame_msg.insert(frame_msg.end(), comp_bytes, comp_bytes + sizeof(comp_header));
-                  frame_msg.insert(frame_msg.end(), delta.begin(), delta.end());
-                } else {
-                  type_bytes = reinterpret_cast<const uint8_t*>(&msg_type);
-                  frame_msg.insert(frame_msg.end(), type_bytes, type_bytes + sizeof(msg_type));
-                  frame_msg.insert(frame_msg.end(), delta.begin(), delta.end());
-                }
-
-                used_delta = true;
-                cache->total_deltas_sent++;
-                cache->total_bytes_saved += (rendered.size() - delta.size());
-
-                if (cache->total_deltas_sent % 100 == 0) {
-                  double savings_pct = 100.0 * cache->total_bytes_saved /
-                    (cache->total_bytes_saved + delta.size() * cache->total_deltas_sent);
-                  std::cerr << "[DELTA] Session " << session_id << ": "
-                            << cache->total_deltas_sent << " deltas sent, "
-                            << std::fixed << std::setprecision(1) << savings_pct
-                            << "% bandwidth saved\n";
-                }
-              }
-            }*/
-            // Delta frames have been disabled for now due to stuff like terminal resize causing issues, mouse cursor leaving behind trails, etc.
-
-            // Send full frame if delta wasn't used
-            if (!used_delta)
-            {
-                cache->frames_since_full = 0;
-                cache->last_full_frame = rendered;
-
-                if (config.compress)
-                {
                     // Build uncompressed frame first
                     std::vector<uint8_t> uncompressed;
                     MessageType msg_type = MessageType::RENDERED_FRAME;
                     type_bytes = reinterpret_cast<const uint8_t *>(&msg_type);
                     uncompressed.insert(uncompressed.end(), type_bytes, type_bytes + sizeof(msg_type));
-
+                    
                     RenderedFrameHeader header;
                     header.data_size = rendered.size();
                     const uint8_t *header_bytes = reinterpret_cast<const uint8_t *>(&header);
                     uncompressed.insert(uncompressed.end(), header_bytes, header_bytes + sizeof(header));
-
+                    
                     const uint8_t *data_bytes = reinterpret_cast<const uint8_t *>(rendered.data());
                     uncompressed.insert(uncompressed.end(), data_bytes, data_bytes + rendered.size());
-
+                    
                     std::vector<uint8_t> compressed = compress_frame(uncompressed, config.compression_level);
-
+                    
                     MessageType comp_type = MessageType::COMPRESSED_FRAME;
                     type_bytes = reinterpret_cast<const uint8_t *>(&comp_type);
                     frame_msg.insert(frame_msg.end(), type_bytes, type_bytes + sizeof(comp_type));
-
+                    
                     CompressedFrameHeader comp_header;
                     comp_header.compressed_size = compressed.size();
                     comp_header.uncompressed_size = uncompressed.size();
                     const uint8_t *comp_bytes = reinterpret_cast<const uint8_t *>(&comp_header);
                     frame_msg.insert(frame_msg.end(), comp_bytes, comp_bytes + sizeof(comp_header));
                     frame_msg.insert(frame_msg.end(), compressed.begin(), compressed.end());
-                }
-                else
-                {
+                } else {
                     MessageType msg_type = MessageType::RENDERED_FRAME;
                     type_bytes = reinterpret_cast<const uint8_t *>(&msg_type);
                     frame_msg.insert(frame_msg.end(), type_bytes, type_bytes + sizeof(msg_type));
-
+                    
                     RenderedFrameHeader header;
                     header.data_size = rendered.size();
                     const uint8_t *header_bytes = reinterpret_cast<const uint8_t *>(&header);
                     frame_msg.insert(frame_msg.end(), header_bytes, header_bytes + sizeof(header));
-
+                    
                     const uint8_t *data_bytes = reinterpret_cast<const uint8_t *>(rendered.data());
                     frame_msg.insert(frame_msg.end(), data_bytes, data_bytes + rendered.size());
                 }
+                
+                // Combine messages
+                std::vector<uint8_t> complete_msg;
+                complete_msg.reserve(info_msg.size() + frame_msg.size());
+                complete_msg.insert(complete_msg.end(), info_msg.begin(), info_msg.end());
+                complete_msg.insert(complete_msg.end(), frame_msg.begin(), frame_msg.end());
+                
+                // Add to rendered queue
+                {
+                    std::lock_guard<std::mutex> lock(render_mutex);
+                    
+                    // Drop old frames if queue is full (keep max 2 frames buffered)
+                    while (rendered_queue.size() >= 2) {
+                        rendered_queue.pop();
+                        frames_dropped++;
+                    }
+                    
+                    RenderedFrame rf;
+                    rf.data = std::move(complete_msg);
+                    rf.timestamp = std::chrono::steady_clock::now();
+                    rendered_queue.push(std::move(rf));
+                    render_cv.notify_one();
+                }
+                
+                // Frame pacing
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                    now - last_render).count();
+                
+                if (elapsed < render_delay) {
+                    usleep(render_delay - elapsed);
+                }
+                
+                last_render = std::chrono::steady_clock::now();
             }
+            
+            std::cerr << "[RENDER] Thread stopped for session " << session_id << "\n";
+        };
 
-            // Build complete message
-            std::vector<uint8_t> complete_msg;
-            complete_msg.reserve(info_msg.size() + frame_msg.size());
-            complete_msg.insert(complete_msg.end(), info_msg.begin(), info_msg.end());
-            complete_msg.insert(complete_msg.end(), frame_msg.begin(), frame_msg.end());
+        // Start rendering thread
+        std::thread render_worker(render_thread_func);
 
-            // Queue for sending
+        // Send thread - just pulls from queue and sends
+        std::cerr << "[FRAME] Starting send loop for session " << session_id << "\n";
+
+        while (running && conn->active && send_queue->running) {
+            RenderedFrame frame;
+            
+            {
+                std::unique_lock<std::mutex> lock(render_mutex);
+                
+                // Wait for rendered frame
+                render_cv.wait_for(lock, std::chrono::milliseconds(100), [&] {
+                    return !rendered_queue.empty() || !running || !conn->active;
+                });
+                
+                if (!running || !conn->active) break;
+                
+                if (rendered_queue.empty()) continue;
+                
+                frame = std::move(rendered_queue.front());
+                rendered_queue.pop();
+            }
+            
+            // Queue for async sending
             {
                 std::lock_guard<std::mutex> lock(send_queue->mutex);
-                if (send_queue->frame_ready)
-                {
+                if (send_queue->frame_ready) {
                     send_queue->dropped_frames++;
                 }
-                send_queue->latest_frame = std::move(complete_msg);
+                send_queue->latest_frame = std::move(frame.data);
                 send_queue->frame_ready = true;
                 send_queue->cv.notify_one();
             }
-
+            
             total_frames_sent++;
-            last_send = std::chrono::steady_clock::now();
         }
+
+        // Cleanup
+        renderer_running = false;
+        render_cv.notify_one();
+        render_worker.join();
     }
 
 cleanup:
