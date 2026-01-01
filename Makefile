@@ -4,9 +4,7 @@ CXXFLAGS = -std=c++23 -Wall -O3
 CFLAGS = -Wall -O3
 
 # Include directories
-INCLUDES = -I/usr/include/wayland-client \
-           -I/usr/include/libinput \
-           -I/usr/include/libudev \
+INCLUDES = -I. \
            -I/usr/include/pipewire-0.3 \
            -I/usr/include/spa-0.2 \
            $(shell pkg-config --cflags gio-2.0)
