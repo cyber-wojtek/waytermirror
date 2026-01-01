@@ -1895,9 +1895,9 @@ int main(int argc, char** argv) {
     std::cerr << "Output: " << program.get<std::string>("--output") << " | Resolution: " 
               << screen_width.load() << "x" << screen_height.load() << "\n";
     std::cerr << "Renderer: " << renderer << " | Color mode: " << mode_str << "\n";
-    std::cerr << "FPS: " << config.fps << " | Scale: " << config.scale_factor 
-              << (config.keep_aspect_ratio ? " (Auto-fit)" : "") << "\n";
-    std::cerr << "Compression: " << (config.compress ? "ON" : "OFF") << "\n";
+    std::cerr << "FPS: " << current_config.fps << " | Scale: " << current_config.scale_factor 
+              << (current_config.keep_aspect_ratio ? " (Auto-fit)" : "") << "\n";
+    std::cerr << "Compression: " << (current_config.compress ? "ON" : "OFF") << "\n";
   }
   if (libinput_ok) {
     std::cerr << "Exit combo: Ctrl+Alt+Shift+Delete+X\n";
