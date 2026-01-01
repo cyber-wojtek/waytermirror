@@ -2289,6 +2289,9 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        int nodelay = 1;
+        setsockopt(frame_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
         if (!send_session_id(frame_socket, session_id))
         {
             std::cerr << "Failed to send session ID to frame socket\n";
@@ -2370,6 +2373,9 @@ int main(int argc, char **argv)
             }
             else
             {
+                int nodelay = 1;
+                setsockopt(audio_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
                 if (!send_session_id(audio_socket, session_id))
                 {
                     std::cerr << "Warning: Failed to send session ID to audio socket\n";
@@ -2411,6 +2417,9 @@ int main(int argc, char **argv)
             }
             else
             {
+                int nodelay = 1;
+                setsockopt(microphone_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
                 if (!send_session_id(microphone_socket, session_id))
                 {
                     std::cerr << "Warning: Failed to send session ID to microphone socket\n";
