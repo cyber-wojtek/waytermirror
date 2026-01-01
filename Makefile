@@ -8,10 +8,11 @@ INCLUDES = -I/usr/include/wayland-client \
            -I/usr/include/libinput \
            -I/usr/include/libudev \
            -I/usr/include/pipewire-0.3 \
-           -I/usr/include/spa-0.2
+           -I/usr/include/spa-0.2 \
+           $(shell pkg-config --cflags gio-2.0)
 
 # Base libraries
-LIBS_BASE = -lwayland-client -lm -llz4 -lpthread -linput -ludev
+LIBS_BASE = -lwayland-client -lm -llz4 -lpthread -linput -ludev $(shell pkg-config --libs gio-2.0)
 
 # PipeWire support (default: enabled)
 # To disable: make PIPEWIRE=false

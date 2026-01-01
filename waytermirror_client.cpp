@@ -1761,15 +1761,6 @@ static void send_key_event(uint32_t keycode, bool pressed)
         }
     }
 
-    // Legacy exit combo (Ctrl+Alt+Shift+Delete+X)
-    if (pressed && shift_pressed.load() && ctrl_pressed.load() && alt_pressed.load() &&
-        delete_pressed.load() && x_pressed.load())
-    {
-        std::cerr << "\n[EXIT] Legacy exit combo detected!\n";
-        running = false;
-        return;
-    }
-
     // Only forward to server if input forwarding is enabled
     if (!feature_input || input_socket < 0 || !input_forwarding_enabled.load())
         return;
@@ -2587,7 +2578,6 @@ int main(int argc, char **argv)
         std::cerr << "  Z=Zoom  +/-=Zoom In/Out  0=Reset Zoom  Arrows=Pan\n";
         std::cerr << "  R=Renderer  C=Color  D/S=Detail  W/E=Quality\n";
         std::cerr << "  P=Pause  A=Audio Mute  M=Mic Mute  F=Focus-Follow\n";
-        std::cerr << "  Legacy exit: Ctrl+Alt+Shift+Delete+X\n";
         if (feature_input)
         {
             std::cerr << "Input forwarding: ENABLED\n";

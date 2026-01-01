@@ -9,6 +9,8 @@
 #include <atomic>
 #include <memory>
 #include <functional>
+#include <string>
+#include <gio/gio.h>
 
 struct PipeWireCapture {
     pw_thread_loop *loop = nullptr;
@@ -27,10 +29,19 @@ struct PipeWireCapture {
     
     std::function<void()> on_frame_callback;
     
+    // Portal integration (keep session alive!)
+    GDBusConnection *portal_connection = nullptr;
+    std::string session_handle;
+    uint32_t pipewire_node_id = 0;
+    std::atomic<bool> portal_ready{false};
+    
     bool init(uint32_t output_index);
     void cleanup();
     bool get_frame(std::vector<uint8_t> &out_frame, uint32_t &out_width, 
                    uint32_t &out_height, uint32_t &out_stride);
+    
+private:
+    bool request_screen_cast();
 };
 
 bool pipewire_capture_available();

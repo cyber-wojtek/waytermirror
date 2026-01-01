@@ -121,10 +121,23 @@ Server
 | -P <n> | --port <n> | Base TCP port (video base; other services use base+N) | 9999 |
 | -F <n> | --capture-fps <n> | Capture framerate from compositor | 30 |
 | -C <type> | --compositor <auto\|hyprland\|sway\|kde\|gnome\|generic> | Compositor override | auto |
+| -B <backend> | --capture-backend <auto\|wlr\|pipewire> | Screen capture backend (see notes below) | auto |
+| -I <backend> | --input-backend <auto\|virtual\|uinput> | Input injection backend | auto |
 | -n | --no-video | Disable screen capture / video streaming | off |
 | -A | --no-audio | Disable system audio streaming | off |
 | -N | --no-input | Disable input injection (do not create virtual devices) | off |
 | -m | --no-microphone | Disable microphone reception (client→server mic) | off |
+
+**Capture backend notes:**
+- `wlr`: Uses wlr-screencopy protocol directly (supports all outputs, compositor must support wlr-screencopy-unstable-v1)
+- `pipewire`: Uses PipeWire + xdg-desktop-portal for screen capture (works on more compositors including GNOME/KDE)
+  - **Important**: When using PipeWire backend, you'll be prompted to select screens. Select them in their **logical index order** (0, then 1, then 2, etc.) to match the output indices used by the client's `-o` option.
+- `auto`: Automatically detects and prefers wlr-screencopy if available, falls back to PipeWire
+
+**Input backend notes:**
+- `virtual`: Uses Wayland virtual input protocols (zwlr_virtual_pointer_v1, zwp_virtual_keyboard_v1) — requires compositor support
+- `uinput`: Uses Linux uinput (/dev/uinput) — works on any compositor but requires proper permissions
+- `auto`: Automatically selects virtual protocols if available, falls back to uinput
 
 Client
 ```bash

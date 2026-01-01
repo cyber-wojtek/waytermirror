@@ -737,7 +737,7 @@ static int detect_focused_output_gnome()
                 std::cerr << "[FOCUS] GNOME: Active window on monitor " << idx << "\n";
                 return idx;
             }
-        }
+        }   
     }
 
     std::cerr << "[FOCUS] GNOME: CLI detection failed, using fallback\n";
@@ -3029,6 +3029,12 @@ static void capture_thread(int output_index, int fps) {
     if (capture_backend == PIPEWIRE) {
         // PipeWire capture loop
         auto &pw_cap = pipewire_captures[output_index];
+        
+        if (!pw_cap) {
+            std::cerr << "[CAPTURE] Output " << output_index << " not initialized\n";
+            return;
+        }
+        
         auto last_frame_time = std::chrono::steady_clock::now();
         
         while (running) {
@@ -3052,6 +3058,18 @@ static void capture_thread(int output_index, int fps) {
                 
                 output_ready[output_index] = true;
                 frame_ready_cvs[output_index]->notify_all();
+                
+                static int frame_log_count = 0;
+                if (++frame_log_count % 60 == 1) {
+                    std::cerr << "[CAPTURE] Output " << output_index << " frame ready: " 
+                              << width << "x" << height << " (" << frame_data.size() << " bytes)\n";
+                }
+            } else {
+                static int no_frame_count = 0;
+                if (++no_frame_count % 300 == 1) {
+                    std::cerr << "[CAPTURE] No frame available for output " << output_index 
+                              << " (" << no_frame_count << " attempts)\n";
+                }
             }
             
             // Frame pacing
@@ -4945,6 +4963,10 @@ int main(int argc, char **argv)
         .default_value(std::string("auto"))
         .help("Capture backend: auto, wlr, pipewire");
 
+    program.add_argument("-I", "--input-backend")
+        .default_value(std::string("auto"))
+        .help("Input backend: auto, virtual, uinput");
+
     try
     {
         program.parse_args(argc, argv);
@@ -4962,6 +4984,16 @@ int main(int argc, char **argv)
         capture_backend = WLR_SCREENCOPY;
     } else {
         capture_backend = AUTO_CAPTURE;
+    }
+    
+    std::string input_backend_str = program.get<std::string>("--input-backend");
+    VirtualInputManager::Backend preferred_input_backend = VirtualInputManager::AUTO;
+    if (input_backend_str == "virtual") {
+        preferred_input_backend = VirtualInputManager::WLR_PROTOCOLS;
+    } else if (input_backend_str == "uinput") {
+        preferred_input_backend = VirtualInputManager::UINPUT;
+    } else {
+        preferred_input_backend = VirtualInputManager::AUTO;
     }
     
     std::string compositor_override = program.get<std::string>("--compositor");
@@ -5204,34 +5236,6 @@ int main(int argc, char **argv)
         }
 
         std::cerr << "Frame server listening on port " << port << "\n";
-
-        if (capture_backend == PIPEWIRE) {
-            std::cerr << "Initializing PipeWire capture for " << outputs.size() << " output(s)\n";
-            
-            pipewire_captures.resize(outputs.size());
-            for (size_t i = 0; i < outputs.size(); i++) {
-                pipewire_captures[i] = std::make_unique<PipeWireCapture>();
-                if (!pipewire_captures[i]->init(i)) {
-                    std::cerr << "Failed to initialize PipeWire capture for output " << i << "\n";
-                    return 1;
-                }
-                
-                output_mutexes.push_back(std::make_unique<std::mutex>());
-                frame_ready_cvs.push_back(std::make_unique<std::condition_variable>());
-            }
-            output_ready.resize(outputs.size(), false);
-            output_captures.resize(outputs.size());
-        } else {
-            // Original wlr-screencopy initialization
-            std::cerr << "Found " << outputs.size() << " output(s)\n";
-    
-            output_captures.resize(outputs.size());
-            for (size_t i = 0; i < outputs.size(); i++) {
-                output_mutexes.push_back(std::make_unique<std::mutex>());
-                frame_ready_cvs.push_back(std::make_unique<std::condition_variable>());
-            }
-            output_ready.resize(outputs.size(), false);
-        }
     }
 
     // Setup input server socket
@@ -5271,16 +5275,20 @@ int main(int argc, char **argv)
     // Initialize capture based on backend:
     if (feature_video) {
         if (capture_backend == PIPEWIRE) {
-            std::cerr << "Initializing PipeWire capture for " << outputs.size() << " output(s)\n";
+            std::cerr << "Initializing PipeWire capture for all outputs\n";
             
             pipewire_captures.resize(outputs.size());
+            
+            // Initialize each output with its own portal session
             for (size_t i = 0; i < outputs.size(); i++) {
                 pipewire_captures[i] = std::make_unique<PipeWireCapture>();
                 if (!pipewire_captures[i]->init(i)) {
                     std::cerr << "Failed to initialize PipeWire capture for output " << i << "\n";
                     return 1;
                 }
-                
+            }
+            
+            for (size_t i = 0; i < outputs.size(); i++) {
                 output_mutexes.push_back(std::make_unique<std::mutex>());
                 frame_ready_cvs.push_back(std::make_unique<std::condition_variable>());
             }
@@ -5305,20 +5313,46 @@ int main(int argc, char **argv)
         bool has_wlr_input = (seat && pointer_manager && keyboard_manager);
         
         VirtualInputManager::Backend input_backend;
-        if (has_wlr_input) {
-            input_backend = VirtualInputManager::WLR_PROTOCOLS;
-            // Keep using existing virtual_pointer and virtual_keyboard
-        } else if (uinput_available()) {
-            input_backend = VirtualInputManager::UINPUT;
-            if (!virtual_input_mgr.init(input_backend)) {
-                std::cerr << "Failed to initialize uinput backend\n";
-                feature_input = false;
+        if (preferred_input_backend == VirtualInputManager::AUTO) {
+            // Auto-detect best available
+            if (has_wlr_input) {
+                input_backend = VirtualInputManager::WLR_PROTOCOLS;
+                std::cerr << "[INPUT] Auto-selected WLR virtual input protocols\n";
+            } else if (uinput_available()) {
+                input_backend = VirtualInputManager::UINPUT;
+                std::cerr << "[INPUT] Auto-selected uinput backend\n";
             } else {
-                std::cerr << "Using uinput for virtual input\n";
+                std::cerr << "[INPUT] No virtual input backend available!\n";
+                feature_input = false;
             }
-        } else {
-            std::cerr << "No virtual input backend available!\n";
-            feature_input = false;
+        } else if (preferred_input_backend == VirtualInputManager::WLR_PROTOCOLS) {
+            // User explicitly requested WLR protocols
+            if (has_wlr_input) {
+                input_backend = VirtualInputManager::WLR_PROTOCOLS;
+                std::cerr << "[INPUT] Using WLR virtual input protocols (manual)\n";
+            } else {
+                std::cerr << "[INPUT] WLR protocols not available!\n";
+                feature_input = false;
+            }
+        } else if (preferred_input_backend == VirtualInputManager::UINPUT) {
+            // User explicitly requested uinput
+            if (uinput_available()) {
+                input_backend = VirtualInputManager::UINPUT;
+                std::cerr << "[INPUT] Using uinput backend (manual)\n";
+            } else {
+                std::cerr << "[INPUT] uinput not available!\n";
+                feature_input = false;
+            }
+        }
+        
+        // Initialize the selected backend
+        if (feature_input && input_backend == VirtualInputManager::UINPUT) {
+            if (!virtual_input_mgr.init(input_backend)) {
+                std::cerr << "[INPUT] Failed to initialize uinput backend\n";
+                feature_input = false;
+            }
+        } else if (feature_input && input_backend == VirtualInputManager::WLR_PROTOCOLS) {
+            // Keep using existing virtual_pointer and virtual_keyboard
         }
     }
     
