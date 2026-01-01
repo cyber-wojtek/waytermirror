@@ -1221,6 +1221,31 @@ static void send_key_event(uint32_t keycode, bool pressed) {
   send(input_socket, &evt, sizeof(evt), MSG_NOSIGNAL);
 }
 
+static void send_mouse_move(int x, int y) {
+  // Always update zoom center locally if enabled
+  if (zoom_state.enabled.load() && zoom_state.follow_mouse.load()) {
+    zoom_state.center_x = x;
+    zoom_state.center_y = y;
+    
+    // Send zoom config update to server (throttled - sent every frame anyway)
+    static auto last_zoom_update = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_zoom_update).count() >= 16) {
+      send_zoom_config();
+      last_zoom_update = now;
+    }
+  }
+  
+  // Only forward to server if input forwarding is enabled
+  if (!feature_input || input_socket < 0) return;
+  
+  MessageType type = MessageType::MOUSE_MOVE;
+  MouseMove evt{x, y, (uint32_t)screen_width.load(), (uint32_t)screen_height.load()};
+  
+  send(input_socket, &type, sizeof(type), MSG_NOSIGNAL);
+  send(input_socket, &evt, sizeof(evt), MSG_NOSIGNAL);
+}
+
 static void send_mouse_button(uint32_t button, bool pressed) {
   // Only forward to server if input forwarding is enabled
   if (!feature_input || input_socket < 0) return;
@@ -1756,6 +1781,10 @@ int main(int argc, char** argv) {
     std::cerr << "Error: Config connection failed\n";
     return 1;
   }
+
+  std::string output_arg = program.get<std::string>("--output");
+  std::string mode_str = program.get<std::string>("--mode");
+  std::string renderer = program.get<std::string>("--renderer");
   
   // Send initial config through config socket
   ClientConfig config;
