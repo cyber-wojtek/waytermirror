@@ -2,23 +2,28 @@
 
 Real-time Wayland screen mirroring to a terminal using Unicode braille characters, half‑blocks, or ASCII. Includes bidirectional input forwarding, audio streaming (PipeWire), zooming, focus-follow, and optional NVIDIA CUDA acceleration (server-side).
 
-![License](https://img.shields.io/badge/License-Apache--2.0-blue)
+<!--- [![Release](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=release)](https://github.com/cyber-wojtek/waytermirror/releases) --->
+
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)
+[![Stars](https://img.shields.io/github/stars/cyber-wojtek/waytermirror?style=)](https://github.com/cyber-wojtek/waytermirror/stargazers)
+[![Open Issues](https://img.shields.io/github/issues/cyber-wojtek/waytermirror?color=orange)](https://github.com/cyber-wojtek/waytermirror/issues)
+[![PKGBUILD](https://img.shields.io/badge/Packaging-Arch%20PKGBUILD-blue?logo=arch-linux)](https://github.com/cyber-wojtek/waytermirror/blob/main/PKGBUILD)
 
 Table of contents
-- What it is
-- How it works (quick overview)
-- Quickstart
-- Build & install (CPU / CUDA)
-- Runtime requirements & supported compositors
-- Usage (server & client examples)
-  - Full command-line options (server & client)
-- Network ports
-- Performance tuning
-- Troubleshooting
-- Security & limitations
-- Contributing & License
+- [What it is](#what-it-is)
+- [How it works (quick overview)](#how-it-works-quick-overview)
+- [Quickstart](#quickstart)
+- [Build & install (CPU / CUDA)](#build--install-cpu--cuda)
+- [Runtime requirements & supported compositors](#runtime-requirements--supported-compositors)
+- [Usage (server & client examples)](#usage)
+  - [Full command-line options (server & client)](#full-command-line-options-server--client)
+- [Network ports](#network-ports)
+- [Performance tuning](#performance-tuning)
+- [Troubleshooting](#troubleshooting)
+- [Security & limitations](#security--limitations)
+- [Contributing & License](#contributing--license)
 
 What it is
 - A client/server application:
@@ -56,15 +61,15 @@ Build & install
 
 Prerequisites
 - Core: gcc/g++, make, wayland, libinput, libudev, pipewire, lz4, rapidjson
-- Optional: NVIDIA CUDA toolkit for GPU rendering (nvcc)
+- Optional: NVIDIA CUDA toolkit for GPU rendering (nvcc) — see NVIDIA CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit
 
-Arch Linux (packages listed in PKGBUILD)
+Arch Linux (packages listed in [PKGBUILD](https://github.com/cyber-wojtek/waytermirror/blob/main/PKGBUILD))
 - Example installable dependencies: wayland, wlroots0.19, wayland-protocols, libinput, libevdev, pipewire, lz4, rapidjson, lua, systemd-libs, glib2
 
 Debian/Ubuntu
 ```bash
 sudo apt install build-essential libwayland-dev libinput-dev libudev-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libwlroots-dev
-# For CUDA: install NVIDIA CUDA toolkit from nvidia.com
+# For CUDA: install NVIDIA CUDA toolkit from https://developer.nvidia.com/cuda-toolkit
 ```
 
 Building (details)
@@ -97,11 +102,11 @@ Packaging (Arch)
 
 Runtime requirements & supported compositors
 - Compositor: wlroots-based (Hyprland, Sway, River) or any compositor exposing:
-  - wlr-screencopy-unstable-v1
-  - zwp_virtual_keyboard_v1 (virtual keyboard)
-  - zwlr_virtual_pointer_v1 (virtual pointer)
+  - [wlr-screencopy-unstable-v1](https://github.com/swaywm/wlroots/tree/master/protocols) — required for screen capture
+  - [zwp_virtual_keyboard_v1](https://github.com/wayland-project/wayland-protocols) (virtual keyboard)
+  - [zwlr_virtual_pointer_v1](https://github.com/swaywm/wlroots/tree/master/protocols) (virtual pointer)
   - wlr-foreign-toplevel-management (optional — focus following)
-- Audio: PipeWire (for system audio streaming).
+- Audio: [PipeWire](https://pipewire.org) (for system audio streaming).
 - Input: access to input devices (user must be in the `input` group or run with sufficient privileges to read /dev/input/*).
 - NOT SUPPORTED: GNOME or KDE Plasma (they typically do not expose the required wlr protocols).
 
@@ -243,7 +248,7 @@ Troubleshooting
   ```bash
   wayland-info 2>/dev/null | grep -i screencopy
   ```
-  If no screencopy global is present, the compositor doesn't support `wlr-screencopy-unstable-v1`.
+  If no screencopy global is present, the compositor doesn't support `wlr-screencopy-unstable-v1` — see wlroots protocols: https://github.com/swaywm/wlroots/tree/master/protocols
 
 - Virtual input not working
   - Server will print messages about virtual devices. Look for:
@@ -257,12 +262,14 @@ Troubleshooting
   ```bash
   systemctl --user status pipewire
   ```
+  PipeWire docs: https://pipewire.org
 
 - CUDA errors / verify GPU:
   ```bash
   nvcc --version
   nvidia-smi
   ```
+  NVIDIA CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit
 
 - Permissions to /dev/input
   - Ensure client (when capturing local input) can read devices or run with privileges. Exclusive grab (-x) uses EVIOCGRAB and requires access.
@@ -282,14 +289,14 @@ Design notes & behavior
 - Hybrid renderer chooses per-cell between braille and half-blocks based on local variance (detail-level influences decisions).
 
 Contributing
-- Bug reports, feature requests and PRs welcome. Please follow repository contribution guidelines (open issues & PRs on the GitHub project).
-- See the PKGBUILD for a reproducible Arch packaging example.
+- Bug reports, feature requests and PRs welcome. Please follow repository contribution guidelines (open issues & PRs on the [GitHub project](https://github.com/cyber-wojtek/waytermirror)).
+- See the [PKGBUILD](https://github.com/cyber-wojtek/waytermirror/blob/main/PKGBUILD) for a reproducible Arch packaging example.
 
 License
-- Apache License 2.0 — see LICENSE
+- Apache License 2.0 — see [LICENSE](LICENSE)
 
 Acknowledgments
-- wlroots & Wayland protocols
-- PipeWire for audio
-- LZ4 for compression
+- wlroots & Wayland protocols — https://github.com/swaywm/wlroots
+- PipeWire for audio — https://pipewire.org
+- LZ4 for compression — https://github.com/lz4/lz4
 - argparse (CLI parsing)
