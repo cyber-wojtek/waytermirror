@@ -37,6 +37,294 @@ static std::atomic<bool> ctrl_pressed{false};
 static std::atomic<bool> alt_pressed{false};
 static std::atomic<bool> delete_pressed{false};
 static std::atomic<bool> x_pressed{false};
+static std::atomic<bool> q_pressed{false};
+static std::atomic<bool> i_pressed{false};
+static std::atomic<bool> g_pressed{false};
+static std::atomic<bool> plus_pressed{false};
+static std::atomic<bool> minus_pressed{false};
+static std::atomic<bool> zero_pressed{false};
+static std::atomic<bool> f_pressed{false};
+static std::atomic<bool> r_pressed{false};
+static std::atomic<bool> c_pressed{false};
+static std::atomic<bool> d_pressed{false};
+static std::atomic<bool> s_pressed{false};
+static std::atomic<bool> p_pressed{false};
+static std::atomic<bool> a_pressed{false};
+static std::atomic<bool> m_pressed{false};
+static std::atomic<bool> equals_pressed{false};
+static std::atomic<bool> pageup_pressed{false};
+static std::atomic<bool> pagedown_pressed{false};
+static std::atomic<bool> up_pressed{false};
+static std::atomic<bool> down_pressed{false};
+static std::atomic<bool> left_pressed{false};
+static std::atomic<bool> right_pressed{false};
+
+static std::atomic<bool> video_paused{false};
+static std::atomic<bool> audio_muted{false};
+static std::atomic<bool> microphone_muted{false};
+static std::atomic<bool> input_forwarding_enabled{true};
+static std::atomic<bool> exclusive_grab_enabled{false};
+
+static ClientConfig current_config;
+static std::mutex config_mutex;
+
+static void toggle_exclusive_grab() {
+  exclusive_grab_enabled = !exclusive_grab_enabled.load();
+  std::cerr << "[INPUT] Exclusive grab: " << (exclusive_grab_enabled.load() ? "ON" : "OFF") << "\n";
+  
+  if (!li) return;
+  
+  exclusive_mode = exclusive_grab_enabled.load();
+  libinput_dispatch(li);
+  process_libinput_events();
+}
+
+static void cycle_renderer() {
+  std::lock_guard<std::mutex> lock(config_mutex);
+  current_config.renderer = (current_config.renderer + 1) % 4;
+  
+  const char* names[] = {"braille", "blocks", "ascii", "hybrid"};
+  std::cerr << "[RENDERER] Switched to: " << names[current_config.renderer] << "\n";
+  
+  get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+  send_client_config(current_config);
+}
+
+static void cycle_color_mode() {
+  std::lock_guard<std::mutex> lock(config_mutex);
+  current_config.color_mode = (current_config.color_mode + 1) % 3;
+  
+  const char* names[] = {"16-color", "256-color", "truecolor"};
+  std::cerr << "[COLOR] Switched to: " << names[current_config.color_mode] << "\n";
+  
+  get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+  send_client_config(current_config);
+}
+
+static void adjust_detail(int delta) {
+  std::lock_guard<std::mutex> lock(config_mutex);
+  current_config.detail_level = std::clamp((int)current_config.detail_level + delta, 0, 100);
+  
+  std::cerr << "[DETAIL] Level: " << (int)current_config.detail_level << "\n";
+  
+  get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+  send_client_config(current_config);
+}
+
+static void adjust_zoom(double delta) {
+  double new_level = std::clamp(zoom_state.zoom_level.load() + delta, 1.0, 10.0);
+  zoom_state.zoom_level = new_level;
+  std::cerr << "[ZOOM] Level: " << new_level << "x\n";
+  send_zoom_config();
+}
+
+static void pan_zoom(int dx, int dy) {
+  if (!zoom_state.enabled.load()) return;
+  
+  int new_x = std::clamp(zoom_state.center_x.load() + dx, 0, screen_width.load() - 1);
+  int new_y = std::clamp(zoom_state.center_y.load() + dy, 0, screen_height.load() - 1);
+  
+  zoom_state.center_x = new_x;
+  zoom_state.center_y = new_y;
+  send_zoom_config();
+}
+
+static void send_key_event(uint32_t keycode, bool pressed) {
+  bool is_shift = (keycode == KEY_LEFTSHIFT || keycode == KEY_RIGHTSHIFT);
+  bool is_ctrl = (keycode == KEY_LEFTCTRL || keycode == KEY_RIGHTCTRL);
+  bool is_alt = (keycode == KEY_LEFTALT || keycode == KEY_RIGHTALT);
+  bool is_delete = (keycode == KEY_DELETE);
+  bool is_x = (keycode == KEY_X);
+  bool is_z = (keycode == KEY_Z);
+  bool is_q = (keycode == KEY_Q);
+  bool is_i = (keycode == KEY_I);
+  bool is_g = (keycode == KEY_G);
+  bool is_plus = (keycode == KEY_KPPLUS);
+  bool is_minus = (keycode == KEY_KPMINUS || keycode == KEY_MINUS);
+  bool is_zero = (keycode == KEY_0);
+  bool is_equals = (keycode == KEY_EQUAL);
+  bool is_f = (keycode == KEY_F);
+  bool is_r = (keycode == KEY_R);
+  bool is_c = (keycode == KEY_C);
+  bool is_d = (keycode == KEY_D);
+  bool is_s = (keycode == KEY_S);
+  bool is_p = (keycode == KEY_P);
+  bool is_a = (keycode == KEY_A);
+  bool is_m = (keycode == KEY_M);
+  bool is_pageup = (keycode == KEY_PAGEUP);
+  bool is_pagedown = (keycode == KEY_PAGEDOWN);
+  bool is_up = (keycode == KEY_UP);
+  bool is_down = (keycode == KEY_DOWN);
+  bool is_left = (keycode == KEY_LEFT);
+  bool is_right = (keycode == KEY_RIGHT);
+  
+  // Track modifier state
+  if (is_shift) shift_pressed = pressed;
+  if (is_ctrl) ctrl_pressed = pressed;
+  if (is_alt) alt_pressed = pressed;
+  if (is_delete) delete_pressed = pressed;
+  if (is_x) x_pressed = pressed;
+  
+  bool combo = shift_pressed.load() && ctrl_pressed.load() && alt_pressed.load();
+  
+  // Check for all shortcuts on key press
+  if (pressed && combo) {
+    // Quit (Ctrl+Alt+Shift+Q)
+    if (is_q) {
+      std::cerr << "\n[EXIT] Quit shortcut detected!\n";
+      running = false;
+      return;
+    }
+    
+    // Toggle input forwarding (Ctrl+Alt+Shift+I)
+    if (is_i) {
+      input_forwarding_enabled = !input_forwarding_enabled.load();
+      std::cerr << "[INPUT] Forwarding: " << (input_forwarding_enabled.load() ? "ON" : "OFF") << "\n";
+      return;
+    }
+    
+    // Toggle exclusive grab (Ctrl+Alt+Shift+G)
+    if (is_g) {
+      toggle_exclusive_grab();
+      return;
+    }
+    
+    // Toggle zoom (Ctrl+Alt+Shift+Z)
+    if (is_z) {
+      zoom_state.enabled = !zoom_state.enabled.load();
+      std::cerr << "[ZOOM] Toggled: " << (zoom_state.enabled.load() ? "ON" : "OFF") << "\n";
+      send_zoom_config();
+      return;
+    }
+    
+    // Zoom in (Ctrl+Alt+Shift++ or =)
+    if (is_plus || is_equals) {
+      adjust_zoom(0.5);
+      return;
+    }
+    
+    // Zoom out (Ctrl+Alt+Shift+-)
+    if (is_minus) {
+      adjust_zoom(-0.5);
+      return;
+    }
+    
+    // Reset zoom (Ctrl+Alt+Shift+0)
+    if (is_zero) {
+      zoom_state.zoom_level = 2.0;
+      std::cerr << "[ZOOM] Reset to 2.0x\n";
+      send_zoom_config();
+      return;
+    }
+    
+    // Pan zoom with arrow keys
+    if (is_left) {
+      pan_zoom(-20, 0);
+      return;
+    }
+    if (is_right) {
+      pan_zoom(20, 0);
+      return;
+    }
+    if (is_up) {
+      pan_zoom(0, -20);
+      return;
+    }
+    if (is_down) {
+      pan_zoom(0, 20);
+      return;
+    }
+    
+    // Fast pan with PageUp/PageDown
+    if (is_pageup) {
+      pan_zoom(0, -100);
+      return;
+    }
+    if (is_pagedown) {
+      pan_zoom(0, 100);
+      return;
+    }
+    
+    // Toggle focus-follow (Ctrl+Alt+Shift+F)
+    if (is_f) {
+      std::lock_guard<std::mutex> lock(config_mutex);
+      current_config.follow_focus = !current_config.follow_focus;
+      std::cerr << "[FOCUS] Focus-follow: " << (current_config.follow_focus ? "ON" : "OFF") << "\n";
+      get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+      send_client_config(current_config);
+      return;
+    }
+    
+    // Cycle renderer (Ctrl+Alt+Shift+R)
+    if (is_r) {
+      cycle_renderer();
+      return;
+    }
+    
+    // Cycle color mode (Ctrl+Alt+Shift+C)
+    if (is_c) {
+      cycle_color_mode();
+      return;
+    }
+    
+    // Increase detail (Ctrl+Alt+Shift+D)
+    if (is_d) {
+      adjust_detail(10);
+      return;
+    }
+    
+    // Decrease detail (Ctrl+Alt+Shift+S)
+    if (is_s) {
+      adjust_detail(-10);
+      return;
+    }
+    
+    // Pause/resume video (Ctrl+Alt+Shift+P)
+    if (is_p) {
+      video_paused = !video_paused.load();
+      std::cerr << "[VIDEO] " << (video_paused.load() ? "PAUSED" : "RESUMED") << "\n";
+      return;
+    }
+    
+    // Toggle audio (Ctrl+Alt+Shift+A)
+    if (is_a) {
+      audio_muted = !audio_muted.load();
+      std::cerr << "[AUDIO] " << (audio_muted.load() ? "MUTED" : "UNMUTED") << "\n";
+      return;
+    }
+    
+    // Toggle microphone (Ctrl+Alt+Shift+M)
+    if (is_m) {
+      microphone_muted = !microphone_muted.load();
+      std::cerr << "[MICROPHONE] " << (microphone_muted.load() ? "MUTED" : "UNMUTED") << "\n";
+      return;
+    }
+  }
+  
+  // Legacy exit combo (Ctrl+Alt+Shift+Delete+X)
+  if (pressed && shift_pressed.load() && ctrl_pressed.load() && alt_pressed.load() && 
+      delete_pressed.load() && x_pressed.load()) {
+    std::cerr << "\n[EXIT] Legacy exit combo detected!\n";
+    running = false;
+    return;
+  }
+  
+  // Only forward to server if input forwarding is enabled
+  if (!feature_input || input_socket < 0 || !input_forwarding_enabled.load()) return;
+  
+  // Send normal key event
+  MessageType type = MessageType::KEY_EVENT;
+  KeyEvent evt{
+    keycode,
+    (uint8_t)pressed,
+    (uint8_t)shift_pressed.load(),
+    (uint8_t)ctrl_pressed.load(),
+    (uint8_t)alt_pressed.load()
+  };
+  
+  send(input_socket, &type, sizeof(type), MSG_NOSIGNAL);
+  send(input_socket, &evt, sizeof(evt), MSG_NOSIGNAL);
+}
 
 // Network
 static int frame_socket = -1;
@@ -355,15 +643,16 @@ static void on_process_playback(void* userdata) {
   
   std::lock_guard<std::mutex> lock(pb->mutex);
   
-  if (!pb->audio_queue.empty()) {
+  // Check mute flag
+  if (audio_muted.load() || pb->audio_queue.empty()) {
+    // Silence
+    size = max_size;
+    memset(dst, 0, size);
+  } else {
     auto& audio_data = pb->audio_queue.front();
     size = std::min((uint32_t)audio_data.size(), max_size);
     memcpy(dst, audio_data.data(), size);
     pb->audio_queue.pop();
-  } else {
-    // Silence
-    size = max_size;
-    memset(dst, 0, size);
   }
   
   buf->datas[0].chunk->offset = 0;
@@ -603,6 +892,11 @@ static void microphone_send_thread() {
     }
     
     if (!microphone_data.empty()) {
+      // Check mute flag - send silence if muted
+      if (microphone_muted.load()) {
+        memset(microphone_data.data(), 0, microphone_data.size());
+      }
+      
       MessageType type = MessageType::MICROPHONE_DATA;
       AudioDataHeader header;
       header.size = microphone_data.size();
@@ -622,6 +916,7 @@ static void microphone_send_thread() {
   
   std::cerr << "[MICROPHONE OUT] Send thread stopped\n";
 }
+
 
 static void cleanup_microphone_capture() {
   if (!feature_microphone) return;
@@ -1536,38 +1831,24 @@ int main(int argc, char** argv) {
   
   // Send initial config through config socket
   ClientConfig config;
-  std::string output_arg = program.get<std::string>("--output");
-  
-  if (output_arg == "follow") {
-    config.output_index = 0xFFFFFFFF;  // Special value for "follow"
-  } else {
-    config.output_index = std::stoi(output_arg);
-  }
-  config.follow_focus = (output_arg == "follow") ? 1 : 0;
-  config.fps = program.get<int>("--fps");
-  get_terminal_size((int&)config.term_width, (int&)config.term_height);
-  
-  std::string mode_str = program.get<std::string>("--mode");
-  config.color_mode = (mode_str == "16") ? 0 : (mode_str == "256") ? 1 : 2;
-  
-  std::string renderer = program.get<std::string>("--renderer");
-  config.renderer = (renderer == "braille") ? 0 :
-                   (renderer == "blocks") ? 1 :
-                   (renderer == "ascii") ? 2 : 3;
-  
-  config.keep_aspect_ratio = program.get<bool>("--keep-aspect-ratio") ? 1 : 0;
-  config.scale_factor = program.get<double>("--scale");
-  config.compress = program.get<bool>("--compress") ? 1 : 0;
-  config.compression_level = program.get<int>("--compression-level");
-  config.detail_level = std::clamp(program.get<int>("--detail-level"), 0, 100);
-  config.render_device = (program.get<std::string>("--render-device") == "cuda") ? 1 : 0;
-  config.quality = std::clamp(program.get<int>("--quality"), 0, 100);
-
-  if (config.compression_level > 12) {
-    std::cerr << "Warning: compression level capped at 12\n";
-    config.compression_level = 12;
+  {
+    std::lock_guard<std::mutex> lock(config_mutex);
+    current_config.output_index = (output_arg == "follow") ? 0xFFFFFFFF : std::stoi(output_arg);
+    current_config.follow_focus = (output_arg == "follow") ? 1 : 0;
+    current_config.fps = program.get<int>("--fps");
+    get_terminal_size((int&)current_config.term_width, (int&)current_config.term_height);
+    current_config.color_mode = (mode_str == "16") ? 0 : (mode_str == "256") ? 1 : 2;
+    current_config.renderer = (renderer == "braille") ? 0 : (renderer == "blocks") ? 1 : (renderer == "ascii") ? 2 : 3;
+    current_config.keep_aspect_ratio = program.get<bool>("--keep-aspect-ratio") ? 1 : 0;
+    current_config.scale_factor = program.get<double>("--scale");
+    current_config.compress = program.get<bool>("--compress") ? 1 : 0;
+    current_config.compression_level = program.get<int>("--compression-level");
+    current_config.detail_level = std::clamp(program.get<int>("--detail-level"), 0, 100);
+    current_config.render_device = (program.get<std::string>("--render-device") == "cuda") ? 1 : 0;
+    current_config.quality = std::clamp(program.get<int>("--quality"), 0, 100);
   }
   
+  send_client_config(current_config);
 
   zoom_state.enabled = program.get<bool>("--zoom");
   zoom_state.zoom_level = std::clamp(program.get<double>("--zoom-level"), 1.0, 10.0);
@@ -1694,11 +1975,11 @@ int main(int argc, char** argv) {
         last_term_width = new_term_width;
         last_term_height = new_term_height;
         
-        // Update config through config socket
-        config.term_width = new_term_width;
-        config.term_height = new_term_height;
+        std::lock_guard<std::mutex> lock(config_mutex);
+        current_config.term_width = new_term_width;
+        current_config.term_height = new_term_height;
+        send_client_config(current_config);
         
-        send_client_config(config);
         std::cout << "\033[2J";
         std::cerr << "[RESIZE] Terminal resized to " << new_term_width << "x" 
                   << new_term_height << "\n";
