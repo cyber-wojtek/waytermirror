@@ -3322,15 +3322,13 @@ static std::vector<uint8_t> compress_frame(const std::vector<uint8_t> &data,
     // Stats
     total_bytes_original += data.size();
     total_bytes_compressed += comp_size;
-
+    
     if (total_frames_sent % 100 == 0)
     {
         double saved = 100.0 * (1.0 - (double)total_bytes_compressed / total_bytes_original);
-        double mbps = ((double)total_bytes_compressed * 8.0 / 1000000.0) * 
-                      ((double)fps / (double)(total_frames_sent + 1));
         std::cerr << "[COMPRESS] Level " << compression_level
-                  << " | Saved: " << std::fixed << std::setprecision(2) << saved << "% "
-                  << "| Bandwidth: " << mbps << " Mbps\n";
+                  << " | Saved: " << std::fixed << std::setprecision(2) << saved << "% over "
+                  << total_frames_sent << " frames\n";
     }
 
     return compressed;
