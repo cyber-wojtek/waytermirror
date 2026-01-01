@@ -7,7 +7,7 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)
-[![Stars](https://img.shields.io/github/stars/cyber-wojtek/waytermirror?style=social)](https://github.com/cyber-wojtek/waytermirror/stargazers)
+[![Stars](https://img.shields.io/github/stars/cyber-wojtek/waytermirror?style=)](https://github.com/cyber-wojtek/waytermirror/stargazers)
 [![Open Issues](https://img.shields.io/github/issues/cyber-wojtek/waytermirror?color=orange)](https://github.com/cyber-wojtek/waytermirror/issues)
 [![PKGBUILD](https://img.shields.io/badge/Packaging-Arch%20PKGBUILD-blue?logo=arch-linux)](https://github.com/cyber-wojtek/waytermirror/blob/main/PKGBUILD)
 
