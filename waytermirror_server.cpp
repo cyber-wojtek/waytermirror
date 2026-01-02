@@ -2753,8 +2753,8 @@ static std::string render_ascii(
         for (int ax = 0; ax < w_scaled; ax++)
         {
             // Sample center of cell
-            int rot_x = (ax * 2 + 1) * rot_width / w_scaled;
-            int rot_y = (ay * 4 + 2) * rot_height / h_scaled;
+            int rot_x = (ax * rot_width) / w_scaled;
+            int rot_y = (ay * rot_height) / h_scaled;
 
             rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
             rot_y = std::clamp(rot_y, 0, (int)rot_height - 1);

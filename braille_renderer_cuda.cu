@@ -315,8 +315,8 @@ __global__ void render_ascii_kernel(
     int idx = cell_y * cells_x + cell_x;
     
     // sample cell center
-    int rot_x = (cell_x * 2 + 1) * rot_width / w_scaled;
-    int rot_y = (cell_y * 4 + 2) * rot_height / h_scaled;
+    int rot_x = (cell_x * rot_width) / cells_x;
+    int rot_y = (cell_y * rot_height) / cells_y;
     
     rot_x = min(max(rot_x, 0), rot_width - 1);
     rot_y = min(max(rot_y, 0), rot_height - 1);
