@@ -98,7 +98,14 @@ Artifacts
 - waytermirror_client
 
 Packaging (Arch)
-- Use the included PKGBUILD with `makepkg`:
+- **AUR**: Install directly from the [waytermirror-git](https://aur.archlinux.org/packages/waytermirror-git) AUR package using your favorite AUR helper:
+  ```bash
+  yay -S waytermirror-git
+  # or
+  paru -S waytermirror-git
+  ```
+
+- **Manual build**: Use the included PKGBUILD with `makepkg`:
   ```bash
   git clone https://github.com/cyber-wojtek/waytermirror.git
   cd waytermirror
