@@ -387,12 +387,4 @@ Default base port is 9999 (see -P / --port).
 - See the PKGBUILD for packaging guidance.
 
 ## License
-- Apache License 2.0 — see [LICENSE](LICENSE)
-
-## Acknowledgments
-- wlroots & Wayland protocols — https://github.com/swaywm/wlroots
-- PipeWire for audio — https://pipewire.org
-- LZ4 for compression — https://github.com/lz4/lz4
-- argparse (CLI parsing)
-
-If you need a smaller quick-help snippet, a printable cheat-sheet for shortcuts, or a sample systemd unit for running the server persistently on a particular distribution, tell me your target and I’ll provide a template.
+- Apache License 2.0 — see [LICENSE](LICENSE) file for details.
