@@ -31,8 +31,11 @@
 static std::atomic<bool> running{true};
 static std::atomic<int> current_mouse_x{0};
 static std::atomic<int> current_mouse_y{0};
-static std::atomic<int> screen_width{1920};
-static std::atomic<int> screen_height{1080};
+static std::atomic<int> screen_width{(int)-1};
+static std::atomic<int> screen_height{(int)-1};
+static std::atomic<int> output_offset_x{0};  // Current output X offset in virtual desktop
+static std::atomic<int> output_offset_y{0};  // Current output Y offset in virtual desktop
+static std::atomic<uint32_t> current_output_index{0};
 
 // Modifier tracking for exit combo and sending to server
 static std::atomic<bool> shift_pressed{false};
@@ -257,6 +260,9 @@ struct ScreenInfo
 {
     uint32_t width;
     uint32_t height;
+    int32_t output_x;      // Output X offset in virtual desktop
+    int32_t output_y;      // Output Y offset in virtual desktop
+    uint32_t output_index; // Which output this info is for
 };
 
 struct KeyEvent
@@ -873,6 +879,9 @@ static bool receive_newest_frame(std::string &rendered)
             {
                 screen_width = info.width;
                 screen_height = info.height;
+                output_offset_x = info.output_x;
+                output_offset_y = info.output_y;
+                current_output_index = info.output_index;
             }
             continue;
         }
@@ -1849,11 +1858,20 @@ static void send_key_event(uint32_t keycode, bool pressed)
 
 static void send_mouse_move(int x, int y)
 {
-    // Always update zoom center locally if enabled
+    // Note: x,y are already output-local coordinates (from libinput relative motion)
+    // screen_width/height are the current output dimensions from server
+    int w = screen_width.load();
+    int h = screen_height.load();
+    
+    // Clamp to output bounds (should already be clamped, but be safe)
+    int local_x = std::clamp(x, 0, w - 1);
+    int local_y = std::clamp(y, 0, h - 1);
+    
+    // Always update zoom center locally if enabled (use output-local coords)
     if (zoom_state.enabled.load() && zoom_state.follow_mouse.load())
     {
-        zoom_state.center_x = x;
-        zoom_state.center_y = y;
+        zoom_state.center_x = local_x;
+        zoom_state.center_y = local_y;
 
         // Send zoom config update to server (throttled - sent every frame anyway)
         static auto last_zoom_update = std::chrono::steady_clock::now();
@@ -1870,7 +1888,7 @@ static void send_mouse_move(int x, int y)
         return;
 
     MessageType type = MessageType::MOUSE_MOVE;
-    MouseMove evt{x, y, (uint32_t)screen_width.load(), (uint32_t)screen_height.load()};
+    MouseMove evt{local_x, local_y, (uint32_t)w, (uint32_t)h};
 
     send(input_socket, &type, sizeof(type), MSG_NOSIGNAL);
     send(input_socket, &evt, sizeof(evt), MSG_NOSIGNAL);
@@ -2577,7 +2595,7 @@ int main(int argc, char **argv)
     if (feature_video)
     {
         std::cerr << "[INIT] Waiting for screen info from server...\n";
-        for (int i = 0; i < 20 && screen_width.load() == 1920; i++)
+        for (int i = 0; i < 20 && screen_width.load() == (int)-1; i++)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
@@ -2595,7 +2613,11 @@ int main(int argc, char **argv)
                         {
                             screen_width = info.width;
                             screen_height = info.height;
-                            std::cerr << "[INIT] Received screen info: " << info.width << "x" << info.height << "\n";
+                            output_offset_x = info.output_x;
+                            output_offset_y = info.output_y;
+                            current_output_index = info.output_index;
+                            std::cerr << "[INIT] Received screen info: " << info.width << "x" << info.height 
+                                      << " offset: " << info.output_x << "," << info.output_y << "\n";
                             break;
                         }
                     }

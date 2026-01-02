@@ -69,6 +69,12 @@ enum {
     WL_FMT_ABGR8888 = 0x34324241,
     WL_FMT_RGBA8888 = 0x34324152,
     WL_FMT_BGRA8888 = 0x34324142,
+    WL_FMT_XRGB8888_A8 = 0x38415258,
+    WL_FMT_XBGR8888_A8 = 0x38414258,
+    WL_FMT_RGBX8888_A8 = 0x38415852,
+    WL_FMT_BGRX8888_A8 = 0x38415842,
+    WL_FMT_RGB888_A8 = 0x38413852,
+    WL_FMT_BGR888_A8 = 0x38413842,
 };
 
 // convert wl_shm_format to our PixelFormat enum
@@ -84,7 +90,11 @@ static PixelFormat wl_shm_to_pixelfmt(uint32_t wl_fmt) {
         case WL_FMT_BGRA8888: return FMT_BGRA;
         case WL_FMT_RGB888:   return FMT_RGB;
         case WL_FMT_BGR888:   return FMT_BGR;
-        default:              return FMT_xRGB;  // fallback (ARGB is default for wl_shm)
+        case WL_FMT_RGBX8888_A8: return FMT_RGBx;
+        case WL_FMT_BGRX8888_A8: return FMT_BGRx;
+        case WL_FMT_RGB888_A8:   return FMT_RGB;
+        case WL_FMT_BGR888_A8:   return FMT_BGR;
+        default: return FMT_BGRx;  // fallback
     }
 }
 
@@ -433,6 +443,9 @@ struct ScreenInfo
 {
     uint32_t width;
     uint32_t height;
+    int32_t output_x;      // Output X offset in virtual desktop
+    int32_t output_y;      // Output Y offset in virtual desktop
+    uint32_t output_index; // Which output this info is for
 };
 
 struct RenderedFrameHeader
@@ -535,6 +548,15 @@ static zwp_virtual_keyboard_v1 *virtual_keyboard;
 static zwlr_foreign_toplevel_manager_v1 *toplevel_manager = nullptr;
 static std::vector<wl_output *> outputs;
 static std::vector<std::string> output_names;
+
+// Output geometry info (position in virtual desktop)
+struct OutputGeometry {
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t width = 0;
+    int32_t height = 0;
+};
+static std::vector<OutputGeometry> output_geometries;
 
 static CaptureBackend detect_capture_backend() {
     // Check compositor type
@@ -707,6 +729,96 @@ static int create_shm_file(size_t size) {
   }
   
   return fd;
+}
+
+// --- Output geometry detection ---
+static void detect_output_geometries_hyprland()
+{
+    std::string json = exec_command("hyprctl monitors -j 2>/dev/null");
+    if (json.empty())
+        return;
+
+    rapidjson::Document doc;
+    doc.Parse(json.c_str());
+    if (doc.HasParseError() || !doc.IsArray())
+        return;
+
+    output_geometries.resize(outputs.size());
+    
+    for (rapidjson::SizeType i = 0; i < doc.Size() && i < outputs.size(); i++)
+    {
+        const rapidjson::Value &mon = doc[i];
+        if (mon.HasMember("x") && mon["x"].IsInt())
+            output_geometries[i].x = mon["x"].GetInt();
+        if (mon.HasMember("y") && mon["y"].IsInt())
+            output_geometries[i].y = mon["y"].GetInt();
+        if (mon.HasMember("width") && mon["width"].IsInt())
+            output_geometries[i].width = mon["width"].GetInt();
+        if (mon.HasMember("height") && mon["height"].IsInt())
+            output_geometries[i].height = mon["height"].GetInt();
+        
+        std::cerr << "[OUTPUT] Monitor " << i << " geometry: " 
+                  << output_geometries[i].x << "," << output_geometries[i].y
+                  << " " << output_geometries[i].width << "x" << output_geometries[i].height << "\n";
+    }
+}
+
+static void detect_output_geometries_sway()
+{
+    std::string json = exec_command("swaymsg -t get_outputs -r 2>/dev/null");
+    if (json.empty())
+        return;
+
+    rapidjson::Document doc;
+    doc.Parse(json.c_str());
+    if (doc.HasParseError() || !doc.IsArray())
+        return;
+
+    output_geometries.resize(outputs.size());
+    
+    for (rapidjson::SizeType i = 0; i < doc.Size() && i < outputs.size(); i++)
+    {
+        const rapidjson::Value &out = doc[i];
+        if (out.HasMember("rect") && out["rect"].IsObject())
+        {
+            const rapidjson::Value &rect = out["rect"];
+            if (rect.HasMember("x") && rect["x"].IsInt())
+                output_geometries[i].x = rect["x"].GetInt();
+            if (rect.HasMember("y") && rect["y"].IsInt())
+                output_geometries[i].y = rect["y"].GetInt();
+            if (rect.HasMember("width") && rect["width"].IsInt())
+                output_geometries[i].width = rect["width"].GetInt();
+            if (rect.HasMember("height") && rect["height"].IsInt())
+                output_geometries[i].height = rect["height"].GetInt();
+        }
+        
+        std::cerr << "[OUTPUT] Monitor " << i << " geometry: " 
+                  << output_geometries[i].x << "," << output_geometries[i].y
+                  << " " << output_geometries[i].width << "x" << output_geometries[i].height << "\n";
+    }
+}
+
+static void detect_output_geometries()
+{
+    output_geometries.resize(outputs.size());
+    
+    if (compositor_type == "hyprland")
+        detect_output_geometries_hyprland();
+    else if (compositor_type == "sway")
+        detect_output_geometries_sway();
+    else
+    {
+        // Fallback: assume horizontal layout with output dimensions from captures
+        std::cerr << "[OUTPUT] Using fallback geometry detection (horizontal layout)\n";
+        int x_offset = 0;
+        for (size_t i = 0; i < outputs.size(); i++)
+        {
+            output_geometries[i].x = x_offset;
+            output_geometries[i].y = 0;
+            // Width/height will be filled from captures when available
+            x_offset += 1920; // Assume 1920 wide if unknown
+        }
+    }
 }
 
 // --- Frame listeners ---
@@ -4179,7 +4291,14 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                 // Build complete message with screen info
                 std::vector<uint8_t> info_msg;
                 MessageType info_type = MessageType::SCREEN_INFO;
-                ScreenInfo info{width, height};
+                
+                // Include output offset for proper multi-monitor mouse coordinate handling
+                int32_t out_x = 0, out_y = 0;
+                if (current_output < output_geometries.size()) {
+                    out_x = output_geometries[current_output].x;
+                    out_y = output_geometries[current_output].y;
+                }
+                ScreenInfo info{width, height, out_x, out_y, current_output};
                 
                 const uint8_t *type_bytes = reinterpret_cast<const uint8_t *>(&info_type);
                 info_msg.insert(info_msg.end(), type_bytes, type_bytes + sizeof(info_type));
@@ -4958,6 +5077,9 @@ int main(int argc, char **argv)
         if (feature_video)
         {
             std::cerr << "Found " << outputs.size() << " output(s)\n";
+
+            // Detect output geometries for multi-monitor support
+            detect_output_geometries();
 
             // Initialize capture structures
             output_captures.resize(outputs.size());
