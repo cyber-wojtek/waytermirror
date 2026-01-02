@@ -86,6 +86,7 @@ static std::atomic<bool> key3_pressed{false};
 static std::atomic<bool> key4_pressed{false};
 
 static std::atomic<bool> video_paused{false};
+static std::atomic<bool> showing_help{false};
 static std::atomic<bool> audio_muted{false};
 static std::atomic<bool> microphone_muted{false};
 static std::atomic<bool> input_forwarding_enabled{true};
@@ -1405,7 +1406,16 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Show help (Ctrl+Alt+Shift+H)
         if (is_h)
         {
-            print_shortcuts_help();
+            showing_help = !showing_help.load();
+            if (showing_help.load())
+            {
+                video_paused = true;
+                print_shortcuts_help();
+            }
+            else
+            {
+                video_paused = false;
+            }
             return;
         }
 
