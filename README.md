@@ -2,7 +2,7 @@
 
 Real-time Wayland screen mirroring to a terminal using Unicode braille characters, half‑blocks, or ASCII. Includes bidirectional input forwarding, audio streaming (PipeWire), zooming, focus-follow, and optional NVIDIA CUDA acceleration (server-side).
 
-![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)
 ![Releases](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=Releases&sort=semver)
@@ -380,4 +380,4 @@ Default base port is 9999 (see -P / --port).
 - Bug reports, feature requests and PRs welcome.
 
 ## License
-- Apache License 2.0 — see [LICENSE](LICENSE) file for details.
+- MIT License — see [LICENSE](LICENSE) file for details.
