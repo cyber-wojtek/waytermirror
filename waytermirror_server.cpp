@@ -43,6 +43,69 @@
 #include <fstream>
 #include <rapidjson/document.h>
 
+// pixel color channel layout from compositor/capture source
+enum PixelFormat : uint8_t {
+  FMT_BGRx = 0,   // BGRX (wayland default, X ignored)
+  FMT_BGRA = 1,   // BGRA with alpha
+  FMT_RGBx = 2,   // RGBX (X ignored)
+  FMT_RGBA = 3,   // RGBA with alpha
+  FMT_xBGR = 4,   // XBGR (X padding first)
+  FMT_ABGR = 5,   // ABGR (alpha first)
+  FMT_xRGB = 6,   // XRGB (X padding first)
+  FMT_ARGB = 7,   // ARGB (alpha first)
+  FMT_BGR  = 8,   // BGR 24-bit (3 bytes)
+  FMT_RGB  = 9,   // RGB 24-bit (3 bytes)
+};
+
+// wl_shm format constants (from wayland-client-protocol.h)
+enum {
+    WL_FMT_ARGB8888 = 0,
+    WL_FMT_XRGB8888 = 1,
+    WL_FMT_RGB888   = 0x34324752,
+    WL_FMT_BGR888   = 0x34324742,
+    WL_FMT_XBGR8888 = 0x34324258,
+    WL_FMT_RGBX8888 = 0x34325852,
+    WL_FMT_BGRX8888 = 0x34325842,
+    WL_FMT_ABGR8888 = 0x34324241,
+    WL_FMT_RGBA8888 = 0x34324152,
+    WL_FMT_BGRA8888 = 0x34324142,
+};
+
+// convert wl_shm_format to our PixelFormat enum
+static PixelFormat wl_shm_to_pixelfmt(uint32_t wl_fmt) {
+    switch (wl_fmt) {
+        case WL_FMT_ARGB8888: return FMT_ARGB;
+        case WL_FMT_XRGB8888: return FMT_xRGB;
+        case WL_FMT_XBGR8888: return FMT_xBGR;
+        case WL_FMT_ABGR8888: return FMT_ABGR;
+        case WL_FMT_RGBX8888: return FMT_RGBx;
+        case WL_FMT_BGRX8888: return FMT_BGRx;
+        case WL_FMT_RGBA8888: return FMT_RGBA;
+        case WL_FMT_BGRA8888: return FMT_BGRA;
+        case WL_FMT_RGB888:   return FMT_RGB;
+        case WL_FMT_BGR888:   return FMT_BGR;
+        default:              return FMT_xRGB;  // fallback (ARGB is default for wl_shm)
+    }
+}
+
+// convert spa_video_format to our PixelFormat enum
+// spa values: RGBx=8, BGRx=9, xRGB=10, xBGR=11, RGBA=12, BGRA=13, ARGB=14, ABGR=15, RGB=16, BGR=17
+static PixelFormat spa_to_pixelfmt(uint32_t spa_fmt) {
+    switch (spa_fmt) {
+        case  8: return FMT_RGBx;
+        case  9: return FMT_BGRx;
+        case 10: return FMT_xRGB;
+        case 11: return FMT_xBGR;
+        case 12: return FMT_RGBA;
+        case 13: return FMT_BGRA;
+        case 14: return FMT_ARGB;
+        case 15: return FMT_ABGR;
+        case 16: return FMT_RGB;
+        case 17: return FMT_BGR;
+        default: return FMT_BGRx;  // fallback
+    }
+}
+
 extern "C" void render_braille_cuda(
     const uint8_t *frame_data,
     uint32_t frame_width,
@@ -53,6 +116,7 @@ extern "C" void render_braille_cuda(
     int cells_x,
     int cells_y,
     double rotation_angle,
+    uint8_t pixel_format,
     uint8_t detail_level,
     uint8_t threshold_steps,
     uint8_t *patterns,
@@ -65,8 +129,9 @@ extern "C" void render_hybrid_cuda(
     int w_scaled, int h_scaled,
     int cells_x, int cells_y,
     double rotation_angle,
+    uint8_t pixel_format,
     uint8_t detail, uint8_t threshold_steps,
-    uint8_t *modes, // 1=braille, 0=blocks
+    uint8_t *modes,
     uint8_t *patterns,
     uint8_t *fg_colors,
     uint8_t *bg_colors);
@@ -81,6 +146,7 @@ extern "C" void render_blocks_cuda(
     int cells_x,
     int cells_y,
     double rotation_angle,
+    uint8_t pixel_format,
     uint8_t *fg_colors,
     uint8_t *bg_colors);
 
@@ -94,11 +160,11 @@ extern "C" void render_ascii_cuda(
     int cells_x,
     int cells_y,
     double rotation_angle,
+    uint8_t pixel_format,
     uint8_t *intensities,
     uint8_t *fg_colors,
     uint8_t *bg_colors);
 
-// ADD global compositor type:
 static std::string compositor_type = "generic";
 
 static std::string exec_command(const char *cmd)
@@ -1465,7 +1531,7 @@ static std::string rgb_to_ansi(uint8_t r, uint8_t g, uint8_t b, ColorMode mode)
     }
 }
 
-// Background color code
+// bg color escape code
 static std::string rgb_to_ansi_bg(uint8_t r, uint8_t g, uint8_t b, ColorMode mode)
 {
     switch (mode)
@@ -1481,16 +1547,43 @@ static std::string rgb_to_ansi_bg(uint8_t r, uint8_t g, uint8_t b, ColorMode mod
     }
 }
 
-// Extract RGB from BGRA frame
-static inline void get_rgb(const uint8_t *p, uint8_t &r, uint8_t &g, uint8_t &b)
-{
-    b = p[0];
-    g = p[1];
-    r = p[2];
+// bytes per pixel for format (3 for 24-bit, 4 for 32-bit)
+static inline int bpp_for_fmt(PixelFormat fmt) {
+  return (fmt == FMT_BGR || fmt == FMT_RGB) ? 3 : 4;
 }
 
-// Helper to sample a pixel with rotation transformation
-// rotation_angle is in degrees (0-360, any value)
+// extract rgb from pixel data based on format
+static inline void get_rgb(const uint8_t *p, uint8_t &r, uint8_t &g, uint8_t &b, PixelFormat fmt)
+{
+    switch (fmt) {
+    case FMT_BGRx:
+    case FMT_BGRA:
+        b = p[0]; g = p[1]; r = p[2];
+        break;
+    case FMT_RGBx:
+    case FMT_RGBA:
+        r = p[0]; g = p[1]; b = p[2];
+        break;
+    case FMT_xBGR:
+    case FMT_ABGR:
+        b = p[1]; g = p[2]; r = p[3];
+        break;
+    case FMT_xRGB:
+    case FMT_ARGB:
+        r = p[1]; g = p[2]; b = p[3];
+        break;
+    case FMT_BGR:
+        b = p[0]; g = p[1]; r = p[2];
+        break;
+    case FMT_RGB:
+        r = p[0]; g = p[1]; b = p[2];
+        break;
+    default:
+        b = p[0]; g = p[1]; r = p[2]; // fallback BGRx
+    }
+}
+
+// sample a pixel with rotation transform
 static inline void sample_rotated_pixel(
     const uint8_t *frame_data,
     uint32_t frame_width,
@@ -1499,43 +1592,38 @@ static inline void sample_rotated_pixel(
     int x, int y,
     int rotated_width, int rotated_height,
     double rotation_angle,
-    uint8_t &r, uint8_t &g, uint8_t &b)
+    uint8_t &r, uint8_t &g, uint8_t &b,
+    PixelFormat fmt = FMT_BGRx)
 {
-    // Convert angle to radians
     double rad = rotation_angle * M_PI / 180.0;
     double cos_a = cos(rad);
     double sin_a = sin(rad);
     
-    // Center of output (rotated) space
     double cx_out = rotated_width / 2.0;
     double cy_out = rotated_height / 2.0;
-    
-    // Center of input (original) space
     double cx_in = frame_width / 2.0;
     double cy_in = frame_height / 2.0;
     
-    // Translate to origin, rotate backwards, translate back
     double dx = x - cx_out;
     double dy = y - cy_out;
     
-    // Inverse rotation (rotate point back to find source)
+    // inverse rotation to find source pixel
     double src_x_f = cos_a * dx + sin_a * dy + cx_in;
     double src_y_f = -sin_a * dx + cos_a * dy + cy_in;
     
     int src_x = (int)round(src_x_f);
     int src_y = (int)round(src_y_f);
     
-    // Check bounds - return black for out-of-bounds
     if (src_x < 0 || src_x >= (int)frame_width || src_y < 0 || src_y >= (int)frame_height) {
         r = g = b = 0;
         return;
     }
     
-    const uint8_t *p = frame_data + src_y * frame_stride + src_x * 4;
-    get_rgb(p, r, g, b);
+    const uint8_t *p = frame_data + src_y * frame_stride + src_x * bpp_for_fmt(fmt);
+    get_rgb(p, r, g, b, fmt);
 }
 
-// Get effective dimensions after rotation (bounding box)
+// bounding box dimensions after rotation
 static inline void get_rotated_dimensions(
     uint32_t frame_width, uint32_t frame_height,
     double rotation_angle,
@@ -1545,7 +1633,6 @@ static inline void get_rotated_dimensions(
     double cos_a = fabs(cos(rad));
     double sin_a = fabs(sin(rad));
     
-    // Bounding box of rotated rectangle
     out_width = (uint32_t)ceil(frame_width * cos_a + frame_height * sin_a);
     out_height = (uint32_t)ceil(frame_width * sin_a + frame_height * cos_a);
 }
@@ -1568,11 +1655,13 @@ static RegionalColorAnalysis analyze_regional_colors(
     int h_scaled,
     int cells_x,
     int cells_y,
-    uint8_t detail_level)
+    int rot_width,
+    int rot_height,
+    double rotation_angle,
+    uint8_t detail_level,
+    PixelFormat pixel_format = FMT_BGRx)
 {
-
-    // Sample a larger region around this cell
-    int region_size = 10; // 10x10 cells = 80x40 dots = 160x80 pixels
+    int region_size = 10;
 
     // Collect all pixel colors in the region
     std::vector<uint8_t> reds, greens, blues, lumas;
@@ -1590,7 +1679,6 @@ static RegionalColorAnalysis analyze_regional_colors(
             int nx = cell_x + dx;
             int ny = cell_y + dy;
 
-            // Clamp to valid cells
             if (nx < 0 || nx >= cells_x || ny < 0 || ny >= cells_y)
                 continue;
 
@@ -1603,15 +1691,16 @@ static RegionalColorAnalysis analyze_regional_colors(
                 int dot_x = dot_positions[dot][0];
                 int dot_y = dot_positions[dot][1];
 
-                int src_x = (nx * 2 + dot_x) * frame_width / w_scaled;
-                int src_y = (ny * 4 + dot_y) * frame_height / h_scaled;
+                // Calculate position in rotated coordinate space
+                int rot_x = (nx * 2 + dot_x) * rot_width / w_scaled;
+                int rot_y = (ny * 4 + dot_y) * rot_height / h_scaled;
 
-                src_x = std::clamp(src_x, 0, (int)frame_width - 1);
-                src_y = std::clamp(src_y, 0, (int)frame_height - 1);
+                rot_x = std::clamp(rot_x, 0, rot_width - 1);
+                rot_y = std::clamp(rot_y, 0, rot_height - 1);
 
-                const uint8_t *p = frame_data + src_y * frame_stride + src_x * 4;
                 uint8_t r, g, b;
-                get_rgb(p, r, g, b);
+                sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                                   rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
 
                 reds.push_back(r);
                 greens.push_back(g);
@@ -1623,7 +1712,6 @@ static RegionalColorAnalysis analyze_regional_colors(
 
     if (reds.empty())
     {
-        // Fallback
         return {128, 128, 128, 64, 64, 64, 64.0};
     }
 
@@ -1632,7 +1720,7 @@ static RegionalColorAnalysis analyze_regional_colors(
     std::sort(sorted_lumas.begin(), sorted_lumas.end());
     uint8_t median_luma = sorted_lumas[sorted_lumas.size() / 2];
 
-    // Calculate mean colors for light pixels (foreground) and dark pixels (background)
+    // Split into light/dark groups
     uint32_t fg_r_sum = 0, fg_g_sum = 0, fg_b_sum = 0, fg_count = 0;
     uint32_t bg_r_sum = 0, bg_g_sum = 0, bg_b_sum = 0, bg_count = 0;
 
@@ -1640,7 +1728,6 @@ static RegionalColorAnalysis analyze_regional_colors(
     {
         if (lumas[i] >= median_luma)
         {
-            // Light pixel (foreground)
             fg_r_sum += reds[i];
             fg_g_sum += greens[i];
             fg_b_sum += blues[i];
@@ -1648,7 +1735,6 @@ static RegionalColorAnalysis analyze_regional_colors(
         }
         else
         {
-            // Dark pixel (background)
             bg_r_sum += reds[i];
             bg_g_sum += greens[i];
             bg_b_sum += blues[i];
@@ -1680,7 +1766,6 @@ static RegionalColorAnalysis analyze_regional_colors(
         result.dominant_bg_r = result.dominant_bg_g = result.dominant_bg_b = 55;
     }
 
-    // Calculate perceptual contrast
     double fg_luma = 0.299 * result.dominant_fg_r + 0.587 * result.dominant_fg_g + 0.114 * result.dominant_fg_b;
     double bg_luma = 0.299 * result.dominant_bg_r + 0.587 * result.dominant_bg_g + 0.114 * result.dominant_bg_b;
     result.contrast = std::abs(fg_luma - bg_luma);
@@ -1697,13 +1782,16 @@ static BrailleCell analyze_braille_cell(
     int cell_y,
     int w_scaled,
     int h_scaled,
-    uint8_t detail_level)
+    int rot_width,
+    int rot_height,
+    double rotation_angle,
+    uint8_t detail_level,
+    PixelFormat pixel_format = FMT_BGRx)
 {
-
     BrailleCell cell;
     memset(&cell, 0, sizeof(cell));
 
-    // Calculate sampling kernel size based on detail level
+    // kernel size based on detail level
     int kernel_size;
     if (detail_level >= 95)
     {
@@ -1730,16 +1818,16 @@ static BrailleCell analyze_braille_cell(
     int dot_positions[8][2] = {
         {0, 0}, {0, 1}, {0, 2}, {1, 0}, {1, 1}, {1, 2}, {0, 3}, {1, 3}};
 
-    // Sample each dot
+    // Sample each dot with Gaussian kernel - with rotation support
     for (int dot = 0; dot < 8; dot++)
     {
         int dot_x = dot_positions[dot][0];
         int dot_y = dot_positions[dot][1];
 
-        int src_x = (cell_x * 2 + dot_x) * frame_width / w_scaled;
-        int src_y = (cell_y * 4 + dot_y) * frame_height / h_scaled;
+        // Calculate position in rotated coordinate space
+        int rot_x = (cell_x * 2 + dot_x) * rot_width / w_scaled;
+        int rot_y = (cell_y * 4 + dot_y) * rot_height / h_scaled;
 
-        // Sample with kernel
         uint32_t r_sum = 0, g_sum = 0, b_sum = 0;
         double weight_sum = 0;
 
@@ -1747,12 +1835,12 @@ static BrailleCell analyze_braille_cell(
         {
             for (int kx = 0; kx < kernel_size; kx++)
             {
-                int px = std::clamp(src_x + kx - kernel_size / 2, 0, (int)frame_width - 1);
-                int py = std::clamp(src_y + ky - kernel_size / 2, 0, (int)frame_height - 1);
+                int px = std::clamp(rot_x + kx - kernel_size / 2, 0, rot_width - 1);
+                int py = std::clamp(rot_y + ky - kernel_size / 2, 0, rot_height - 1);
 
-                const uint8_t *p = frame_data + py * frame_stride + px * 4;
                 uint8_t r, g, b;
-                get_rgb(p, r, g, b);
+                sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                                   px, py, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
 
                 double dx = kx - kernel_size / 2.0;
                 double dy = ky - kernel_size / 2.0;
@@ -1778,51 +1866,34 @@ static BrailleCell analyze_braille_cell(
         cell.lumas[dot] = 0.299 * r + 0.587 * g + 0.114 * b;
     }
 
-    // CRITICAL SIMPLE EDGE DETECTION: Does ANY edge exist?
-    // Check all adjacent pairs - if ANY pair has significant difference, edge exists
-
+    // Edge detection adjacency pairs
     int adjacency_pairs[][2] = {
         {0, 1}, {1, 2}, {3, 4}, {4, 5}, {6, 7}, // Vertical
-        {0, 3},
-        {1, 4},
-        {2, 5},
-        {6, 7}, // Horizontal
-        {0, 4},
-        {1, 3},
-        {1, 5},
-        {2, 4} // Diagonal
+        {0, 3}, {1, 4}, {2, 5}, {6, 7},         // Horizontal
+        {0, 4}, {1, 3}, {1, 5}, {2, 4}          // Diagonal
     };
 
     cell.has_edge = false;
     double max_edge = 0;
-
-    // Edge detection threshold - adjust based on detail level
     double edge_threshold = (detail_level >= 70) ? 30.0 : 50.0;
 
-    for (auto &pair : adjacency_pairs)
+    for (int i = 0; i < 13; i++) // FIXED: was iterating over variable-sized array
     {
-        int i = pair[0];
-        int j = pair[1];
+        int idx1 = adjacency_pairs[i][0];
+        int idx2 = adjacency_pairs[i][1];
 
-        // Calculate perceptual color distance
-        double dr = cell.colors[i][0] - cell.colors[j][0];
-        double dg = cell.colors[i][1] - cell.colors[j][1];
-        double db = cell.colors[i][2] - cell.colors[j][2];
+        double dr = cell.colors[idx1][0] - cell.colors[idx2][0];
+        double dg = cell.colors[idx1][1] - cell.colors[idx2][1];
+        double db = cell.colors[idx1][2] - cell.colors[idx2][2];
         double color_dist = sqrt(2.0 * dr * dr + 4.0 * dg * dg + 3.0 * db * db);
 
-        // Luminance difference
-        double luma_diff = std::abs(cell.lumas[i] - cell.lumas[j]);
-
-        // Edge strength (use max of color or luma difference)
+        double luma_diff = std::abs(cell.lumas[idx1] - cell.lumas[idx2]);
         double edge = std::max(color_dist, luma_diff * 2.0);
 
         max_edge = std::max(max_edge, edge);
-
-        // If ANY edge exceeds threshold, we have an edge
         if (edge > edge_threshold)
         {
             cell.has_edge = true;
-            // Don't break - we still want max_edge for threshold calc
         }
     }
 
@@ -1836,7 +1907,7 @@ static BrailleCell analyze_braille_cell(
     }
     cell.mean_luma = sum / 8.0;
 
-    // Weight calculation
+    // Weight calculation - EXACT CUDA MATCH
     for (int i = 0; i < 8; i++)
     {
         double contrast = std::abs(cell.lumas[i] - cell.mean_luma);
@@ -1846,57 +1917,18 @@ static BrailleCell analyze_braille_cell(
     return cell;
 }
 
-static void boost_braille_contrast(
-    uint8_t &fg_r, uint8_t &fg_g, uint8_t &fg_b,
-    uint8_t &bg_r, uint8_t &bg_g, uint8_t &bg_b,
-    double contrast_target)
-{
-
-    double fg_luma = 0.299 * fg_r + 0.587 * fg_g + 0.114 * fg_b;
-    double bg_luma = 0.299 * bg_r + 0.587 * bg_g + 0.114 * bg_b;
-    double current_contrast = std::abs(fg_luma - bg_luma);
-
-    if (current_contrast >= contrast_target)
-        return;
-
-    double boost_factor = contrast_target / (current_contrast + 1e-5);
-
-    if (fg_luma > bg_luma)
-    {
-        // Make foreground lighter, background darker
-        fg_r = std::min(255, (int)(fg_r * boost_factor));
-        fg_g = std::min(255, (int)(fg_g * boost_factor));
-        fg_b = std::min(255, (int)(fg_b * boost_factor));
-
-        bg_r = std::max(0, (int)(bg_r / boost_factor));
-        bg_g = std::max(0, (int)(bg_g / boost_factor));
-        bg_b = std::max(0, (int)(bg_b / boost_factor));
-    }
-    else
-    {
-        // Make background lighter, foreground darker
-        bg_r = std::min(255, (int)(bg_r * boost_factor));
-        bg_g = std::min(255, (int)(bg_g * boost_factor));
-        bg_b = std::min(255, (int)(bg_b * boost_factor));
-
-        fg_r = std::max(0, (int)(fg_r / boost_factor));
-        fg_g = std::max(0, (int)(fg_g / boost_factor));
-        fg_b = std::max(0, (int)(fg_b / boost_factor));
-    }
-}
-
-// FIXED: Braille pattern calculation - proper inversion based on what's majority
+// Calculate braille pattern from cell luminance data
 static uint8_t calculate_braille_pattern(
     const BrailleCell &cell,
     uint8_t detail_level,
     uint8_t quality,
     const RegionalColorAnalysis &regional)
 {
-
     int step = std::max(1, 16 - (quality / 7));
 
-    // HIGH DETAIL (70-89): Otsu on luminance
     double threshold;
+
+    // Threshold calculation - adaptive for high detail
     if (detail_level >= 70)
     {
         double best_threshold = cell.mean_luma;
@@ -1951,7 +1983,6 @@ static uint8_t calculate_braille_pattern(
 
     // Apply threshold
     uint8_t pattern = 0;
-
     for (int dot = 0; dot < 8; dot++)
     {
         if (cell.lumas[dot] > threshold)
@@ -1960,10 +1991,17 @@ static uint8_t calculate_braille_pattern(
         }
     }
 
+    // CRITICAL FIX: Invert if majority lit - makes dark content (like text) become foreground
+    int lit_count = __builtin_popcount(pattern);
+    if (lit_count > 4)
+    {
+        pattern = ~pattern;
+    }
+
     return pattern;
 }
 
-// Color assignment - no changes needed
+// Calculate foreground/background colors from braille cell analysis
 static void calculate_braille_colors(
     const BrailleCell &cell,
     uint8_t pattern,
@@ -1972,39 +2010,30 @@ static void calculate_braille_colors(
     uint8_t detail_level,
     const RegionalColorAnalysis &regional)
 {
-
-    std::vector<int> lit_dots, unlit_dots;
+    int lit_count = 0, unlit_count = 0;
+    uint32_t lit_r = 0, lit_g = 0, lit_b = 0;
+    uint32_t unlit_r = 0, unlit_g = 0, unlit_b = 0;
 
     for (int i = 0; i < 8; i++)
     {
         if (pattern & (1 << i))
         {
-            lit_dots.push_back(i);
+            lit_r += cell.colors[i][0];
+            lit_g += cell.colors[i][1];
+            lit_b += cell.colors[i][2];
+            lit_count++;
         }
         else
         {
-            unlit_dots.push_back(i);
+            unlit_r += cell.colors[i][0];
+            unlit_g += cell.colors[i][1];
+            unlit_b += cell.colors[i][2];
+            unlit_count++;
         }
     }
 
-    // Calculate average colors
-    uint32_t lit_r = 0, lit_g = 0, lit_b = 0;
-    uint32_t unlit_r = 0, unlit_g = 0, unlit_b = 0;
-
-    for (int dot : lit_dots)
-    {
-        lit_r += cell.colors[dot][0];
-        lit_g += cell.colors[dot][1];
-        lit_b += cell.colors[dot][2];
-    }
-    for (int dot : unlit_dots)
-    {
-        unlit_r += cell.colors[dot][0];
-        unlit_g += cell.colors[dot][1];
-        unlit_b += cell.colors[dot][2];
-    }
-
-    if (lit_dots.empty())
+    // Handle edge cases
+    if (lit_count == 0)
     {
         fg_r = regional.dominant_bg_r;
         fg_g = regional.dominant_bg_g;
@@ -2014,7 +2043,7 @@ static void calculate_braille_colors(
         bg_b = fg_b;
         return;
     }
-    else if (unlit_dots.empty())
+    else if (unlit_count == 0)
     {
         fg_r = regional.dominant_fg_r;
         fg_g = regional.dominant_fg_g;
@@ -2025,14 +2054,14 @@ static void calculate_braille_colors(
         return;
     }
 
-    // After inversion (if applied), lit dots = content, unlit = background
-    fg_r = lit_r / lit_dots.size();
-    fg_g = lit_g / lit_dots.size();
-    fg_b = lit_b / lit_dots.size();
+    // Average colors for lit/unlit dots
+    fg_r = lit_r / lit_count;
+    fg_g = lit_g / lit_count;
+    fg_b = lit_b / lit_count;
 
-    bg_r = unlit_r / unlit_dots.size();
-    bg_g = unlit_g / unlit_dots.size();
-    bg_b = unlit_b / unlit_dots.size();
+    bg_r = unlit_r / unlit_count;
+    bg_g = unlit_g / unlit_count;
+    bg_b = unlit_b / unlit_count;
 }
 
 // Render with hybrid braille and half-block (high detail braille where needed)
@@ -2049,7 +2078,8 @@ static std::string render_braille(
     double scale_factor,
     uint8_t detail_level,
     uint8_t threshold_steps,
-    double rotation_angle)
+    double rotation_angle,
+    PixelFormat pixel_format = FMT_BGRx)
 {
 
     if (!frame_data || frame_width == 0 || frame_height == 0)
@@ -2135,7 +2165,7 @@ static std::string render_braille(
 
                         uint8_t r, g, b;
                         sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                            px, py, rot_width, rot_height, rotation_angle, r, g, b);
+                                            px, py, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
 
                         double dx = kx - kernel_size / 2.0;
                         double dy = ky - kernel_size / 2.0;
@@ -2236,7 +2266,8 @@ static std::string render_braille_cuda_wrapper(
     double scale_factor,
     uint8_t detail_level,
     uint8_t threshold_steps,
-    double rotation_angle)
+    double rotation_angle,
+    PixelFormat pixel_format = FMT_BGRx)
 {
     if (!frame_data || frame_width == 0 || frame_height == 0)
         return "";
@@ -2288,7 +2319,7 @@ static std::string render_braille_cuda_wrapper(
     render_braille_cuda(
         frame_data, frame_width, frame_height, frame_stride,
         w_scaled, h_scaled, cells_x, cells_y,
-        rotation_angle,
+        rotation_angle, static_cast<uint8_t>(pixel_format),
         detail_level, threshold_steps,
         patterns.data(), fg_colors.data(), bg_colors.data());
 
@@ -2338,7 +2369,8 @@ static std::string render_hybrid(
     double scale_factor,
     uint8_t detail_level,
     uint8_t threshold_steps,
-    double rotation_angle);
+    double rotation_angle,
+    PixelFormat pixel_format);
 
 // CUDA-accelerated hybrid renderer
 // Now supports rotation natively in CUDA
@@ -2354,7 +2386,8 @@ static std::string render_hybrid_cuda_wrapper(
     double scale_factor,
     uint8_t detail_level,
     uint8_t threshold_steps,
-    double rotation_angle)
+    double rotation_angle,
+    PixelFormat pixel_format = FMT_BGRx)
 {
     if (!frame_data || frame_width == 0 || frame_height == 0)
         return "";
@@ -2407,7 +2440,7 @@ static std::string render_hybrid_cuda_wrapper(
     render_hybrid_cuda(
         frame_data, frame_width, frame_height, frame_stride,
         w_scaled, h_scaled, cells_x, cells_y,
-        rotation_angle,
+        rotation_angle, static_cast<uint8_t>(pixel_format),
         detail_level, threshold_steps,
         modes.data(), patterns.data(), fg_colors.data(), bg_colors.data());
 
@@ -2454,6 +2487,208 @@ static std::string render_hybrid_cuda_wrapper(
     return out.str();
 }
 
+static std::string render_blocks(
+    const uint8_t *frame_data,
+    uint32_t frame_width,
+    uint32_t frame_height,
+    uint32_t frame_stride,
+    int term_width,
+    int term_height,
+    ColorMode mode,
+    bool keep_aspect_ratio,
+    double scale_factor,
+    uint8_t detail_level,
+    uint8_t threshold_steps,
+    double rotation_angle,
+    PixelFormat pixel_format = FMT_BGRx)
+{
+    if (!frame_data || frame_width == 0 || frame_height == 0)
+        return "";
+
+    std::ostringstream out;
+    out.precision(0);
+    out << std::fixed;
+
+    // Get rotated dimensions
+    uint32_t rot_width, rot_height;
+    get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
+
+    // Calculate scaled dimensions using rotated dimensions
+    int w_scaled, h_scaled;
+    if (keep_aspect_ratio)
+    {
+        double src_aspect = (double)rot_width / rot_height;
+        double term_aspect = (double)term_width / (term_height * 2);
+
+        if (src_aspect > term_aspect)
+        {
+            w_scaled = term_width;
+            h_scaled = (int)(w_scaled / src_aspect);
+        }
+        else
+        {
+            h_scaled = term_height * 2;
+            w_scaled = (int)(h_scaled * src_aspect);
+        }
+    }
+    else
+    {
+        w_scaled = (int)(rot_width * scale_factor);
+        h_scaled = (int)(rot_height * scale_factor);
+    }
+
+    w_scaled = std::clamp(w_scaled, 1, term_width);
+    h_scaled = std::clamp(h_scaled, 2, term_height * 2);
+
+    int blocks_x = w_scaled;
+    int blocks_y = h_scaled / 2;
+
+    // Sample top and bottom halves (2x1 blocks)
+    for (int by = 0; by < blocks_y; by++)
+    {
+        for (int bx = 0; bx < blocks_x; bx++)
+        {
+            uint32_t r_top = 0, g_top = 0, b_top = 0;
+            uint32_t r_bot = 0, g_bot = 0, b_bot = 0;
+
+            // Top half (3 samples at y positions 0,1,2)
+            for (int i = 0; i < 3; i++)
+            {
+                int rot_x = (bx * 2 + 1) * rot_width / w_scaled;  // Center of cell
+                int rot_y = (by * 4 + i) * rot_height / h_scaled;
+
+                rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
+                rot_y = std::clamp(rot_y, 0, (int)rot_height - 1);
+
+                uint8_t r, g, b;
+                sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                                   rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
+
+                r_top += r;
+                g_top += g;
+                b_top += b;
+            }
+
+            // Bottom half (1 sample at y position 3)
+            for (int i = 3; i < 4; i++)
+            {
+                int rot_x = (bx * 2 + 1) * rot_width / w_scaled;
+                int rot_y = (by * 4 + i) * rot_height / h_scaled;
+
+                rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
+                rot_y = std::clamp(rot_y, 0, (int)rot_height - 1);
+
+                uint8_t r, g, b;
+                sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                                   rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
+
+                r_bot += r;
+                g_bot += g;
+                b_bot += b;
+            }
+
+            // Average by sample count
+            out << rgb_to_ansi(r_top / 3, g_top / 3, b_top / 3, mode);
+            out << rgb_to_ansi_bg(r_bot / 1, g_bot / 1, b_bot / 1, mode);
+            out << "▀";
+        }
+
+        out << "\033[0m";
+        if (by < blocks_y - 1)
+            out << '\n';
+    }
+
+    return out.str();
+}
+
+static std::string render_ascii(
+    const uint8_t *frame_data,
+    uint32_t frame_width,
+    uint32_t frame_height,
+    uint32_t frame_stride,
+    int term_width,
+    int term_height,
+    ColorMode mode,
+    bool keep_aspect_ratio,
+    double scale_factor,
+    uint8_t detail_level,
+    uint8_t threshold_steps,
+    double rotation_angle,
+    PixelFormat pixel_format = FMT_BGRx)
+{
+    if (!frame_data || frame_width == 0 || frame_height == 0)
+        return "";
+
+    std::ostringstream out;
+    out.precision(0);
+    out << std::fixed;
+
+    // ASCII brightness ramp
+    const char *chars = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+    int char_count = strlen(chars);
+
+    // Get rotated dimensions
+    uint32_t rot_width, rot_height;
+    get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
+
+    // Calculate scaled dimensions using rotated dimensions
+    int w_scaled, h_scaled;
+    if (keep_aspect_ratio)
+    {
+        double src_aspect = (double)rot_width / rot_height;
+        double term_aspect = (double)term_width / term_height;
+
+        if (src_aspect > term_aspect)
+        {
+            w_scaled = term_width;
+            h_scaled = (int)(w_scaled / src_aspect);
+        }
+        else
+        {
+            h_scaled = term_height;
+            w_scaled = (int)(h_scaled * src_aspect);
+        }
+    }
+    else
+    {
+        w_scaled = (int)(rot_width * scale_factor);
+        h_scaled = (int)(rot_height * scale_factor);
+    }
+
+    w_scaled = std::clamp(w_scaled, 1, term_width);
+    h_scaled = std::clamp(h_scaled, 1, term_height);
+
+    // Sample cell center in rotated coordinate space
+    for (int ay = 0; ay < h_scaled; ay++)
+    {
+        for (int ax = 0; ax < w_scaled; ax++)
+        {
+            // Sample center of cell
+            int rot_x = (ax * 2 + 1) * rot_width / w_scaled;
+            int rot_y = (ay * 4 + 2) * rot_height / h_scaled;
+
+            rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
+            rot_y = std::clamp(rot_y, 0, (int)rot_height - 1);
+
+            uint8_t r, g, b;
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
+
+            // Calculate luminance
+            double luma = 0.299 * r + 0.587 * g + 0.114 * b;
+            int char_idx = std::clamp((int)((luma / 255.0) * (char_count - 1)), 0, char_count - 1);
+
+            out << rgb_to_ansi(r, g, b, mode) << chars[char_idx];
+        }
+
+        out << "\033[0m";
+        if (ay < h_scaled - 1)
+            out << '\n';
+    }
+
+    return out.str();
+}
+
 static std::string render_hybrid(
     const uint8_t *frame_data,
     uint32_t frame_width,
@@ -2466,9 +2701,9 @@ static std::string render_hybrid(
     double scale_factor,
     uint8_t detail_level,
     uint8_t threshold_steps,
-    double rotation_angle)
+    double rotation_angle,
+    PixelFormat pixel_format = FMT_BGRx)
 {
-
     if (!frame_data || frame_width == 0 || frame_height == 0)
         return "";
 
@@ -2512,7 +2747,7 @@ static std::string render_hybrid(
 
     // Calculate kernel size based on detail
     int kernel_size;
-    if (detail_level >= 90) kernel_size = 1;
+    if (detail_level >= 95) kernel_size = 1;
     else if (detail_level >= 80) kernel_size = 2;
     else if (detail_level >= 60) kernel_size = 3;
     else if (detail_level >= 40) kernel_size = 4;
@@ -2524,9 +2759,9 @@ static std::string render_hybrid(
 
     // Edge detection adjacency pairs
     int adjacency_pairs[][2] = {
-        {0, 1}, {1, 2}, {3, 4}, {4, 5}, {6, 7},
-        {0, 3}, {1, 4}, {2, 5},
-        {0, 4}, {1, 3}, {1, 5}, {2, 4}
+        {0, 1}, {1, 2}, {3, 4}, {4, 5}, {6, 7}, // Vertical
+        {0, 3}, {1, 4}, {2, 5}, {6, 7},         // Horizontal
+        {0, 4}, {1, 3}, {1, 5}, {2, 4}          // Diagonal
     };
     double edge_threshold = (detail_level >= 70) ? 30.0 : 50.0;
 
@@ -2559,7 +2794,7 @@ static std::string render_hybrid(
 
                         uint8_t r, g, b;
                         sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                            px, py, rot_width, rot_height, rotation_angle, r, g, b);
+                                            px, py, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
 
                         double dx = kx - kernel_size / 2.0;
                         double dy = ky - kernel_size / 2.0;
@@ -2580,25 +2815,31 @@ static std::string render_hybrid(
                 lumas[dot] = 0.299 * colors[dot][0] + 0.587 * colors[dot][1] + 0.114 * colors[dot][2];
             }
 
-            // Check for edges
+            // Check for edges (13 pairs)
             bool has_edge = false;
-            for (auto &pair : adjacency_pairs)
+            for (int i = 0; i < 13; i++)
             {
-                int i = pair[0];
-                int j = pair[1];
-                double dr = colors[i][0] - colors[j][0];
-                double dg = colors[i][1] - colors[j][1];
-                double db = colors[i][2] - colors[j][2];
+                int idx1 = adjacency_pairs[i][0];
+                int idx2 = adjacency_pairs[i][1];
+                
+                double dr = colors[idx1][0] - colors[idx2][0];
+                double dg = colors[idx1][1] - colors[idx2][1];
+                double db = colors[idx1][2] - colors[idx2][2];
                 double color_dist = sqrt(2.0 * dr * dr + 4.0 * dg * dg + 3.0 * db * db);
-                double luma_diff = fabs(lumas[i] - lumas[j]);
+                
+                double luma_diff = fabs(lumas[idx1] - lumas[idx2]);
                 double edge = fmax(color_dist, luma_diff * 2.0);
+                
                 if (edge > edge_threshold) {
                     has_edge = true;
                     break;
                 }
             }
 
-            if (has_edge)
+            // Decision based on detail level
+            bool use_braille = has_edge && detail_level >= 60;
+
+            if (use_braille)
             {
                 // Braille rendering
                 double mean_luma = 0;
@@ -2612,7 +2853,7 @@ static std::string render_hybrid(
                         pattern |= (1 << dot);
                 }
 
-                // Invert if majority lit - makes dark content (like text) become foreground
+                // Invert if majority lit
                 int lit_count = __builtin_popcount(pattern);
                 if (lit_count > 4)
                     pattern = ~pattern;
@@ -2655,293 +2896,34 @@ static std::string render_hybrid(
             }
             else
             {
-                // Half-block rendering for flat areas
+                // Half-block rendering - sample top 6 and bottom 2 dots
                 uint32_t top_r = 0, top_g = 0, top_b = 0;
                 uint32_t bot_r = 0, bot_g = 0, bot_b = 0;
 
-                for (int i : {0, 1, 3, 4})
+                // Top 6 dots (indices 0-5)
+                for (int i = 0; i < 6; i++)
                 {
                     top_r += colors[i][0];
                     top_g += colors[i][1];
                     top_b += colors[i][2];
                 }
 
-                for (int i : {2, 5, 6, 7})
+                // Bottom 2 dots (indices 6-7)
+                for (int i = 6; i < 8; i++)
                 {
                     bot_r += colors[i][0];
                     bot_g += colors[i][1];
                     bot_b += colors[i][2];
                 }
 
-                out << rgb_to_ansi(top_r / 4, top_g / 4, top_b / 4, mode);
-                out << rgb_to_ansi_bg(bot_r / 4, bot_g / 4, bot_b / 4, mode);
+                out << rgb_to_ansi(top_r / 6, top_g / 6, top_b / 6, mode);
+                out << rgb_to_ansi_bg(bot_r / 2, bot_g / 2, bot_b / 2, mode);
                 out << "▀";
             }
         }
 
         out << "\033[0m";
         if (cy < cells_y - 1)
-            out << '\n';
-    }
-
-    return out.str();
-}
-
-// BLOCKS renderer (2x1 half-blocks, fast and clean)
-static std::string render_blocks(
-    const uint8_t *frame_data,
-    uint32_t frame_width,
-    uint32_t frame_height,
-    uint32_t frame_stride,
-    int term_width,
-    int term_height,
-    ColorMode mode,
-    bool keep_aspect_ratio,
-    double scale_factor,
-    uint8_t detail_level,
-    uint8_t threshold_steps,
-    double rotation_angle)
-{
-
-    if (!frame_data || frame_width == 0 || frame_height == 0)
-        return "";
-
-    std::ostringstream out;
-    out.precision(0);
-    out << std::fixed;
-
-    // Get rotated dimensions
-    uint32_t rot_width, rot_height;
-    get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
-
-    // Calculate scaled dimensions using rotated dimensions
-    int w_scaled, h_scaled;
-    if (keep_aspect_ratio)
-    {
-        double src_aspect = (double)rot_width / rot_height;
-        double term_aspect = (double)term_width / (term_height * 2);
-
-        if (src_aspect > term_aspect)
-        {
-            w_scaled = term_width;
-            h_scaled = (int)(w_scaled / src_aspect);
-        }
-        else
-        {
-            h_scaled = term_height * 2;
-            w_scaled = (int)(h_scaled * src_aspect);
-        }
-    }
-    else
-    {
-        w_scaled = (int)(rot_width * scale_factor);
-        h_scaled = (int)(rot_height * scale_factor);
-    }
-
-    w_scaled = std::clamp(w_scaled, 1, term_width);
-    h_scaled = std::clamp(h_scaled, 2, term_height * 2);
-
-    int blocks_x = w_scaled;
-    int blocks_y = h_scaled / 2;
-
-    // Adaptive sampling kernel
-    int kernel_size;
-    if (detail_level >= 90)
-    {
-        kernel_size = 1; // Pixel perfect
-    }
-    else if (detail_level >= 80)
-    {
-        kernel_size = 2;
-    }
-    else if (detail_level >= 60)
-    {
-        kernel_size = 3;
-    }
-    else if (detail_level >= 40)
-    {
-        kernel_size = 4;
-    }
-    else
-    {
-        kernel_size = 5;
-    }
-
-    // Render blocks
-    for (int by = 0; by < blocks_y; by++)
-    {
-        for (int bx = 0; bx < blocks_x; bx++)
-        {
-            // Calculate source coordinates in rotated space
-            int rot_x = (bx * rot_width) / w_scaled;
-            int rot_y_top = ((by * 2) * rot_height) / h_scaled;
-            int rot_y_bot = ((by * 2 + 1) * rot_height) / h_scaled;
-
-            // Sample with kernel
-            uint32_t r_top = 0, g_top = 0, b_top = 0;
-            uint32_t r_bot = 0, g_bot = 0, b_bot = 0;
-            double weight_sum = 0;
-
-            for (int ky = 0; ky < kernel_size; ky++)
-            {
-                for (int kx = 0; kx < kernel_size; kx++)
-                {
-                    // Gaussian-like weight
-                    double dist = sqrt(kx * kx + ky * ky);
-                    double sigma = kernel_size * 0.5;
-                    double weight = exp(-dist * dist / (2.0 * sigma * sigma));
-
-                    // Top half - sample with rotation
-                    int px_top = std::clamp(rot_x + kx, 0, (int)rot_width - 1);
-                    int py_top = std::clamp(rot_y_top + ky, 0, (int)rot_height - 1);
-                    uint8_t r, g, b;
-                    sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                        px_top, py_top, rot_width, rot_height, rotation_angle, r, g, b);
-                    r_top += r * weight;
-                    g_top += g * weight;
-                    b_top += b * weight;
-
-                    // Bottom half - sample with rotation
-                    int px_bot = std::clamp(rot_x + kx, 0, (int)rot_width - 1);
-                    int py_bot = std::clamp(rot_y_bot + ky, 0, (int)rot_height - 1);
-                    sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                        px_bot, py_bot, rot_width, rot_height, rotation_angle, r, g, b);
-                    r_bot += r * weight;
-                    g_bot += g * weight;
-                    b_bot += b * weight;
-
-                    weight_sum += weight;
-                }
-            }
-
-            r_top /= weight_sum;
-            g_top /= weight_sum;
-            b_top /= weight_sum;
-            r_bot /= weight_sum;
-            g_bot /= weight_sum;
-            b_bot /= weight_sum;
-
-            out << rgb_to_ansi(r_top, g_top, b_top, mode);
-            out << rgb_to_ansi_bg(r_bot, g_bot, b_bot, mode);
-            out << "▀";
-        }
-
-        out << "\033[0m";
-        if (by < blocks_y - 1)
-            out << '\n';
-    }
-
-    return out.str();
-}
-
-// ASCII renderer (character brightness mapping)
-static std::string render_ascii(
-    const uint8_t *frame_data,
-    uint32_t frame_width,
-    uint32_t frame_height,
-    uint32_t frame_stride,
-    int term_width,
-    int term_height,
-    ColorMode mode,
-    bool keep_aspect_ratio,
-    double scale_factor,
-    uint8_t detail_level,
-    uint8_t threshold_steps,
-    double rotation_angle)
-{
-
-    if (!frame_data || frame_width == 0 || frame_height == 0)
-        return "";
-
-    std::ostringstream out;
-    out.precision(0);
-    out << std::fixed;
-
-    // ASCII brightness ramp
-    const char *chars = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
-    int char_count = strlen(chars);
-
-    // Get rotated dimensions
-    uint32_t rot_width, rot_height;
-    get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
-
-    // Calculate scaled dimensions using rotated dimensions
-    int w_scaled, h_scaled;
-    if (keep_aspect_ratio)
-    {
-        double src_aspect = (double)rot_width / rot_height;
-        double term_aspect = (double)term_width / term_height;
-
-        if (src_aspect > term_aspect)
-        {
-            w_scaled = term_width;
-            h_scaled = (int)(w_scaled / src_aspect);
-        }
-        else
-        {
-            h_scaled = term_height;
-            w_scaled = (int)(h_scaled * src_aspect);
-        }
-    }
-    else
-    {
-        w_scaled = (int)(rot_width * scale_factor);
-        h_scaled = (int)(rot_height * scale_factor);
-    }
-
-    w_scaled = std::clamp(w_scaled, 1, term_width);
-    h_scaled = std::clamp(h_scaled, 1, term_height);
-
-    // Adaptive sampling
-    int kernel_size = (detail_level >= 90) ? 1 : (2 + (100 - detail_level) / 25);
-
-    // Render ASCII art
-    for (int ay = 0; ay < h_scaled; ay++)
-    {
-        for (int ax = 0; ax < w_scaled; ax++)
-        {
-            int rot_x = (ax * rot_width) / w_scaled;
-            int rot_y = (ay * rot_height) / h_scaled;
-
-            // Sample with kernel
-            uint32_t r_sum = 0, g_sum = 0, b_sum = 0;
-            double weight_sum = 0;
-
-            for (int ky = 0; ky < kernel_size; ky++)
-            {
-                for (int kx = 0; kx < kernel_size; kx++)
-                {
-                    int px = std::clamp(rot_x + kx, 0, (int)rot_width - 1);
-                    int py = std::clamp(rot_y + ky, 0, (int)rot_height - 1);
-
-                    uint8_t r, g, b;
-                    sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                        px, py, rot_width, rot_height, rotation_angle, r, g, b);
-
-                    double dist = sqrt(kx * kx + ky * ky);
-                    double sigma = kernel_size * 0.5;
-                    double weight = exp(-dist * dist / (2.0 * sigma * sigma));
-
-                    r_sum += r * weight;
-                    g_sum += g * weight;
-                    b_sum += b * weight;
-                    weight_sum += weight;
-                }
-            }
-
-            uint8_t r = r_sum / weight_sum;
-            uint8_t g = g_sum / weight_sum;
-            uint8_t b = b_sum / weight_sum;
-
-            // Calculate luminance
-            double luma = 0.299 * r + 0.587 * g + 0.114 * b;
-            int char_idx = std::clamp((int)((luma / 255.0) * (char_count - 1)), 0, char_count - 1);
-
-            out << rgb_to_ansi(r, g, b, mode) << chars[char_idx];
-        }
-
-        out << "\033[0m";
-        if (ay < h_scaled - 1)
             out << '\n';
     }
 
@@ -3580,7 +3562,7 @@ static bool init_audio_capture()
         return false;
     }
 
-    // FIX: Capture system audio OUTPUT (what you hear), not microphone
+    // Capture system audio output (monitor sink)
     audio_capture.stream = pw_stream_new_simple(
         pw_thread_loop_get_loop(audio_capture.loop),
         "wayterm-mirror-system-audio",
@@ -3588,7 +3570,6 @@ static bool init_audio_capture()
             PW_KEY_MEDIA_TYPE, "Audio",
             PW_KEY_MEDIA_CATEGORY, "Capture",
             PW_KEY_MEDIA_ROLE, "Music",
-            // ADD: Monitor default sink output
             PW_KEY_NODE_TARGET, "@DEFAULT_AUDIO_SINK@.monitor",
             PW_KEY_STREAM_CAPTURE_SINK, "true",
             nullptr),
@@ -4109,6 +4090,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                 // Capture frame
                 std::vector<uint8_t> local_frame;
                 uint32_t width = 0, height = 0, stride = 0;
+                uint32_t raw_format = 0;
                 
                 {
                     std::lock_guard<std::mutex> lock(*output_mutexes[current_output]);
@@ -4123,6 +4105,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                     width = cap.width;
                     height = cap.height;
                     stride = cap.stride;
+                    raw_format = cap.format;
                 }
                 
                 // Apply zoom if enabled
@@ -4151,6 +4134,9 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                 // Render frame
                 ColorMode mode = static_cast<ColorMode>(config.color_mode);
                 bool keep_aspect_ratio = config.keep_aspect_ratio != 0;
+                PixelFormat pixel_fmt = (capture_backend == PIPEWIRE) 
+                    ? spa_to_pixelfmt(raw_format) 
+                    : wl_shm_to_pixelfmt(raw_format);
                 
                 std::string rendered;
                 switch (config.renderer) {
@@ -4160,13 +4146,15 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                                 frame_to_render.data(), render_width, render_height, render_stride,
                                 config.term_width, config.term_height,
                                 mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle);
+                                config.detail_level, config.quality, config.rotation_angle,
+                                pixel_fmt);
                         } else {
                             rendered = render_braille(
                                 frame_to_render.data(), render_width, render_height, render_stride,
                                 config.term_width, config.term_height,
                                 mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle);
+                                config.detail_level, config.quality, config.rotation_angle,
+                                pixel_fmt);
                         }
                         break;
                     case 1:
@@ -4174,14 +4162,16 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                             frame_to_render.data(), render_width, render_height, render_stride,
                             config.term_width, config.term_height,
                             mode, keep_aspect_ratio, config.scale_factor, 
-                            config.detail_level, config.quality, config.rotation_angle);
+                            config.detail_level, config.quality, config.rotation_angle,
+                            pixel_fmt);
                         break;
                     case 2:
                         rendered = render_ascii(
                             frame_to_render.data(), render_width, render_height, render_stride,
                             config.term_width, config.term_height,
                             mode, keep_aspect_ratio, config.scale_factor, 
-                            config.detail_level, config.quality, config.rotation_angle);
+                            config.detail_level, config.quality, config.rotation_angle,
+                            pixel_fmt);
                         break;
                     case 3:
                     default:
@@ -4190,13 +4180,15 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                                 frame_to_render.data(), render_width, render_height, render_stride,
                                 config.term_width, config.term_height,
                                 mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle);
+                                config.detail_level, config.quality, config.rotation_angle,
+                                pixel_fmt);
                         } else {
                             rendered = render_hybrid(
                                 frame_to_render.data(), render_width, render_height, render_stride,
                                 config.term_width, config.term_height,
                                 mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle);
+                                config.detail_level, config.quality, config.rotation_angle,
+                                pixel_fmt);
                         }
                         break;
                 }
