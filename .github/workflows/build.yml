@@ -38,3 +38,36 @@ jobs:
       run: |
         ls -la waytermirror_server waytermirror_client
         file waytermirror_server waytermirror_client
+
+  build-debian:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:13
+
+    steps:
+    - name: Install dependencies
+      run: |
+        apt-get update
+        apt-get install -y \
+          build-essential \
+          git \
+          gcc \
+          libwayland-dev \
+          wayland-protocols \
+          libinput-dev \
+          libpipewire-0.3-dev \
+          liblz4-dev \
+          rapidjson-dev \
+          libsystemd-dev \
+          cmake \
+          pkg-config
+
+    - uses: actions/checkout@v4
+
+    - name: Build (CPU-only)
+      run: make
+
+    - name: Verify binaries
+      run: |
+        ls -la waytermirror_server waytermirror_client
+        file waytermirror_server waytermirror_client
