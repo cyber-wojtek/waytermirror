@@ -79,6 +79,7 @@ enum {
 
 // convert wl_shm_format to our PixelFormat enum
 static PixelFormat wl_shm_to_pixelfmt(uint32_t wl_fmt) {
+    std::cerr << "[FMT] Converting wl_shm_format " <<  std::hex << wl_fmt <<  std::dec << " to PixelFormat\n";
     switch (wl_fmt) {
         case WL_FMT_ARGB8888: return FMT_ARGB;
         case WL_FMT_XRGB8888: return FMT_xRGB;
