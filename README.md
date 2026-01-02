@@ -61,15 +61,19 @@ Tip: run `./waytermirror_client --help` or `./waytermirror_server --help` to see
 ## Build & install
 
 Prerequisites
-- Core: gcc/g++, make, wayland, libinput, libudev, pipewire, lz4, rapidjson
+- Core: gcc/g++, make, wayland, wayland-protocols, libinput, pipewire, lz4, rapidjson, systemd
 - Optional: NVIDIA CUDA toolkit for GPU rendering (nvcc) — see NVIDIA CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit
 
-Arch Linux (packages listed in [PKGBUILD](PKGBUILD))
-- Example installable dependencies: wayland, wlroots0.19, wayland-protocols, libinput, libevdev, pipewire, lz4, rapidjson, lua, systemd-libs, glib2
-
-Debian/Ubuntu
+Arch Linux
 ```bash
-sudo apt install build-essential libwayland-dev libinput-dev libudev-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libwlroots-dev
+sudo pacman -S base-devel git gcc wayland wayland-protocols libinput pipewire lz4 rapidjson systemd argparse 
+# Optional for CUDA:
+sudo pacman -S cuda
+```
+
+Debian/Ubuntu (13+)
+```bash
+sudo apt install build-essential git gcc libwayland-dev wayland-protocols libinput-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libsystemd-dev pkg-config cmake
 # For CUDA: install NVIDIA CUDA toolkit from https://developer.nvidia.com/cuda-toolkit
 ```
 
@@ -82,7 +86,7 @@ Building (details)
   ```bash
   make CUDA=true
   ```
-- The provided PKGBUILD auto-detects nvcc. You can override with WAYTERMIRROR_CUDA=1 or WAYTERMIRROR_NO_CUDA when building on Arch.
+- The provided PKGBUILD auto-detects nvcc. You can override with WAYTERMIRROR_CUDA=1 or WAYTERMIRROR_NO_CUDA when building with it.
 
 Artifacts
 - waytermirror_server
