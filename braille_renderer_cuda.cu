@@ -263,50 +263,31 @@ __global__ void render_blocks_kernel(
     
     int idx = cell_y * cells_x + cell_x;
     
-    // sample top and bottom halves (half-block chars)
-    uint32_t r_top = 0, g_top = 0, b_top = 0;
-    uint32_t r_bot = 0, g_bot = 0, b_bot = 0;
+    // Map block position to rotated image coordinates
+    // Top half: sample at cell_y/cells_y of image height
+    // Bottom half: sample at (cell_y+0.5)/cells_y of image height
+    int rot_x = cell_x * rot_width / cells_x;
+    int rot_y_top = (cell_y * 2) * rot_height / (cells_y * 2);
+    int rot_y_bot = (cell_y * 2 + 1) * rot_height / (cells_y * 2);
     
-    // top half - 3 samples
-    for (int i = 0; i < 3; i++) {
-        int rot_x = (cell_x * 2 + 1) * rot_width / w_scaled;
-        int rot_y = (cell_y * 4 + i) * rot_height / h_scaled;
-        
-        rot_x = min(max(rot_x, 0), rot_width - 1);
-        rot_y = min(max(rot_y, 0), rot_height - 1);
-        
-        uint8_t r, g, b;
-        sample_rotated_pixel_cuda(frame_data, frame_width, frame_height, frame_stride,
-                                   rot_x, rot_y, rot_width, rot_height, rotation_angle, fmt, r, g, b);
-        
-        r_top += r;
-        g_top += g;
-        b_top += b;
-    }
+    rot_x = min(max(rot_x, 0), rot_width - 1);
+    rot_y_top = min(max(rot_y_top, 0), rot_height - 1);
+    rot_y_bot = min(max(rot_y_bot, 0), rot_height - 1);
     
-    // bottom half - 1 sample
-    for (int i = 3; i < 4; i++) {
-        int rot_x = (cell_x * 2 + 1) * rot_width / w_scaled;
-        int rot_y = (cell_y * 4 + i) * rot_height / h_scaled;
-        
-        rot_x = min(max(rot_x, 0), rot_width - 1);
-        rot_y = min(max(rot_y, 0), rot_height - 1);
-        
-        uint8_t r, g, b;
-        sample_rotated_pixel_cuda(frame_data, frame_width, frame_height, frame_stride,
-                                   rot_x, rot_y, rot_width, rot_height, rotation_angle, fmt, r, g, b);
-        
-        r_bot += r;
-        g_bot += g;
-        b_bot += b;
-    }
+    uint8_t r_top, g_top, b_top;
+    sample_rotated_pixel_cuda(frame_data, frame_width, frame_height, frame_stride,
+                               rot_x, rot_y_top, rot_width, rot_height, rotation_angle, fmt, r_top, g_top, b_top);
     
-    fg_colors[idx * 3 + 0] = r_top / 3;
-    fg_colors[idx * 3 + 1] = g_top / 3;
-    fg_colors[idx * 3 + 2] = b_top / 3;
-    bg_colors[idx * 3 + 0] = r_bot / 1;
-    bg_colors[idx * 3 + 1] = g_bot / 1;
-    bg_colors[idx * 3 + 2] = b_bot / 1;
+    uint8_t r_bot, g_bot, b_bot;
+    sample_rotated_pixel_cuda(frame_data, frame_width, frame_height, frame_stride,
+                               rot_x, rot_y_bot, rot_width, rot_height, rotation_angle, fmt, r_bot, g_bot, b_bot);
+    
+    fg_colors[idx * 3 + 0] = r_top;
+    fg_colors[idx * 3 + 1] = g_top;
+    fg_colors[idx * 3 + 2] = b_top;
+    bg_colors[idx * 3 + 0] = r_bot;
+    bg_colors[idx * 3 + 1] = g_bot;
+    bg_colors[idx * 3 + 2] = b_bot;
 }
 
 __global__ void render_ascii_kernel(

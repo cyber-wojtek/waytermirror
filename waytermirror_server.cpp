@@ -2543,53 +2543,31 @@ static std::string render_blocks(
     int blocks_x = w_scaled;
     int blocks_y = h_scaled / 2;
 
-    // Sample top and bottom halves (2x1 blocks)
+    // Sample top and bottom halves (1x2 pixels per block character)
     for (int by = 0; by < blocks_y; by++)
     {
         for (int bx = 0; bx < blocks_x; bx++)
         {
-            uint32_t r_top = 0, g_top = 0, b_top = 0;
-            uint32_t r_bot = 0, g_bot = 0, b_bot = 0;
+            // Map block position to rotated image coordinates
+            int rot_x = bx * rot_width / blocks_x;
+            int rot_y_top = (by * 2) * rot_height / (blocks_y * 2);
+            int rot_y_bot = (by * 2 + 1) * rot_height / (blocks_y * 2);
 
-            // Top half (3 samples at y positions 0,1,2)
-            for (int i = 0; i < 3; i++)
-            {
-                int rot_x = (bx * 2 + 1) * rot_width / w_scaled;  // Center of cell
-                int rot_y = (by * 4 + i) * rot_height / h_scaled;
+            rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
+            rot_y_top = std::clamp(rot_y_top, 0, (int)rot_height - 1);
+            rot_y_bot = std::clamp(rot_y_bot, 0, (int)rot_height - 1);
 
-                rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
-                rot_y = std::clamp(rot_y, 0, (int)rot_height - 1);
+            uint8_t r_top, g_top, b_top;
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               rot_x, rot_y_top, rot_width, rot_height, rotation_angle, r_top, g_top, b_top, pixel_format);
 
-                uint8_t r, g, b;
-                sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                   rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
+            uint8_t r_bot, g_bot, b_bot;
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               rot_x, rot_y_bot, rot_width, rot_height, rotation_angle, r_bot, g_bot, b_bot, pixel_format);
 
-                r_top += r;
-                g_top += g;
-                b_top += b;
-            }
-
-            // Bottom half (1 sample at y position 3)
-            for (int i = 3; i < 4; i++)
-            {
-                int rot_x = (bx * 2 + 1) * rot_width / w_scaled;
-                int rot_y = (by * 4 + i) * rot_height / h_scaled;
-
-                rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
-                rot_y = std::clamp(rot_y, 0, (int)rot_height - 1);
-
-                uint8_t r, g, b;
-                sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                   rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
-
-                r_bot += r;
-                g_bot += g;
-                b_bot += b;
-            }
-
-            // Average by sample count
-            out << rgb_to_ansi(r_top / 3, g_top / 3, b_top / 3, mode);
-            out << rgb_to_ansi_bg(r_bot / 1, g_bot / 1, b_bot / 1, mode);
+            // Output half-block character with top/bottom colors
+            out << rgb_to_ansi(r_top, g_top, b_top, mode);
+            out << rgb_to_ansi_bg(r_bot, g_bot, b_bot, mode);
             out << "▀";
         }
 

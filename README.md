@@ -241,7 +241,7 @@ All client shortcuts use the **Ctrl+Alt+Shift** modifier prefix, so normal keys 
 | Shortcut | Action | Notes |
 |---------:|--------|-------|
 | Ctrl+Alt+Shift+Q | Quit / disconnect | Graceful disconnect (sends close to server) |
-| Ctrl+Alt+Shift+H | Show help | Display all shortcuts and current state |
+| Ctrl+Alt+Shift+H | Toggle help | Display all shortcuts and current state |
 | Ctrl+Alt+Shift+P | Pause / resume video | Stops rendering updates locally (input still forwarded) |
 
 ### Input control
