@@ -36,8 +36,7 @@ jobs:
 
     - name: Verify binaries
       run: |
-        ls -la waytermirror_server waytermirror_client
-        file waytermirror_server waytermirror_client
+        ls -lah waytermirror_server waytermirror_client
 
   build-debian:
     runs-on: ubuntu-latest
@@ -70,5 +69,4 @@ jobs:
 
     - name: Verify binaries
       run: |
-        ls -la waytermirror_server waytermirror_client
-        file waytermirror_server waytermirror_client
+        ls -lah waytermirror_server waytermirror_client
