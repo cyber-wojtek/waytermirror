@@ -2,7 +2,7 @@
 
 Real-time Wayland screen mirroring to a terminal using Unicode braille characters, half‑blocks, or ASCII. Includes bidirectional input forwarding, audio streaming (PipeWire), zooming, focus-follow, and optional NVIDIA CUDA acceleration (server-side).
 
-![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)
 ![Releases](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=Releases&sort=semver)
@@ -28,7 +28,6 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 - [Security & limitations](#security--limitations)
 - [Contributing](#contributing)
 - [License](#license)
-- [Acknowledgments](#acknowledgments)
 
 ## What it is
 - A client/server application:
@@ -106,15 +105,9 @@ Packaging (Arch)
   makepkg -si
   ```
 
-## Runtime requirements & supported compositors
-- Compositor: wlroots-based (Hyprland, Sway, River) or any compositor exposing:
-  - wlr-screencopy-unstable-v1 — required for screen capture
-  - zwp_virtual_keyboard_v1 (virtual keyboard)
-  - zwlr_virtual_pointer_v1 (virtual pointer)
-  - wlr-foreign-toplevel-management (optional — focus following)
+## Runtime requirements
 - Audio: PipeWire (for system audio streaming).
 - Input: access to input devices (user must be in the `input` group or run with sufficient privileges to read /dev/input/*).
-- NOT SUPPORTED: GNOME or KDE Plasma (they typically do not expose the required wlr protocols).
 
 ## Usage
 
@@ -341,19 +334,6 @@ Default base port is 9999 (see -P / --port).
   sudo usermod -aG input $USER
   # Log out and back in
   ```
-- Check compositor support for screencopy:
-  ```bash
-  wayland-info 2>/dev/null | grep -i screencopy
-  ```
-  If no screencopy global is present, the compositor doesn't support `wlr-screencopy-unstable-v1`.
-
-- Virtual input not working
-  - Server prints messages about virtual devices on startup. Look for messages like:
-    ```
-    Virtual pointer created: YES
-    Virtual keyboard created: YES
-    ```
-  - If NO, the compositor does not expose required protocols.
 
 - Check PipeWire (audio not working):
   ```bash
@@ -379,11 +359,11 @@ Default base port is 9999 (see -P / --port).
 
 ## Design notes & behavior
 - Rendering is performed server-side. The client displays ANSI/escape sequences sent from server — client CPU requirements are minimal.
-- Optional CUDA renderer: when built with CUDA, server uses GPU for rendering; otherwise, CPU fallback is used (braille_renderer_stub.cpp).
-- Hybrid renderer chooses per-cell between braille and half-blocks based on local variance (detail-level influences decisions).
+- Optional CUDA renderer: when built with CUDA, server can use GPU for rendering; otherwise, only CPU is available.
+- Hybrid renderer chooses per-cell between braille and half-blocks.
 
 ## Contributing
 - Bug reports, feature requests and PRs welcome.
 
 ## License
-- Apache License 2.0 — see [LICENSE](LICENSE) file for details.
+- MIT License — see [LICENSE](LICENSE) file for details.
