@@ -383,8 +383,7 @@ Default base port is 9999 (see -P / --port).
 - Hybrid renderer chooses per-cell between braille and half-blocks based on local variance (detail-level influences decisions).
 
 ## Contributing
-- Bug reports, feature requests and PRs welcome. Please open issues/PRs on the GitHub project: https://github.com/cyber-wojtek/waytermirror
-- See the PKGBUILD for packaging guidance.
+- Bug reports, feature requests and PRs welcome.
 
 ## License
 - Apache License 2.0 — see [LICENSE](LICENSE) file for details.
