@@ -57,7 +57,7 @@ static void on_pipewire_process(void *userdata) {
     
     static bool first_frame = true;
     if (first_frame) {
-        std::cerr << "[PW] *** FIRST FRAME CALLBACK INVOKED ***\n";  // MORE VISIBLE
+        std::cerr << "[PW] *** FIRST FRAME CALLBACK INVOKED ***\n";
         first_frame = false;
     }
     
@@ -71,7 +71,7 @@ static void on_pipewire_process(void *userdata) {
     }
     
     spa_buffer *buf = b->buffer;
-    if (!buf->datas || !buf->datas[0].data) {  // ADDED: Check buf->datas too
+    if (!buf->datas || !buf->datas[0].data) {
         std::cerr << "[PW] Buffer has no data pointer\n";
         pw_stream_queue_buffer(cap->stream, b);
         return;
@@ -98,7 +98,7 @@ static void on_pipewire_process(void *userdata) {
         
         static int frame_count = 0;
         if (++frame_count == 1) {
-            std::cerr << "[PW] *** FIRST FRAME RECEIVED! Size=" << size << " bytes ***\n";  // MORE VISIBLE
+            std::cerr << "[PW] *** FIRST FRAME RECEIVED! Size=" << size << " bytes ***\n";
         }
         if (frame_count % 60 == 0) {
             std::cerr << "[PW] Frames received: " << frame_count << " (size=" << size << ")\n";
@@ -277,7 +277,6 @@ bool PipeWireCapture::request_screen_cast() {
     std::cerr << "[PORTAL]   handle_token: " << request_token << "\n";
     std::cerr << "[PORTAL]   expected request path: " << request_path << "\n";
     
-    // CRITICAL: Add empty parent_window to allow dialogs
     GVariant *session_result = g_dbus_connection_call_sync(
         connection,
         "org.freedesktop.portal.Desktop",
@@ -542,7 +541,6 @@ bool PipeWireCapture::request_screen_cast() {
         return false;
     }
     
-    // CRITICAL: Keep connection alive to maintain portal session!
     portal_connection = connection;
     std::cerr << "[PORTAL] Screen capture ready! (keeping session alive)\n";
     return true;
@@ -647,11 +645,9 @@ bool PipeWireCapture::init(uint32_t output_index) {
 
         pw_thread_loop_unlock(loop);
         
-        // ADDED: Human-readable state names
         const char *state_names[] = {"error", "unconnected", "connecting", "paused", "streaming"};
         const char *state_name = (state <= PW_STREAM_STATE_STREAMING) ? state_names[state] : "unknown";
         
-        // ADDED: Regular state updates
         if (i == 0 || i % 20 == 0) {
             std::cerr << "[PW] Stream state: " << state_name;
             if (error) std::cerr << " (error: " << error << ")";
@@ -660,7 +656,7 @@ bool PipeWireCapture::init(uint32_t output_index) {
         
         if (state == PW_STREAM_STATE_STREAMING) {
             std::cerr << "[PW] *** Stream is STREAMING! ***\n";
-            std::cerr << "[PW] Waiting for first frame callback...\n";  // ADDED
+            std::cerr << "[PW] Waiting for first frame callback...\n";
             return true;
         }
         
@@ -670,7 +666,6 @@ bool PipeWireCapture::init(uint32_t output_index) {
         }
     }
     
-    // ADDED: Final state check with more info
     pw_thread_loop_lock(loop);
     auto final_state = pw_stream_get_state(stream, nullptr);
     pw_thread_loop_unlock(loop);

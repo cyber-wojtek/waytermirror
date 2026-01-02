@@ -1858,8 +1858,6 @@ static void send_key_event(uint32_t keycode, bool pressed)
 
 static void send_mouse_move(int x, int y)
 {
-    // Note: x,y are already output-local coordinates (from libinput relative motion)
-    // screen_width/height are the current output dimensions from server
     int w = screen_width.load();
     int h = screen_height.load();
     

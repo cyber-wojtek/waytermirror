@@ -77,30 +77,29 @@ enum {
     WL_FMT_BGR888_A8 = 0x38413842,
 };
 
-// convert wl_shm_format to our PixelFormat enum
+// wl_shm format -> PixelFormat (little-endian byte order)
 static PixelFormat wl_shm_to_pixelfmt(uint32_t wl_fmt) {
     std::cerr << "[FMT] Converting wl_shm_format " <<  std::hex << wl_fmt <<  std::dec << " to PixelFormat\n";
     switch (wl_fmt) {
-        case WL_FMT_ARGB8888: return FMT_ARGB;
-        case WL_FMT_XRGB8888: return FMT_xRGB;
-        case WL_FMT_XBGR8888: return FMT_xBGR;
-        case WL_FMT_ABGR8888: return FMT_ABGR;
-        case WL_FMT_RGBX8888: return FMT_RGBx;
-        case WL_FMT_BGRX8888: return FMT_BGRx;
-        case WL_FMT_RGBA8888: return FMT_RGBA;
-        case WL_FMT_BGRA8888: return FMT_BGRA;
-        case WL_FMT_RGB888:   return FMT_RGB;
-        case WL_FMT_BGR888:   return FMT_BGR;
-        case WL_FMT_RGBX8888_A8: return FMT_RGBx;
-        case WL_FMT_BGRX8888_A8: return FMT_BGRx;
-        case WL_FMT_RGB888_A8:   return FMT_RGB;
-        case WL_FMT_BGR888_A8:   return FMT_BGR;
-        default: return FMT_BGRx;  // fallback
+        case WL_FMT_ARGB8888: return FMT_BGRA;
+        case WL_FMT_XRGB8888: return FMT_BGRx;
+        case WL_FMT_XBGR8888: return FMT_RGBx;
+        case WL_FMT_ABGR8888: return FMT_RGBA;
+        case WL_FMT_RGBX8888: return FMT_xBGR;
+        case WL_FMT_BGRX8888: return FMT_xRGB;
+        case WL_FMT_RGBA8888: return FMT_ABGR;
+        case WL_FMT_BGRA8888: return FMT_ARGB;
+        case WL_FMT_RGB888:   return FMT_BGR;
+        case WL_FMT_BGR888:   return FMT_RGB;
+        case WL_FMT_RGBX8888_A8: return FMT_xBGR;
+        case WL_FMT_BGRX8888_A8: return FMT_xRGB;
+        case WL_FMT_RGB888_A8:   return FMT_BGR;
+        case WL_FMT_BGR888_A8:   return FMT_RGB;
+        default: return FMT_BGRx;
     }
 }
 
-// convert spa_video_format to our PixelFormat enum
-// spa values: RGBx=8, BGRx=9, xRGB=10, xBGR=11, RGBA=12, BGRA=13, ARGB=14, ABGR=15, RGB=16, BGR=17
+// spa_video_format -> PixelFormat
 static PixelFormat spa_to_pixelfmt(uint32_t spa_fmt) {
     switch (spa_fmt) {
         case  8: return FMT_RGBx;
@@ -870,7 +869,7 @@ static int detect_focused_output_sway()
             output_obj.HasMember("name") && output_obj["name"].IsString())
         {
             std::string monitor_name = output_obj["name"].GetString();
-            // Try to match to our output list
+            // Try to match to output list
             for (size_t j = 0; j < output_names.size(); j++)
             {
                 if (output_names[j] == monitor_name)
@@ -923,7 +922,6 @@ static int detect_focused_output_gnome()
     return -1;
 }
 
-// REPLACE detect_focused_output_index():
 static int detect_focused_output_index()
 {
     // Try compositor-specific CLI tools FIRST
@@ -3254,7 +3252,6 @@ static std::string generate_client_id(const sockaddr_in &addr)
     return std::string(inet_ntoa(addr.sin_addr)) + ":fallback";
 }
 
-// ADD helper to receive session ID:
 static bool receive_session_id(int socket, std::string &session_id)
 {
     MessageType type;
@@ -4030,7 +4027,6 @@ static void apply_zoom_transform(
     }
 }
 
-// ZOOM: Update smooth panning in zoom state
 static void update_zoom_smooth_pan(ZoomState &zoom)
 {
     if (!zoom.smooth_pan || !zoom.enabled)
@@ -4595,7 +4591,6 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                         std::cerr << "[CONFIG] Update for session " << session_id << "\n";
                     }
                 }
-                // ZOOM: Handle zoom config
                 else if (type == MessageType::ZOOM_CONFIG)
                 {
                     ZoomConfig zoom_config;
@@ -4656,7 +4651,6 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
     std::cerr << "[CONFIG] Client disconnected for session " << session_id << "\n";
 }
 
-// NEW: Accept config connections
 static void accept_config_thread(int server_socket)
 {
     std::cerr << "[CONFIG] Accept thread started\n";
@@ -4683,7 +4677,6 @@ static void accept_config_thread(int server_socket)
     std::cerr << "[CONFIG] Accept thread stopped\n";
 }
 
-// UPDATED: Remove config handling from input client
 static void handle_input_client(int client_socket, sockaddr_in client_addr)
 {
     std::cerr << "[INPUT] Client connected from " << inet_ntoa(client_addr.sin_addr) << "\n";
@@ -4876,7 +4869,6 @@ static void shutdown_handler(int signum)
         std::cerr << "\n[SHUTDOWN] Interrupt received, stopping...\n";
         running = false;
 
-        // CRITICAL: Close all server sockets immediately to unblock accept()
         for (int sock : all_server_sockets)
         {
             if (sock >= 0)
