@@ -5,6 +5,12 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)
+![Releases](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=Releases&sort=semver)
+![Stars](https://img.shields.io/github/stars/cyber-wojtek/waytermirror?style=)
+![Forks](https://img.shields.io/github/forks/cyber-wojtek/waytermirror?style=)
+![Issues](https://img.shields.io/github/issues/cyber-wojtek/waytermirror)
+![Contributions welcome](https://img.shields.io/badge/Contributions-welcome-brightgreen.svg)
+![Build Status](https://img.shields.io/github/actions/workflow/status/cyber-wojtek/waytermirror/build.yml?branch=main)
 
 ## Table of contents
 - [What it is](#what-it-is)
@@ -61,7 +67,7 @@ Tip: run `./waytermirror_client --help` or `./waytermirror_server --help` to see
 ## Build & install
 
 Prerequisites
-- Core: gcc/g++, make, wayland, wayland-protocols, libinput, pipewire, lz4, rapidjson, systemd
+- Core: [gcc/g++](https://github.com/gcc-mirror/gcc.git), [make](https://git.savannah.gnu.org/git/make.git), [wayland](https://gitlab.com/freedesktop-sdk/mirrors/freedesktop/wayland/wayland.git), [wayland-protocols](https://gitlab.freedesktop.org/wayland/wayland-protocols.git), [libinput](https://gitlab.freedesktop.org/libinput/libinput.git), [pipewire](https://gitlab.freedesktop.org/pipewire/pipewire.git), [lz4](https://github.com/lz4/lz4.git), [rapidjson](https://github.com/Tencent/rapidjson.git), [systemd](https://github.com/systemd/systemd.git), [argparse](https://github.com/p-ranav/argparse.git)
 - Optional: NVIDIA CUDA toolkit for GPU rendering (nvcc) — see NVIDIA CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit
 
 Arch Linux-based
