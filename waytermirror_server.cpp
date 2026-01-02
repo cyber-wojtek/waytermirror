@@ -1572,15 +1572,7 @@ static RegionalColorAnalysis analyze_regional_colors(
 {
 
     // Sample a larger region around this cell
-    int region_size = 5; // 5×5 cells = 10×20 pixels
-    if (detail_level >= 90)
-    {
-        region_size = 3; // Smaller region for high detail
-    }
-    else if (detail_level < 50)
-    {
-        region_size = 7; // Larger region for smooth colors
-    }
+    int region_size = 10; // 10x10 cells = 80x40 dots = 160x80 pixels
 
     // Collect all pixel colors in the region
     std::vector<uint8_t> reds, greens, blues, lumas;
@@ -1731,7 +1723,7 @@ static BrailleCell analyze_braille_cell(
     }
     else
     {
-        kernel_size = 2; // Low detail: just use 2x2 sampling, not 5x5 (WAY faster)
+        kernel_size = 5;
     }
 
     // Braille dot positions (2x4 grid)
@@ -1903,68 +1895,7 @@ static uint8_t calculate_braille_pattern(
 
     int step = std::max(1, 16 - (quality / 7));
 
-    // HIGH DETAIL (>= 90): Otsu on luminance
-    if (detail_level >= 90)
-    {
-        double best_threshold = cell.mean_luma;
-        double best_separation = 0;
-
-        for (int t_int = 0; t_int <= 255; t_int += step)
-        {
-            double t = t_int;
-            double sum_below = 0, sum_above = 0;
-            int count_below = 0, count_above = 0;
-
-            for (int i = 0; i < 8; i++)
-            {
-                if (cell.lumas[i] < t)
-                {
-                    sum_below += cell.lumas[i];
-                    count_below++;
-                }
-                else
-                {
-                    sum_above += cell.lumas[i];
-                    count_above++;
-                }
-            }
-
-            if (count_below > 0 && count_above > 0)
-            {
-                double mean_below = sum_below / count_below;
-                double mean_above = sum_above / count_above;
-                double separation = count_below * count_above * (mean_above - mean_below) * (mean_above - mean_below);
-
-                if (separation > best_separation)
-                {
-                    best_separation = separation;
-                    best_threshold = t;
-                }
-            }
-        }
-
-        // Apply threshold
-        uint8_t pattern = 0;
-
-        for (int dot = 0; dot < 8; dot++)
-        {
-            if (cell.lumas[dot] > best_threshold)
-            {
-                pattern |= (1 << dot);
-            }
-        }
-
-        // FIXED: Invert if MAJORITY of dots are lit (means we're drawing background)
-        int lit_count = __builtin_popcount(pattern);
-        if (lit_count > 4)
-        {
-            pattern = ~pattern;
-        }
-
-        return pattern;
-    }
-
-    // MEDIUM-HIGH DETAIL (70-89): Otsu on luminance
+    // HIGH DETAIL (70-89): Otsu on luminance
     double threshold;
     if (detail_level >= 70)
     {
@@ -2027,13 +1958,6 @@ static uint8_t calculate_braille_pattern(
         {
             pattern |= (1 << dot);
         }
-    }
-
-    // FIXED: Invert if MAJORITY of dots are lit (means we're drawing background)
-    int lit_count = __builtin_popcount(pattern);
-    if (lit_count > 4)
-    {
-        pattern = ~pattern;
     }
 
     return pattern;
@@ -2171,10 +2095,11 @@ static std::string render_braille(
 
     // Calculate kernel size based on detail
     int kernel_size;
-    if (detail_level >= 95) kernel_size = 1;
+    if (detail_level >= 90) kernel_size = 1;
     else if (detail_level >= 80) kernel_size = 2;
     else if (detail_level >= 60) kernel_size = 3;
-    else kernel_size = 2;
+    else if (detail_level >= 40) kernel_size = 4;
+    else kernel_size = 5;
 
     // Braille dot positions (2x4 grid)
     int dot_positions[8][2] = {
@@ -2244,7 +2169,7 @@ static std::string render_braille(
                     pattern |= (1 << dot);
             }
 
-            // Invert if majority lit
+            // Invert if majority lit - makes dark content (like text) become foreground
             int lit_count = __builtin_popcount(pattern);
             if (lit_count > 4)
                 pattern = ~pattern;
@@ -2587,10 +2512,11 @@ static std::string render_hybrid(
 
     // Calculate kernel size based on detail
     int kernel_size;
-    if (detail_level >= 95) kernel_size = 1;
+    if (detail_level >= 90) kernel_size = 1;
     else if (detail_level >= 80) kernel_size = 2;
     else if (detail_level >= 60) kernel_size = 3;
-    else kernel_size = 2;
+    else if (detail_level >= 40) kernel_size = 4;
+    else kernel_size = 5;
 
     // Braille dot positions (2x4 grid)
     int dot_positions[8][2] = {
@@ -2686,8 +2612,10 @@ static std::string render_hybrid(
                         pattern |= (1 << dot);
                 }
 
+                // Invert if majority lit - makes dark content (like text) become foreground
                 int lit_count = __builtin_popcount(pattern);
-                if (lit_count > 4) pattern = ~pattern;
+                if (lit_count > 4)
+                    pattern = ~pattern;
 
                 uint32_t fg_r = 0, fg_g = 0, fg_b = 0, fg_count = 0;
                 uint32_t bg_r = 0, bg_g = 0, bg_b = 0, bg_count = 0;
@@ -2818,21 +2746,25 @@ static std::string render_blocks(
 
     // Adaptive sampling kernel
     int kernel_size;
-    if (detail_level >= 95)
+    if (detail_level >= 90)
     {
         kernel_size = 1; // Pixel perfect
     }
-    else if (detail_level >= 70)
+    else if (detail_level >= 80)
     {
         kernel_size = 2;
     }
-    else if (detail_level >= 40)
+    else if (detail_level >= 60)
     {
         kernel_size = 3;
     }
-    else
+    else if (detail_level >= 40)
     {
         kernel_size = 4;
+    }
+    else
+    {
+        kernel_size = 5;
     }
 
     // Render blocks
@@ -2961,7 +2893,7 @@ static std::string render_ascii(
     h_scaled = std::clamp(h_scaled, 1, term_height);
 
     // Adaptive sampling
-    int kernel_size = (detail_level >= 95) ? 1 : (2 + (100 - detail_level) / 25);
+    int kernel_size = (detail_level >= 90) ? 1 : (2 + (100 - detail_level) / 25);
 
     // Render ASCII art
     for (int ay = 0; ay < h_scaled; ay++)

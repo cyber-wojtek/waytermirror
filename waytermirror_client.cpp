@@ -25,6 +25,7 @@
 #include <pipewire/pipewire.h>
 #include <spa/param/audio/format-utils.h>
 #include <queue>
+#include <mutex>
 
 // Input state
 static std::atomic<bool> running{true};
@@ -90,6 +91,10 @@ static std::atomic<bool> microphone_muted{false};
 static std::atomic<bool> input_forwarding_enabled{true};
 static std::atomic<bool> exclusive_grab_enabled{false};
 
+static std::atomic<bool> clear_screen_requested{false};
+static std::atomic<int> skip_frames_counter{0};
+static std::mutex clear_screen_mutex;
+
 // Network
 static int frame_socket = -1;
 static int input_socket = -1;
@@ -99,11 +104,6 @@ static bool feature_video = true;
 static bool feature_audio = true;
 static bool feature_input = true;
 static bool feature_microphone = true;
-static bool feature_zoom = true;
-
-static double zoom_factor = 1.0;
-static int zoom_viewarea_width = 400;
-static int zoom_viewarea_height = 300;
 
 // Last received frame for delta encoding
 static std::string last_received_frame;
@@ -846,7 +846,6 @@ static bool receive_newest_frame(std::string &rendered)
     if (ret <= 0)
         return false;
 
-    MessageType latest_type;
     std::vector<uint8_t> latest_data;
     bool got_frame = false;
 
@@ -1585,6 +1584,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
             std::lock_guard<std::mutex> lock(config_mutex);
             current_config.keep_aspect_ratio = !current_config.keep_aspect_ratio;
             std::cerr << "[DISPLAY] Keep aspect ratio: " << (current_config.keep_aspect_ratio ? "ON" : "OFF") << "\n";
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
             send_client_config(current_config);
             return;
@@ -2635,7 +2639,28 @@ int main(int argc, char **argv)
                           << new_term_height << "\n";
             }
 
-            if (!video_paused.load() && receive_newest_frame(rendered))
+            // Handle clear screen request
+            {
+                std::lock_guard<std::mutex> lock(clear_screen_mutex);
+                if (clear_screen_requested.load()) 
+                {
+                    clear_screen_requested.store(false);
+                    std::cout << "\033[H\033[2J" << std::flush;
+                    std::cerr << "[CLEAR] Screen cleared as requested\n";
+                }
+            }
+
+            // Skip frames if counter is active (waiting for server to process config changes)
+            int skip_count = skip_frames_counter.load();
+            if (skip_count > 0)
+            {
+                skip_frames_counter.store(skip_count - 1);
+                // Still consume frames to prevent buffer buildup
+                std::string dummy;
+                receive_newest_frame(dummy);
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            }
+            else if (!video_paused.load() && receive_newest_frame(rendered))
             {
                 std::cout << "\033[H" << rendered << std::flush;
             }
