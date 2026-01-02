@@ -106,15 +106,9 @@ Packaging (Arch)
   makepkg -si
   ```
 
-## Runtime requirements & supported compositors
-- Compositor: wlroots-based (Hyprland, Sway, River) or any compositor exposing:
-  - wlr-screencopy-unstable-v1 — required for screen capture
-  - zwp_virtual_keyboard_v1 (virtual keyboard)
-  - zwlr_virtual_pointer_v1 (virtual pointer)
-  - wlr-foreign-toplevel-management (optional — focus following)
+## Runtime requirements
 - Audio: PipeWire (for system audio streaming).
 - Input: access to input devices (user must be in the `input` group or run with sufficient privileges to read /dev/input/*).
-- NOT SUPPORTED: GNOME or KDE Plasma (they typically do not expose the required wlr protocols).
 
 ## Usage
 
