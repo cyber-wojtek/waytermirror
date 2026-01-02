@@ -64,16 +64,16 @@ Prerequisites
 - Core: gcc/g++, make, wayland, wayland-protocols, libinput, pipewire, lz4, rapidjson, systemd
 - Optional: NVIDIA CUDA toolkit for GPU rendering (nvcc) — see NVIDIA CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit
 
-Arch Linux
+Arch Linux-based
 ```bash
 sudo pacman -S base-devel git gcc wayland wayland-protocols libinput pipewire lz4 rapidjson systemd argparse 
 # Optional for CUDA:
 sudo pacman -S cuda
 ```
 
-Debian/Ubuntu (13+)
+Debian-based
 ```bash
-sudo apt install build-essential git gcc libwayland-dev wayland-protocols libinput-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libsystemd-dev pkg-config cmake
+sudo apt install build-essential git gcc libwayland-dev wayland-protocols libinput-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libsystemd-dev pkg-config cmake libargparse-dev
 # For CUDA: install NVIDIA CUDA toolkit from https://developer.nvidia.com/cuda-toolkit
 ```
 

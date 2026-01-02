@@ -60,7 +60,8 @@ jobs:
           rapidjson-dev \
           libsystemd-dev \
           cmake \
-          pkg-config
+          pkg-config \
+          libargparse-dev
 
     - uses: actions/checkout@v4
 
