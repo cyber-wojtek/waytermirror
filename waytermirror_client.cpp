@@ -1200,7 +1200,7 @@ static void set_rotation(double angle)
 static void adjust_fps(int delta)
 {
     std::lock_guard<std::mutex> lock(config_mutex);
-    current_config.fps = std::clamp((int)current_config.fps + delta, 1, 120);
+    current_config.fps = std::clamp((int)current_config.fps + delta, 0, 120);
     std::cerr << "[FPS] Target: " << current_config.fps << "\n";
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
     send_client_config(current_config);
@@ -1439,6 +1439,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Toggle zoom (Ctrl+Alt+Shift+Z)
         if (is_z)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             zoom_state.enabled = !zoom_state.enabled.load();
             std::cerr << "[ZOOM] " << (zoom_state.enabled.load() ? "ENABLED" : "DISABLED") << " (" << zoom_state.zoom_level.load() << "x)\n";
             send_zoom_config();
@@ -1601,6 +1606,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
             current_config.render_device = (current_config.render_device + 1) % 2;
             const char *devices[] = {"CPU", "CUDA"};
             std::cerr << "[RENDER] Device: " << devices[current_config.render_device] << "\n";
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
             send_client_config(current_config);
             return;
@@ -1668,6 +1678,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Rotate left by 15° (Ctrl+Alt+Shift+[)
         if (is_leftbracket)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             adjust_rotation(-15.0);
             return;
         }
@@ -1675,6 +1690,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Rotate right by 15° (Ctrl+Alt+Shift+])
         if (is_rightbracket)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             adjust_rotation(15.0);
             return;
         }
@@ -1682,6 +1702,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Reset rotation (Ctrl+Alt+Shift+\)
         if (is_backslash)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             set_rotation(0.0);
             return;
         }
@@ -1689,6 +1714,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Rotate 90° clockwise (Ctrl+Alt+Shift+T)
         if (is_t)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             adjust_rotation(90.0);
             return;
         }
@@ -1696,6 +1726,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Rotate 90° counter-clockwise (Ctrl+Alt+Shift+Y)
         if (is_y)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             adjust_rotation(-90.0);
             return;
         }
@@ -1739,6 +1774,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Braille (Ctrl+Alt+Shift+1)
         if (is_1)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             set_renderer(0);
             return;
         }
@@ -1746,6 +1786,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Blocks (Ctrl+Alt+Shift+2)
         if (is_2)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             set_renderer(1);
             return;
         }
@@ -1753,6 +1798,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // ASCII (Ctrl+Alt+Shift+3)
         if (is_3)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             set_renderer(2);
             return;
         }
@@ -1760,6 +1810,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Hybrid (Ctrl+Alt+Shift+4)
         if (is_4)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             set_renderer(3);
             return;
         }
