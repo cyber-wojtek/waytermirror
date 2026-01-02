@@ -375,8 +375,7 @@ Default base port is 9999 (see -P / --port).
 
 ## Security & limitations
 - No built-in authentication: protocol uses raw TCP streams. Do not expose the server to untrusted networks. Use an SSH tunnel or VPN for remote connections.
-- Requires compositor support for the listed wlroots protocols. GNOME/KDE typically lack required wlr protocols — not supported.
-- Input injection requires compositor permission — some compositors may restrict virtual devices.
+- Input injection requires elevated privileges or membership in the `input` group to read /dev/input devices.
 
 ## Design notes & behavior
 - Rendering is performed server-side. The client displays ANSI/escape sequences sent from server — client CPU requirements are minimal.
