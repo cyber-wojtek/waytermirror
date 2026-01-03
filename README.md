@@ -24,6 +24,7 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 - [Keyboard shortcuts (client)](#keyboard-shortcuts-client)
 - [Network ports](#network-ports)
 - [Performance tuning](#performance-tuning)
+- [Demo](#demo)
 - [Troubleshooting](#troubleshooting)
 - [Security & limitations](#security--limitations)
 - [Contributing](#contributing)
@@ -338,6 +339,9 @@ Default base port is 9999 (see -P / --port).
   - Enable compression & reduce color/depth/FPS: `-c -L 9 -M 256 -F 15 -d 30`
 - Low latency:
   - Increase capture FPS and lower quality search: `-F 60 -Q 0 -d 50`
+
+## Demo
+https://github.com/user-attachments/assets/08fab5e9-d942-4d4e-b52f-acd2f88e3107
 
 ## Troubleshooting
 - "Failed to initialize libinput"
