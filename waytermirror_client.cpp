@@ -25,6 +25,7 @@
 #include <linux/input.h>
 #include <pipewire/pipewire.h>
 #include <spa/param/audio/format-utils.h>
+#include <spa/utils/result.h>
 #include <queue>
 #include <mutex>
 #include <opus/opus.h>
@@ -502,7 +503,7 @@ static void on_process_playback(void *userdata)
     // Check mute flag
     if (audio_muted.load() || pb->audio_queue.empty())
     {
-        // Silence
+        // Silence - fill entire buffer
         size = max_size;
         memset(dst, 0, size);
     }
@@ -512,6 +513,13 @@ static void on_process_playback(void *userdata)
         size = std::min((uint32_t)audio_data.size(), max_size);
         memcpy(dst, audio_data.data(), size);
         pb->audio_queue.pop();
+        
+        // Fill remainder with silence if data is smaller than buffer
+        if (size < max_size)
+        {
+            memset(dst + size, 0, max_size - size);
+            size = max_size;
+        }
     }
 
     buf->datas[0].chunk->offset = 0;
@@ -583,7 +591,7 @@ static bool init_audio_playback(const AudioFormat &fmt)
     params[0] = spa_format_audio_raw_build(&b, SPA_PARAM_EnumFormat,
                                            &spa_audio_info_raw);
 
-    pw_stream_connect(audio_playback.stream,
+    int res = pw_stream_connect(audio_playback.stream,
                       PW_DIRECTION_OUTPUT,
                       PW_ID_ANY,
                       static_cast<pw_stream_flags>(
@@ -592,11 +600,18 @@ static bool init_audio_playback(const AudioFormat &fmt)
                           PW_STREAM_FLAG_RT_PROCESS),
                       params, 1);
 
+    if (res < 0)
+    {
+        std::cerr << "[AUDIO] Failed to connect stream: " << spa_strerror(res) << "\n";
+        pw_thread_loop_unlock(audio_playback.loop);
+        return false;
+    }
+
     pw_thread_loop_unlock(audio_playback.loop);
     pw_thread_loop_start(audio_playback.loop);
 
     std::cerr << "[AUDIO] Playback initialized (" << fmt.sample_rate
-              << "Hz " << (int)fmt.channels << "ch)\n";
+              << "Hz " << (int)fmt.channels << "ch, format=" << (int)fmt.format << ")\n";
     return true;
 }
 
@@ -910,6 +925,9 @@ static void audio_receive_thread()
         return;
     }
 
+    std::cerr << "[AUDIO] Received format: " << fmt.sample_rate << "Hz "
+              << fmt.channels << "ch format=" << fmt.format << "\n";
+
     // Update audio opus settings from received format
     audio_opus_sample_rate = fmt.sample_rate;
     audio_opus_channels = fmt.channels;
@@ -920,14 +938,29 @@ static void audio_receive_thread()
         return;
     }
 
+    std::cerr << "[AUDIO] Starting receive loop...\n";
+
     // Opus frame size (20ms)
     const int OPUS_FRAME_MS = 20;
     int opus_frame_size = (audio_opus_sample_rate * OPUS_FRAME_MS) / 1000;
+
+    int packets_received = 0;
+    auto last_log = std::chrono::steady_clock::now();
 
     while (running && audio_playback.running)
     {
         if (recv(audio_socket, &type, sizeof(type), 0) != sizeof(type))
             break;
+
+        packets_received++;
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - last_log).count() >= 5)
+        {
+            std::cerr << "[AUDIO] Received " << packets_received << " packets, queue size: "
+                      << audio_playback.audio_queue.size() << "\n";
+            packets_received = 0;
+            last_log = now;
+        }
 
         std::vector<uint8_t> audio_data;
 
