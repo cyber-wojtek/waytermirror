@@ -3192,8 +3192,8 @@ static std::vector<uint8_t> encode_audio_opus(
     if (!encoder || f32_data.empty())
         return {};
 
-    // Opus frame size: 20ms
-    const int OPUS_FRAME_MS = 20;
+    // Opus frame size: 5ms (valid: 2.5, 5, 10, 20, 40, 60)
+    const int OPUS_FRAME_MS = 5;
     int opus_frame_size = (sample_rate * OPUS_FRAME_MS) / 1000;
     int input_samples = f32_data.size() / sizeof(float) / channels;
 
@@ -3241,8 +3241,8 @@ static std::vector<uint8_t> decode_mic_opus(
     if (!decoder || opus_data.empty())
         return {};
 
-    // Opus frame size: 20ms
-    const int OPUS_FRAME_MS = 20;
+    // Opus frame size: 5ms (valid: 2.5, 5, 10, 20, 40, 60)
+    const int OPUS_FRAME_MS = 5;
     int opus_frame_size = (sample_rate * OPUS_FRAME_MS) / 1000;
 
     // Decode to S16LE
