@@ -4559,22 +4559,14 @@ cleanup:
 static void reset_modifier_state()
 {
     // Release all modifier keys
-    if (server_shift_pressed) {
-        virtual_input_mgr.send_key(KEY_LEFTSHIFT, false);
-        virtual_input_mgr.send_key(KEY_RIGHTSHIFT, false);
-    }
-    if (server_ctrl_pressed) {
-        virtual_input_mgr.send_key(KEY_LEFTCTRL, false);
-        virtual_input_mgr.send_key(KEY_RIGHTCTRL, false);
-    }
-    if (server_alt_pressed || server_altgr_pressed) {
-        virtual_input_mgr.send_key(KEY_LEFTALT, false);
-        virtual_input_mgr.send_key(KEY_RIGHTALT, false);
-    }
-    if (server_super_pressed) {
-        virtual_input_mgr.send_key(KEY_LEFTMETA, false);
-        virtual_input_mgr.send_key(KEY_RIGHTMETA, false);
-    }
+    virtual_input_mgr.send_key(KEY_LEFTSHIFT, false);
+    virtual_input_mgr.send_key(KEY_RIGHTSHIFT, false);
+    virtual_input_mgr.send_key(KEY_LEFTCTRL, false);
+    virtual_input_mgr.send_key(KEY_RIGHTCTRL, false);
+    virtual_input_mgr.send_key(KEY_LEFTALT, false);
+    virtual_input_mgr.send_key(KEY_RIGHTALT, false);
+    virtual_input_mgr.send_key(KEY_LEFTMETA, false);
+    virtual_input_mgr.send_key(KEY_RIGHTMETA, false);
     std::cerr << "[INPUT] Released modifier keys via " << virtual_input_mgr.backend_name() << "\n";
 
     // Reset internal state
