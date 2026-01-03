@@ -3664,7 +3664,7 @@ static bool init_audio_capture()
     const spa_pod *params[1];
     auto spa_audio_info_raw = SPA_AUDIO_INFO_RAW_INIT(
             .format = SPA_AUDIO_FORMAT_F32,
-            .rate = 192000,
+            .rate = 48000,
             .channels = 2);
     params[0] = spa_format_audio_raw_build(&b, SPA_PARAM_EnumFormat,
                                            &spa_audio_info_raw);
