@@ -27,7 +27,9 @@ jobs:
           lz4 \
           rapidjson \
           systemd \
-          argparse
+          argparse \
+          opus \
+          opusfile
 
     - uses: actions/checkout@v4
 
@@ -60,7 +62,9 @@ jobs:
           libsystemd-dev \
           cmake \
           pkg-config \
-          libargparse-dev
+          libargparse-dev \
+          libopus-dev \
+          libopusfile-dev
 
     - uses: actions/checkout@v4
 

@@ -605,11 +605,11 @@ static CaptureBackend detect_capture_backend() {
     
     // Fallback to PipeWire if available
     if (pipewire_capture_available()) {
-        std::cerr << "[CAPTURE] Falling back to PipeWire\n";
+        std::cerr << "[CAPTURE] wlr-screencopy not available, falling back to PipeWire\n";
         return PIPEWIRE;
     }
     
-    std::cerr << "[CAPTURE] No capture backend available!\n";
+    std::cerr << "[CAPTURE] ERROR: No capture backend available (neither wlr-screencopy nor PipeWire)!\n";
     return WLR_SCREENCOPY; // Will fail later
 }
 
@@ -5262,7 +5262,7 @@ int main(int argc, char **argv)
                       << focus_tracker.toplevels.size() << " existing windows\n";
         }
 
-        if (feature_video && (!shm || outputs.empty() || !manager))
+        if (feature_video && (!shm || outputs.empty()))
         {
             std::cerr << "Failed to get required Wayland globals for video\n";
             return 1;
@@ -5288,6 +5288,18 @@ int main(int argc, char **argv)
 
     if (capture_backend == AUTO_CAPTURE) {
         capture_backend = detect_capture_backend();
+    }
+    
+    // Check if we have a valid capture backend when video is enabled
+    if (feature_video) {
+        if (capture_backend == WLR_SCREENCOPY && manager == nullptr) {
+            std::cerr << "[CAPTURE] ERROR: wlr-screencopy selected but not available!\n";
+            return 1;
+        }
+        if (capture_backend == PIPEWIRE && !pipewire_capture_available()) {
+            std::cerr << "[CAPTURE] ERROR: PipeWire selected but not available!\n";
+            return 1;
+        }
     }
 
     std::thread focus_updater;
