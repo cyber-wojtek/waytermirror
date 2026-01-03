@@ -3725,8 +3725,8 @@ static void audio_thread(int client_socket, std::string session_id)
         send(client_socket, &audio_capture.format, sizeof(audio_capture.format), MSG_NOSIGNAL);
     }
 
-    // Opus frame accumulator (20ms at sample rate)
-    const int OPUS_FRAME_MS = 20;
+    // Opus frame accumulator (5ms at sample rate)
+    const int OPUS_FRAME_MS = 5;
     int sample_rate = audio_capture.format.sample_rate;
     int channels = audio_capture.format.channels;
     int opus_frame_size = (sample_rate * OPUS_FRAME_MS) / 1000;
