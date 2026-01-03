@@ -2047,7 +2047,7 @@ static void input_thread()
 
     while (running)
     {
-        int ret = poll(fds, 2, 1); // CHANGED: 1ms instead of 100ms!
+        int ret = poll(fds, 2, 1);
 
         if (ret < 0)
         {

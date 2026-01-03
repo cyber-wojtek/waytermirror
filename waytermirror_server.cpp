@@ -1529,7 +1529,7 @@ static void input_thread()
     while (running)
     {
         std::unique_lock<std::mutex> lock(input_mutex);
-        input_cv.wait_for(lock, std::chrono::milliseconds(1), // CHANGED: 1ms instead of 10ms
+        input_cv.wait_for(lock, std::chrono::milliseconds(1),
                           []
                           { return !input_queue.empty() || !running; });
 
@@ -1604,8 +1604,6 @@ static uint8_t rgb_to_ansi_256(uint8_t r, uint8_t g, uint8_t b)
     uint8_t max_rgb = std::max({r, g, b});
     uint8_t saturation = max_rgb - min_rgb;
 
-    // FIXED: Much stricter grayscale detection (saturation < 3 instead of < 12)
-    // Most "gray-ish" colors should still use RGB cube
     if (saturation < 3)
     {
         if (gray < 8)
@@ -1617,7 +1615,6 @@ static uint8_t rgb_to_ansi_256(uint8_t r, uint8_t g, uint8_t b)
         return 232 + std::clamp(gray_idx, 0, 23);
     }
 
-    // FIXED: Better RGB cube mapping with proper rounding
     // 6x6x6 RGB cube (16-231)
     int r_idx = std::clamp((r * 6 + 128) / 256, 0, 5);
     int g_idx = std::clamp((g * 6 + 128) / 256, 0, 5);
@@ -1988,7 +1985,7 @@ static BrailleCell analyze_braille_cell(
     double max_edge = 0;
     double edge_threshold = (detail_level >= 70) ? 30.0 : 50.0;
 
-    for (int i = 0; i < 13; i++) // FIXED: was iterating over variable-sized array
+    for (int i = 0; i < 13; i++)
     {
         int idx1 = adjacency_pairs[i][0];
         int idx2 = adjacency_pairs[i][1];
@@ -2364,7 +2361,6 @@ static std::string render_braille(
 }
 
 // CUDA-accelerated BRAILLE renderer (2x4 dots, high detail)
-// Now supports rotation natively in CUDA
 static std::string render_braille_cuda_wrapper(
     const uint8_t *frame_data,
     uint32_t frame_width,
@@ -2484,7 +2480,6 @@ static std::string render_hybrid(
     PixelFormat pixel_format);
 
 // CUDA-accelerated hybrid renderer
-// Now supports rotation natively in CUDA
 static std::string render_hybrid_cuda_wrapper(
     const uint8_t *frame_data,
     uint32_t frame_width,
@@ -3519,7 +3514,7 @@ static bool init_microphone_virtual_source(const AudioFormat &fmt)
         "wayterm-mirror-virtual-microphone",
         pw_properties_new(
             PW_KEY_MEDIA_TYPE, "Audio",
-            PW_KEY_MEDIA_CATEGORY, "Source", // Changed from "Playback" to "Source"
+            PW_KEY_MEDIA_CATEGORY, "Source",
             PW_KEY_MEDIA_ROLE, "Communication",
             PW_KEY_NODE_NAME, "waytermirror_virtual_mic",
             PW_KEY_NODE_DESCRIPTION, "Wayterm Virtual Microphone",
@@ -3843,14 +3838,14 @@ static void microphone_thread(int client_socket, std::string session_id)
     }
 
     if (!init_microphone_virtual_source(fmt))
-    { // CHANGED
+    {
         std::cerr << "[MICROPHONE IN] Failed to init virtual source\n";
         close(client_socket);
         return;
     }
 
     while (running && microphone_virtual_source.running)
-    { // CHANGED
+    {
         if (recv(client_socket, &type, sizeof(type), 0) != sizeof(type))
             break;
 
@@ -3876,12 +3871,12 @@ static void microphone_thread(int client_socket, std::string session_id)
         }
 
         {
-            std::lock_guard<std::mutex> lock(microphone_virtual_source.mutex);           // CHANGED
-            microphone_virtual_source.microphone_queue.push(std::move(microphone_data)); // CHANGED
+            std::lock_guard<std::mutex> lock(microphone_virtual_source.mutex);
+            microphone_virtual_source.microphone_queue.push(std::move(microphone_data));
 
             // Prevent queue buildup
             while (microphone_virtual_source.microphone_queue.size() > 10)
-            { // CHANGED
+            {
                 microphone_virtual_source.microphone_queue.pop();
             }
         }

@@ -310,9 +310,3 @@ bool uinput_available() {
     close(fd);
     return true;
 }
-
-bool wlr_virtual_input_available() {
-    // This will be checked in main code based on Wayland protocol availability
-    // For now, just return false to force uinput detection
-    return false;
-}

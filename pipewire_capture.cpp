@@ -190,7 +190,6 @@ bool PipeWireCapture::request_screen_cast() {
     
     std::cerr << "[PORTAL] Creating independent ScreenCast session (token=" << session_token.substr(0, 16) << "...)\n";
     
-    // Step 1: CreateSession - wait for async Response
     struct SessionData {
         std::atomic<bool> done{false};
         std::atomic<bool> success{false};
@@ -220,7 +219,6 @@ bool PipeWireCapture::request_screen_cast() {
         }
         std::cerr << "\n";
         
-        // Debug: print all keys in results
         std::cerr << "[PORTAL]   Results dict contains:\n";
         GVariantIter iter;
         g_variant_iter_init(&iter, results);
@@ -234,7 +232,6 @@ bool PipeWireCapture::request_screen_cast() {
         }
         
         if (response == 0) {
-            // Extract the session_handle from the results
             GVariant *handle_variant = g_variant_lookup_value(results, "session_handle", G_VARIANT_TYPE_STRING);
             if (handle_variant) {
                 const char *handle = g_variant_get_string(handle_variant, nullptr);
@@ -300,12 +297,11 @@ bool PipeWireCapture::request_screen_cast() {
     
     g_variant_unref(session_result);
     
-    // Wait for CreateSession Response
     GMainContext *context = g_main_context_default();
     auto start_time = std::chrono::steady_clock::now();
     while (!session_data.done) {
         g_main_context_iteration(context, FALSE);
-        usleep(1000); // 1ms sleep to avoid busy waiting
+        usleep(1000);
         
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - start_time).count();
@@ -325,11 +321,9 @@ bool PipeWireCapture::request_screen_cast() {
         return false;
     }
     
-    // Use the actual session handle from the portal
     session_handle = session_data.session_handle;
     std::cerr << "[PORTAL] Using session handle: " << session_handle << "\n";
     
-    // Step 2: SelectSources - show dialog for user to select screen
     request_token = generate_token();
     request_path = "/org/freedesktop/portal/desktop/request/" + sender_name + "/" + request_token;
     
@@ -422,7 +416,6 @@ bool PipeWireCapture::request_screen_cast() {
     
     g_dbus_connection_signal_unsubscribe(connection, select_signal_id);
     
-    // Step 3: Start - get PipeWire stream
     request_token = generate_token();
     request_path = "/org/freedesktop/portal/desktop/request/" + sender_name + "/" + request_token;
     
@@ -561,7 +554,7 @@ bool PipeWireCapture::init(uint32_t output_index) {
         return false;
     }
     
-    std::cerr << "[PW] Got node ID: " << pipewire_node_id << "\n";  // ADDED
+    std::cerr << "[PW] Got node ID: " << pipewire_node_id << "\n";
     
     loop = pw_thread_loop_new("pipewire-capture", nullptr);
     if (!loop) {
@@ -607,14 +600,13 @@ bool PipeWireCapture::init(uint32_t output_index) {
     
     std::cerr << "[PW] Connecting to node " << pipewire_node_id << "...\n";
     
-    // CHANGE: Added PW_STREAM_FLAG_DONT_RECONNECT, removed PW_STREAM_FLAG_RT_PROCESS
     int res = pw_stream_connect(stream,
                                 PW_DIRECTION_INPUT,
                                 pipewire_node_id,
                                 static_cast<pw_stream_flags>(
                                     PW_STREAM_FLAG_AUTOCONNECT |
                                     PW_STREAM_FLAG_MAP_BUFFERS |
-                                    PW_STREAM_FLAG_DONT_RECONNECT),  // ADDED
+                                    PW_STREAM_FLAG_DONT_RECONNECT),
                                 params, 1);
     
     if (res < 0) {
@@ -623,15 +615,14 @@ bool PipeWireCapture::init(uint32_t output_index) {
         return false;
     }
     
-    std::cerr << "[PW] Stream connected, starting thread loop...\n";  // ADDED
+    std::cerr << "[PW] Stream connected, starting thread loop...\n";
     
     pw_thread_loop_unlock(loop);
     pw_thread_loop_start(loop);
     
-    std::cerr << "[PW] Thread loop started, waiting for stream state...\n";  // ADDED
+    std::cerr << "[PW] Thread loop started, waiting for stream state...\n";
     
-    // CHANGE: Increased timeout to 10 seconds, better state logging
-    for (int i = 0; i < 200; i++) {  // Was 100 (5s), now 200 (10s)
+    for (int i = 0; i < 200; i++) {
         usleep(50000);
         
         pw_thread_loop_lock(loop);
@@ -722,11 +713,9 @@ bool PipeWireCapture::get_frame(std::vector<uint8_t> &out_frame, uint32_t &out_w
 }
 
 bool pipewire_capture_available() {
-    // Try to initialize PipeWire to check availability
     pw_init(nullptr, nullptr);
     bool available = true;
     
-    // Just check if we can create a basic loop
     pw_thread_loop *test_loop = pw_thread_loop_new("test", nullptr);
     if (!test_loop) {
         available = false;
