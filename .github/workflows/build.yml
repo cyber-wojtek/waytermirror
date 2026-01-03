@@ -27,7 +27,7 @@ jobs:
           lz4 \
           rapidjson \
           systemd \
-          argparse \ 
+          argparse \
           opus \
           opusfile
 
