@@ -139,7 +139,9 @@ enum class MessageType : uint8_t
     MICROPHONE_DATA = 15,
     MICROPHONE_FORMAT = 16,
     ZOOM_CONFIG = 17,
-    ZOOM_TOGGLE = 18
+    ZOOM_TOGGLE = 18,
+    COMPRESSED_AUDIO_DATA = 19,
+    COMPRESSED_MICROPHONE_DATA = 20
 };
 
 struct AudioFormat
@@ -165,6 +167,13 @@ static int microphone_socket = -1;
 struct AudioDataHeader
 {
     uint32_t size;
+    uint64_t timestamp_us;
+};
+
+struct CompressedAudioHeader
+{
+    uint32_t compressed_size;
+    uint32_t uncompressed_size;
     uint64_t timestamp_us;
 };
 
@@ -812,25 +821,59 @@ static void audio_receive_thread()
         if (recv(audio_socket, &type, sizeof(type), 0) != sizeof(type))
             break;
 
-        if (type != MessageType::AUDIO_DATA)
+        std::vector<uint8_t> audio_data;
+
+        if (type == MessageType::COMPRESSED_AUDIO_DATA)
+        {
+            CompressedAudioHeader header;
+            if (recv(audio_socket, &header, sizeof(header), 0) != sizeof(header))
+                break;
+
+            std::vector<uint8_t> compressed(header.compressed_size);
+            size_t total = 0;
+            while (total < header.compressed_size)
+            {
+                ssize_t n = recv(audio_socket, compressed.data() + total,
+                                 header.compressed_size - total, 0);
+                if (n <= 0)
+                    goto cleanup;
+                total += n;
+            }
+
+            audio_data.resize(header.uncompressed_size);
+            int decompressed = LZ4_decompress_safe(
+                (const char*)compressed.data(),
+                (char*)audio_data.data(),
+                header.compressed_size,
+                header.uncompressed_size);
+
+            if (decompressed != (int)header.uncompressed_size)
+            {
+                std::cerr << "[AUDIO] Decompression failed\n";
+                continue;
+            }
+        }
+        else if (type == MessageType::AUDIO_DATA)
+        {
+            AudioDataHeader header;
+            if (recv(audio_socket, &header, sizeof(header), 0) != sizeof(header))
+                break;
+
+            audio_data.resize(header.size);
+            size_t total = 0;
+            while (total < header.size)
+            {
+                ssize_t n = recv(audio_socket, audio_data.data() + total,
+                                 header.size - total, 0);
+                if (n <= 0)
+                    goto cleanup;
+                total += n;
+            }
+        }
+        else
         {
             std::cerr << "[AUDIO] Unexpected message type\n";
             continue;
-        }
-
-        AudioDataHeader header;
-        if (recv(audio_socket, &header, sizeof(header), 0) != sizeof(header))
-            break;
-
-        std::vector<uint8_t> audio_data(header.size);
-        size_t total = 0;
-        while (total < header.size)
-        {
-            ssize_t n = recv(audio_socket, audio_data.data() + total,
-                             header.size - total, 0);
-            if (n <= 0)
-                goto cleanup;
-            total += n;
         }
 
         {

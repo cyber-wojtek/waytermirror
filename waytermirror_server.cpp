@@ -375,7 +375,9 @@ enum class MessageType : uint8_t
     MICROPHONE_DATA = 15,
     MICROPHONE_FORMAT = 16,
     ZOOM_CONFIG = 17,
-    ZOOM_TOGGLE = 18
+    ZOOM_TOGGLE = 18,
+    COMPRESSED_AUDIO_DATA = 19,
+    COMPRESSED_MICROPHONE_DATA = 20
 };
 
 struct AudioFormat
@@ -388,6 +390,13 @@ struct AudioFormat
 struct AudioDataHeader
 {
     uint32_t size;
+    uint64_t timestamp_us;
+};
+
+struct CompressedAudioHeader
+{
+    uint32_t compressed_size;
+    uint32_t uncompressed_size;
     uint64_t timestamp_us;
 };
 
@@ -3617,19 +3626,51 @@ static void audio_thread(int client_socket, std::string session_id)
 
         if (!audio_data.empty())
         {
-            MessageType type = MessageType::AUDIO_DATA;
-            AudioDataHeader header;
-            header.size = audio_data.size();
-            header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                                      std::chrono::steady_clock::now().time_since_epoch())
-                                      .count();
-
-            if (send(client_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
-                send(client_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
-                send(client_socket, audio_data.data(), audio_data.size(), MSG_NOSIGNAL) != (ssize_t)audio_data.size())
+            // Compress audio data with LZ4
+            int max_compressed = LZ4_compressBound(audio_data.size());
+            std::vector<uint8_t> compressed(max_compressed);
+            int compressed_size = LZ4_compress_default(
+                (const char*)audio_data.data(),
+                (char*)compressed.data(),
+                audio_data.size(),
+                max_compressed);
+            
+            if (compressed_size > 0 && compressed_size < (int)audio_data.size())
             {
-                std::cerr << "[AUDIO] Send failed\n";
-                break;
+                // Send compressed
+                MessageType type = MessageType::COMPRESSED_AUDIO_DATA;
+                CompressedAudioHeader header;
+                header.compressed_size = compressed_size;
+                header.uncompressed_size = audio_data.size();
+                header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count();
+
+                if (send(client_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
+                    send(client_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
+                    send(client_socket, compressed.data(), compressed_size, MSG_NOSIGNAL) != compressed_size)
+                {
+                    std::cerr << "[AUDIO] Send failed\n";
+                    break;
+                }
+            }
+            else
+            {
+                // Send uncompressed (compression didn't help)
+                MessageType type = MessageType::AUDIO_DATA;
+                AudioDataHeader header;
+                header.size = audio_data.size();
+                header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count();
+
+                if (send(client_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
+                    send(client_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
+                    send(client_socket, audio_data.data(), audio_data.size(), MSG_NOSIGNAL) != (ssize_t)audio_data.size())
+                {
+                    std::cerr << "[AUDIO] Send failed\n";
+                    break;
+                }
             }
         }
         else
