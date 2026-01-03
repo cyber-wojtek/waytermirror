@@ -2844,6 +2844,20 @@ static std::string render_hybrid(
                 lumas[dot] = 0.299 * colors[dot][0] + 0.587 * colors[dot][1] + 0.114 * colors[dot][2];
             }
 
+            // Calculate mean luma and variance
+            double mean_luma = 0;
+            for (int i = 0; i < 8; i++)
+                mean_luma += lumas[i];
+            mean_luma /= 8.0;
+
+            double variance_sum = 0;
+            for (int i = 0; i < 8; i++)
+            {
+                double diff = lumas[i] - mean_luma;
+                variance_sum += diff * diff;
+            }
+            double variance = variance_sum / 8.0;
+
             // Check for edges (13 pairs)
             bool has_edge = false;
             for (int i = 0; i < 13; i++)
@@ -2865,10 +2879,9 @@ static std::string render_hybrid(
                 }
             }
 
-            // Use braille if there are edges OR high variance in the local area
-            // High variance indicates detail that benefits from braille's higher resolution
-            double variance_threshold = (detail_level >= 70) ? 400.0 : 800.0;
-            bool has_variance = (variance_sum / 8.0) > variance_threshold;
+            // 800.0 ... 100.0 variance threshold based on detail level
+            double variance_threshold = 800.0 - (detail_level / 100.0) * 700.0;
+            bool has_variance = variance > variance_threshold;
             bool use_braille = has_edge || has_variance;
 
             if (use_braille)

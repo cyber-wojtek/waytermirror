@@ -671,8 +671,10 @@ __global__ void render_hybrid_kernel(
         frame, fw, fh, stride, cell_x, cell_y, w_scaled, h_scaled,
         cells_x, cells_y, rot_width, rot_height, rotation_angle, fmt, detail);
     
-    // braille if edge detected
-    bool use_braille = cell.has_edge;
+    // 800.0 ... 100.0 variance threshold based on detail level
+    double variance_threshold = 800.0 - (detail / 100.0) * 700.0;
+    bool has_variance = cell.variance > variance_threshold;
+    bool use_braille = cell.has_edge || has_variance;
     modes[idx] = use_braille ? 1 : 0;
     
     if (use_braille) {
