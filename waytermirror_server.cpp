@@ -4558,8 +4558,6 @@ cleanup:
 
 static void reset_modifier_state()
 {
-    if (!virtual_input_mgr.is_initialized()) return;
-    
     // Release all modifier keys
     if (server_shift_pressed) {
         virtual_input_mgr.send_key(KEY_LEFTSHIFT, false);
