@@ -2856,7 +2856,7 @@ static std::string render_hybrid(
             }
 
             // Decision based on detail level
-            bool use_braille = has_edge && detail_level >= 60;
+            bool use_braille = has_edge;
 
             if (use_braille)
             {
