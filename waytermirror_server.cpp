@@ -307,6 +307,16 @@ static std::atomic<int> total_frames_sent{0};
 static std::atomic<size_t> total_bytes_original{0};
 static std::atomic<size_t> total_bytes_compressed{0};
 
+// Audio compression stats
+static std::atomic<int> total_audio_packets{0};
+static std::atomic<size_t> total_audio_bytes_original{0};
+static std::atomic<size_t> total_audio_bytes_compressed{0};
+
+// Microphone compression stats
+static std::atomic<int> total_mic_packets{0};
+static std::atomic<size_t> total_mic_bytes_original{0};
+static std::atomic<size_t> total_mic_bytes_compressed{0};
+
 static std::vector<int> all_server_sockets;
 
 struct ZoomConfig
@@ -3226,6 +3236,22 @@ static std::vector<uint8_t> encode_audio_opus(
     }
 
     compressed.resize(comp_size);
+    
+    // Stats
+    size_t original_size = opus_frame_size * channels * sizeof(float);
+    total_audio_packets++;
+    total_audio_bytes_original += original_size;
+    total_audio_bytes_compressed += comp_size;
+    
+    if (total_audio_packets % 100 == 0)
+    {
+        double saved = 100.0 * (1.0 - (double)total_audio_bytes_compressed / total_audio_bytes_original);
+        double ratio = (double)total_audio_bytes_original / total_audio_bytes_compressed;
+        std::cerr << "[AUDIO] Opus compression | Saved: " << std::fixed << std::setprecision(2) 
+                  << saved << "% | Ratio: " << ratio << "x over " 
+                  << total_audio_packets << " packets\n";
+    }
+    
     return compressed;
 }
 
@@ -3267,6 +3293,20 @@ static std::vector<uint8_t> decode_mic_opus(
     for (int i = 0; i < decoded_samples * channels; i++)
     {
         float_out[i] = static_cast<float>(decoded_s16[i]) / 32768.0f;
+    }
+
+    // Stats
+    total_mic_packets++;
+    total_mic_bytes_compressed += opus_data.size();
+    total_mic_bytes_original += f32_data.size();
+    
+    if (total_mic_packets % 100 == 0)
+    {
+        double saved = 100.0 * (1.0 - (double)total_mic_bytes_compressed / total_mic_bytes_original);
+        double ratio = (double)total_mic_bytes_original / total_mic_bytes_compressed;
+        std::cerr << "[MICROPHONE] Opus compression | Saved: " << std::fixed << std::setprecision(2) 
+                  << saved << "% | Ratio: " << ratio << "x over " 
+                  << total_mic_packets << " packets\n";
     }
 
     return f32_data;
@@ -3314,8 +3354,10 @@ static std::vector<uint8_t> compress_frame(const std::vector<uint8_t> &data,
     if (total_frames_sent % 100 == 0)
     {
         double saved = 100.0 * (1.0 - (double)total_bytes_compressed / total_bytes_original);
-        std::cerr << "[COMPRESS] Level " << compression_level
-                  << " | Saved: " << std::fixed << std::setprecision(2) << saved << "% over "
+        double ratio = (double)total_bytes_original / total_bytes_compressed;
+        std::cerr << "[VIDEO] LZ4 Level " << compression_level
+                  << " | Saved: " << std::fixed << std::setprecision(2) << saved 
+                  << "% | Ratio: " << ratio << "x over "
                   << total_frames_sent << " frames\n";
     }
 
