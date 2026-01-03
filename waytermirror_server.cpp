@@ -1506,29 +1506,54 @@ static uint8_t rgb_to_ansi_16(uint8_t r, uint8_t g, uint8_t b)
 
 static uint8_t rgb_to_ansi_256(uint8_t r, uint8_t g, uint8_t b)
 {
-    // Calculate grayscale value
-    uint8_t gray = (r * 30 + g * 59 + b * 11) / 100;
+    // Map to the real xterm 256-color palette (cube: 0,95,135,175,215,255; grayscale: 8 + 10*i)
+    static const int cube_vals[6] = {0, 95, 135, 175, 215, 255};
 
-    // Check if color is truly grayscale (very low saturation)
-    uint8_t min_rgb = std::min({r, g, b});
-    uint8_t max_rgb = std::max({r, g, b});
-    uint8_t saturation = max_rgb - min_rgb;
+    auto nearest_cube_idx = [](int v) {
+        int best_idx = 0;
+        int best_diff = 999;
+        for (int i = 0; i < 6; ++i)
+        {
+            int diff = std::abs(v - cube_vals[i]);
+            if (diff < best_diff)
+            {
+                best_diff = diff;
+                best_idx = i;
+            }
+        }
+        return best_idx;
+    };
 
-    if (saturation < 3)
+    // Nearest color in the 6x6x6 cube
+    int r_idx = nearest_cube_idx(r);
+    int g_idx = nearest_cube_idx(g);
+    int b_idx = nearest_cube_idx(b);
+    int cube_r = cube_vals[r_idx];
+    int cube_g = cube_vals[g_idx];
+    int cube_b = cube_vals[b_idx];
+
+    // Nearest grayscale (24 steps, values 8..238 step 10)
+    int gray = (r * 30 + g * 59 + b * 11) / 100;
+    int gray_idx = 0;
+    int gray_best_diff = 999;
+    for (int i = 0; i < 24; ++i)
     {
-        if (gray < 8)
-            return 16; // Black
-        if (gray > 247)
-            return 231; // White
-        // 24 gray shades (232-255)
-        int gray_idx = (gray - 8) * 24 / 239;
-        return 232 + std::clamp(gray_idx, 0, 23);
+        int val = 8 + 10 * i;
+        int diff = std::abs(gray - val);
+        if (diff < gray_best_diff)
+        {
+            gray_best_diff = diff;
+            gray_idx = i;
+        }
     }
+    int gray_val = 8 + 10 * gray_idx;
 
-    // 6x6x6 RGB cube (16-231)
-    int r_idx = std::clamp((r * 6 + 128) / 256, 0, 5);
-    int g_idx = std::clamp((g * 6 + 128) / 256, 0, 5);
-    int b_idx = std::clamp((b * 6 + 128) / 256, 0, 5);
+    // Choose whichever palette entry is closer to the original color
+    int cube_dist = (cube_r - r) * (cube_r - r) + (cube_g - g) * (cube_g - g) + (cube_b - b) * (cube_b - b);
+    int gray_dist = (gray_val - r) * (gray_val - r) + (gray_val - g) * (gray_val - g) + (gray_val - b) * (gray_val - b);
+
+    if (gray_dist <= cube_dist)
+        return 232 + gray_idx;
 
     return 16 + (r_idx * 36) + (g_idx * 6) + b_idx;
 }
