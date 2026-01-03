@@ -107,8 +107,9 @@ Packaging (Arch)
 
 - **Manual build**: Use the included PKGBUILD with `makepkg`:
   ```bash
-  git clone https://github.com/cyber-wojtek/waytermirror.git
+  mkdir -p waytermirror
   cd waytermirror
+  wget https://github.com/cyber-wojtek/waytermirror/raw/refs/heads/main/PKGBUILD
   makepkg -si
   ```
 
@@ -139,7 +140,7 @@ Server
 | -m | --no-microphone | Disable microphone reception (client→server mic) | off |
 
 **Capture backend notes:**
-- `wlr`: Uses wlr-screencopy protocol directly (supports all outputs, compositor must support wlr-screencopy-unstable-v1)
+- `wlr`: Uses wlr-screencopy protocol directly (compositor must support wlr-screencopy-unstable-v1)
 - `pipewire`: Uses PipeWire + xdg-desktop-portal for screen capture (works on more compositors including GNOME/KDE)
   - **Important**: When using PipeWire backend, you'll be prompted to select screens. Select them in their **logical index order** (0, then 1, then 2, etc.) to match the output indices used by the client's `-o` option.
 - `auto`: Automatically detects and prefers wlr-screencopy if available, falls back to PipeWire
