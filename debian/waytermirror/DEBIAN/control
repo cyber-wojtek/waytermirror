@@ -1,0 +1,17 @@
+Package: waytermirror
+Version: 1.0.0-1
+Architecture: amd64
+Maintainer: Wojtek <your-email@example.com>
+Installed-Size: 616
+Depends: libc6 (>= 2.38), libgcc-s1 (>= 3.4), libglib2.0-0t64 (>= 2.28.0), libinput10 (>= 0.15.0), liblz4-1 (>= 0.0~r130), libopus0 (>= 1.1), libpipewire-0.3-0t64 (>= 0.3.6), libstdc++6 (>= 13.1), libudev1 (>= 183), libwayland-client0 (>= 1.20.0), libpipewire-0.3-0, libopusfile0
+Section: utils
+Priority: optional
+Homepage: https://github.com/cyber-wojtek/waytermirror
+Description: Real-time Wayland screen mirroring to terminal
+ Waytermirror provides real-time screen mirroring from Wayland to a terminal
+ using Unicode braille characters, half-blocks, or ASCII. It includes
+ bidirectional input forwarding, audio streaming via PipeWire, and optional
+ NVIDIA CUDA acceleration.
+ .
+ Features include zooming, focus-follow, and support for multiple rendering
+ and color modes.

@@ -1,0 +1,39 @@
+Source: waytermirror
+Section: utils
+Priority: optional
+Maintainer: Wojtek <your-email@example.com>
+Build-Depends: debhelper-compat (= 13),
+               g++ (>= 4:11),
+               gcc,
+               pkg-config,
+               libwayland-dev,
+               libpipewire-0.3-dev,
+               libspa-0.2-dev,
+               libglib2.0-dev,
+               liblz4-dev,
+               libinput-dev,
+               libudev-dev,
+               libopus-dev,
+               libopusfile-dev,
+               wayland-protocols
+Standards-Version: 4.6.2
+Homepage: https://github.com/cyber-wojtek/waytermirror
+
+Package: waytermirror
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},
+         libwayland-client0,
+         libpipewire-0.3-0,
+         liblz4-1,
+         libinput10,
+         libudev1,
+         libopus0,
+         libopusfile0
+Description: Real-time Wayland screen mirroring to terminal
+ Waytermirror provides real-time screen mirroring from Wayland to a terminal
+ using Unicode braille characters, half-blocks, or ASCII. It includes
+ bidirectional input forwarding, audio streaming via PipeWire, and optional
+ NVIDIA CUDA acceleration.
+ .
+ Features include zooming, focus-follow, and support for multiple rendering
+ and color modes.

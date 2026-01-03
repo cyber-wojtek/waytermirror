@@ -1,0 +1,15 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) PIPEWIRE=true
+
+override_dh_auto_install:
+	install -D -m 755 waytermirror_server $(CURDIR)/debian/waytermirror/usr/bin/waytermirror_server
+	install -D -m 755 waytermirror_client $(CURDIR)/debian/waytermirror/usr/bin/waytermirror_client
+	install -D -m 644 99-waytermirror-uinput.rules $(CURDIR)/debian/waytermirror/lib/udev/rules.d/99-waytermirror-uinput.rules
+
+override_dh_auto_clean:
+	$(MAKE) clean || true
