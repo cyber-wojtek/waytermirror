@@ -4567,10 +4567,8 @@ static void reset_modifier_state()
         virtual_input_mgr.send_key(KEY_LEFTCTRL, false);
         virtual_input_mgr.send_key(KEY_RIGHTCTRL, false);
     }
-    if (server_alt_pressed) {
+    if (server_alt_pressed || server_altgr_pressed) {
         virtual_input_mgr.send_key(KEY_LEFTALT, false);
-    }
-    if (server_altgr_pressed) {
         virtual_input_mgr.send_key(KEY_RIGHTALT, false);
     }
     if (server_super_pressed) {
