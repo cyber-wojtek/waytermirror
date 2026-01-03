@@ -1918,7 +1918,7 @@ static BrailleCell analyze_braille_cell(
 
     cell.has_edge = false;
     double max_edge = 0;
-    double edge_threshold = (detail_level >= 70) ? 30.0 : 50.0;
+    double edge_threshold = (detail_level >= 70) ? 20.0 : 50.0;
 
     for (int i = 0; i < 13; i++)
     {
