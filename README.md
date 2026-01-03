@@ -14,6 +14,7 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 
 ## Table of contents
 - [What it is](#what-it-is)
+- [Demonstration](#demonstration)
 - [How it works (short)](#how-it-works-short)
 - [Quickstart](#quickstart)
 - [Build & install](#build--install)
@@ -36,6 +37,9 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 - Rendering modes: braille, half-blocks, ascii, and hybrid (auto-select per cell).
 - Color modes: 16, 256, truecolor (24‑bit).
 - Optional CUDA acceleration for server-side rendering (NVIDIA only).
+
+## Demonstration
+https://github.com/user-attachments/assets/08fab5e9-d942-4d4e-b52f-acd2f88e3107
 
 ## How it works (short)
 - Screen → wlr-screencopy → frame buffer → renderer (CPU/CUDA) → ANSI string → LZ4 → TCP → client terminal
