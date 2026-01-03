@@ -3748,9 +3748,6 @@ static void audio_thread(int client_socket, std::string session_id)
 
         if (!audio_data.empty())
         {
-            // Accumulate data
-            accumulator.insert(accumulator.end(), audio_data.begin(), audio_data.end());
-            
             // Get config and encoder from client connection
             ClientConfig config{};
             OpusEncoder *encoder = nullptr;
@@ -3764,14 +3761,17 @@ static void audio_thread(int client_socket, std::string session_id)
                 }
             }
             
-            // Process full opus frames
-            while (accumulator.size() >= (size_t)frame_bytes)
+            if (config.audio_compress && encoder)
             {
-                std::vector<uint8_t> opus_input(accumulator.begin(), accumulator.begin() + frame_bytes);
-                accumulator.erase(accumulator.begin(), accumulator.begin() + frame_bytes);
-
-                if (config.audio_compress && encoder)
+                // COMPRESSED PATH: Accumulate to full Opus frames
+                accumulator.insert(accumulator.end(), audio_data.begin(), audio_data.end());
+                
+                // Process full opus frames
+                while (accumulator.size() >= (size_t)frame_bytes)
                 {
+                    std::vector<uint8_t> opus_input(accumulator.begin(), accumulator.begin() + frame_bytes);
+                    accumulator.erase(accumulator.begin(), accumulator.begin() + frame_bytes);
+
                     // Encode with Opus
                     std::vector<uint8_t> compressed = encode_audio_opus(
                         opus_input, sample_rate, channels, encoder);
@@ -3797,23 +3797,23 @@ static void audio_thread(int client_socket, std::string session_id)
                         }
                     }
                 }
-                else
-                {
-                    // Send uncompressed F32LE data
-                    MessageType type = MessageType::AUDIO_DATA;
-                    AudioDataHeader header;
-                    header.size = opus_input.size();
-                    header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                                              std::chrono::steady_clock::now().time_since_epoch())
-                                              .count();
+            }
+            else
+            {
+                // UNCOMPRESSED PATH: Send immediately without accumulation
+                MessageType type = MessageType::AUDIO_DATA;
+                AudioDataHeader header;
+                header.size = audio_data.size();
+                header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count();
 
-                    if (send(client_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
-                        send(client_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
-                        send(client_socket, opus_input.data(), opus_input.size(), MSG_NOSIGNAL) != (ssize_t)opus_input.size())
-                    {
-                        std::cerr << "[AUDIO] Send failed\n";
-                        goto cleanup;
-                    }
+                if (send(client_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
+                    send(client_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
+                    send(client_socket, audio_data.data(), audio_data.size(), MSG_NOSIGNAL) != (ssize_t)audio_data.size())
+                {
+                    std::cerr << "[AUDIO] Send failed\n";
+                    goto cleanup;
                 }
             }
         }

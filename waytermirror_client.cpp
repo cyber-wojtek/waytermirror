@@ -1008,13 +1008,12 @@ static void audio_receive_thread()
 
         {
             std::lock_guard<std::mutex> lock(audio_playback.mutex);
-            audio_playback.audio_queue.push(std::move(audio_data));
-
             // Prevent queue buildup
-            while (audio_playback.audio_queue.size() > 10)
+            while (audio_playback.audio_queue.size() > 1) // Only keep latest
             {
                 audio_playback.audio_queue.pop();
             }
+            audio_playback.audio_queue.push(std::move(audio_data));
         }
     }
 
