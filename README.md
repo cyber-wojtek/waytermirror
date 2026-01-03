@@ -107,8 +107,9 @@ Packaging (Arch)
 
 - **Manual build**: Use the included PKGBUILD with `makepkg`:
   ```bash
-  git clone https://github.com/cyber-wojtek/waytermirror.git
+  mkdir -p waytermirror
   cd waytermirror
+  wget https://github.com/cyber-wojtek/waytermirror/raw/refs/heads/main/PKGBUILD
   makepkg -si
   ```
 
