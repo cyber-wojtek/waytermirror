@@ -379,6 +379,7 @@ struct BrailleCell
     bool has_edge;
     double mean_luma;
     double edge_strength;
+    double variance;
 };
 
 enum class ColorMode
@@ -1950,6 +1951,15 @@ static BrailleCell analyze_braille_cell(
     }
     cell.mean_luma = sum / 8.0;
 
+    // Calculate variance
+    double variance_sum = 0;
+    for (int i = 0; i < 8; i++)
+    {
+        double diff = cell.lumas[i] - cell.mean_luma;
+        variance_sum += diff * diff;
+    }
+    cell.variance = variance_sum / 8.0;
+
     // Weight calculation - EXACT CUDA MATCH
     for (int i = 0; i < 8; i++)
     {
@@ -2855,8 +2865,11 @@ static std::string render_hybrid(
                 }
             }
 
-            // Decision based on detail level
-            bool use_braille = has_edge;
+            // Use braille if there are edges OR high variance in the local area
+            // High variance indicates detail that benefits from braille's higher resolution
+            double variance_threshold = (detail_level >= 70) ? 400.0 : 800.0;
+            bool has_variance = (variance_sum / 8.0) > variance_threshold;
+            bool use_braille = has_edge || has_variance;
 
             if (use_braille)
             {

@@ -32,6 +32,7 @@ struct BrailleCellGPU {
   bool has_edge;
   double mean_luma;
   double edge_strength;
+  double variance;
 };
 
 // extract rgb from pixel data based on format
@@ -230,6 +231,14 @@ __device__ BrailleCellGPU analyze_braille_cell_cuda(
     sum += cell.lumas[i];
   }
   cell.mean_luma = sum / 8.0;
+  
+  // variance
+  double variance_sum = 0;
+  for (int i = 0; i < 8; i++) {
+    double diff = cell.lumas[i] - cell.mean_luma;
+    variance_sum += diff * diff;
+  }
+  cell.variance = variance_sum / 8.0;
   
   // contrast-based weights
   for (int i = 0; i < 8; i++) {
@@ -662,8 +671,8 @@ __global__ void render_hybrid_kernel(
         frame, fw, fh, stride, cell_x, cell_y, w_scaled, h_scaled,
         cells_x, cells_y, rot_width, rot_height, rotation_angle, fmt, detail);
     
-    // braille if edge detected + sufficient detail level
-    bool use_braille = cell.has_edge && detail >= 60;
+    // braille if edge detected
+    bool use_braille = cell.has_edge;
     modes[idx] = use_braille ? 1 : 0;
     
     if (use_braille) {
