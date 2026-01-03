@@ -1,5 +1,5 @@
 66c3cf4826d8c639c640d37bc49a9a38  lib/udev/rules.d/99-waytermirror-uinput.rules
 8e034f34e8fa0d86de86727bbfd0d29f  usr/bin/waytermirror_client
 bdc68f1088ab43c5f011390f905e1317  usr/bin/waytermirror_server
-a4672de7aa1462da9556cd437e67a6dc  usr/share/doc/waytermirror/changelog.Debian.gz
+a1e824d9ec857023efb745a591a501de  usr/share/doc/waytermirror/changelog.Debian.gz
 a30acbcb73662a7d8accfd7bafcef983  usr/share/doc/waytermirror/copyright

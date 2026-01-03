@@ -1,11 +1,11 @@
 Package: waytermirror-dbgsym
 Source: waytermirror
-Version: 1.0.0-1
+Version: 0.3.0-1
 Auto-Built-Package: debug-symbols
 Architecture: amd64
 Maintainer: Wojtek <your-email@example.com>
 Installed-Size: 221
-Depends: waytermirror (= 1.0.0-1)
+Depends: waytermirror (= 0.3.0-1)
 Section: debug
 Priority: optional
 Description: debug symbols for waytermirror
