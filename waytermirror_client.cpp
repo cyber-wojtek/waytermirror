@@ -800,8 +800,8 @@ static void microphone_send_thread()
         send(microphone_socket, &microphone_capture.format, sizeof(microphone_capture.format), MSG_NOSIGNAL);
     }
     
-    // Opus frame size (5ms)
-    const int OPUS_FRAME_MS = 5;
+    // Opus frame size (20ms - must match server)
+    const int OPUS_FRAME_MS = 20;
     int opus_frame_size = (mic_opus_sample_rate * OPUS_FRAME_MS) / 1000;
     int bytes_per_sample = sizeof(float); // F32LE from PipeWire
     int frame_bytes = opus_frame_size * mic_opus_channels * bytes_per_sample;
@@ -974,7 +974,7 @@ static void audio_receive_thread()
 
     std::cerr << "[AUDIO] Starting receive loop...\n";
 
-    // Opus frame size (20ms)
+    // Opus frame size (20ms - must match server)
     const int OPUS_FRAME_MS = 20;
     int opus_frame_size = (audio_opus_sample_rate * OPUS_FRAME_MS) / 1000;
 
