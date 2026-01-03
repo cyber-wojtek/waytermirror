@@ -304,6 +304,8 @@ All client shortcuts use the **Ctrl+Alt+Shift** modifier prefix, so normal keys 
 |---------:|--------|-------|
 | Ctrl+Alt+Shift+A | Toggle audio | Mute/unmute system audio playback |
 | Ctrl+Alt+Shift+M | Toggle microphone | Mute/unmute microphone capture |
+| Ctrl+Alt+Shift+5 | Cycle audio compression | Off → LZ4 fast → LZ4 HC (level 9) |
+| Ctrl+Alt+Shift+6 | Cycle microphone compression | Off → LZ4 fast → LZ4 HC (level 9) |
 
 Quick usage tips
 - Zoom panning: when zoomed (Ctrl+Alt+Shift+Z), use arrow keys to pan the viewport. Hold PageUp/PageDown for faster vertical movement.
@@ -311,7 +313,8 @@ Quick usage tips
 - Quick renderer switch: use **1-4** to instantly select braille/blocks/ascii/hybrid renderers instead of cycling with **R**.
 - FPS adjustment: use **J** to increase and **K** to decrease FPS by 5 (range: 1-120).
 - Output cycling: press **`** (backtick) to cycle through outputs or toggle follow-focus mode.
-- Compression toggle: use **U** to quickly enable/disable LZ4 compression.
+- Compression toggle: use **U** to quickly enable/disable LZ4 compression for video frames.
+- Audio/mic compression: use **5** and **6** to cycle audio and microphone compression (off → LZ4 fast → LZ4 HC). Useful for reducing bandwidth on slow connections.
 - Input capture: enable exclusive grab (Ctrl+Alt+Shift+G) only if you trust the client host and want to avoid local desktop interaction while controlling remote.
 - Forwarding vs local: if you want to send one of the Ctrl+Alt+Shift+... combos to the remote, either temporarily disable local shortcuts (e.g. Ctrl+Alt+Shift+I to stop input capturing) or use a build/flag to change behavior. Check `waytermirror_client --help` or the source file waytermirror_client.cpp for the exact forwarding rules.
 - Customization: keyboard handling is implemented in the client source. To change shortcuts, edit waytermirror_client.cpp and rebuild.

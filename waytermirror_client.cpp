@@ -18,6 +18,7 @@
 #include <sstream>
 #include <sys/ioctl.h>
 #include <lz4.h>
+#include <lz4hc.h>
 #include <libinput.h>
 #include <libudev.h>
 #include <linux/input-event-codes.h>
@@ -221,6 +222,10 @@ struct ClientConfig
     uint8_t keep_aspect_ratio;
     uint8_t compress;
     uint8_t compression_level;
+    uint8_t audio_compress;
+    uint8_t audio_compression_level;
+    uint8_t microphone_compress;
+    uint8_t microphone_compression_level;
     double scale_factor;
     uint8_t follow_focus;
     uint8_t detail_level;
@@ -746,19 +751,77 @@ static void microphone_send_thread()
                 memset(microphone_data.data(), 0, microphone_data.size());
             }
 
-            MessageType type = MessageType::MICROPHONE_DATA;
-            AudioDataHeader header;
-            header.size = microphone_data.size();
-            header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                                      std::chrono::steady_clock::now().time_since_epoch())
-                                      .count();
-
-            if (send(microphone_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
-                send(microphone_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
-                send(microphone_socket, microphone_data.data(), microphone_data.size(), MSG_NOSIGNAL) != (ssize_t)microphone_data.size())
+            ClientConfig config_copy;
             {
-                std::cerr << "[MICROPHONE OUT] Send failed\n";
-                break;
+                std::lock_guard<std::mutex> lock(config_mutex);
+                config_copy = current_config;
+            }
+
+            if (config_copy.microphone_compress)
+            {
+                // Compress microphone data with LZ4
+                int max_compressed = LZ4_compressBound(microphone_data.size());
+                std::vector<uint8_t> compressed(max_compressed);
+                int compressed_size = 0;
+                
+                if (config_copy.microphone_compression_level == 0)
+                {
+                    compressed_size = LZ4_compress_default(
+                        (const char *)microphone_data.data(),
+                        (char *)compressed.data(),
+                        microphone_data.size(),
+                        max_compressed);
+                }
+                else
+                {
+                    compressed_size = LZ4_compress_HC(
+                        (const char *)microphone_data.data(),
+                        (char *)compressed.data(),
+                        microphone_data.size(),
+                        max_compressed,
+                        config_copy.microphone_compression_level);
+                }
+
+                if (compressed_size > 0 && compressed_size < (int)microphone_data.size())
+                {
+                    MessageType type = MessageType::COMPRESSED_MICROPHONE_DATA;
+                    CompressedAudioHeader header;
+                    header.compressed_size = compressed_size;
+                    header.uncompressed_size = microphone_data.size();
+                    header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                              std::chrono::steady_clock::now().time_since_epoch())
+                                              .count();
+
+                    if (send(microphone_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
+                        send(microphone_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
+                        send(microphone_socket, compressed.data(), compressed_size, MSG_NOSIGNAL) != compressed_size)
+                    {
+                        std::cerr << "[MICROPHONE OUT] Send failed\n";
+                        break;
+                    }
+                }
+                else
+                {
+                    goto send_mic_uncompressed;
+                }
+            }
+            else
+            {
+            send_mic_uncompressed:
+                MessageType type = MessageType::MICROPHONE_DATA;
+                AudioDataHeader header;
+                header.size = microphone_data.size();
+                header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count();
+
+                if (send(microphone_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
+                    send(microphone_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
+                    send(microphone_socket, microphone_data.data(), microphone_data.size(), MSG_NOSIGNAL) != (ssize_t)microphone_data.size())
+                {
+                    std::cerr << "[MICROPHONE OUT] Send failed\n";
+                    break;
+                }
             }
         }
         else
@@ -1263,6 +1326,54 @@ static void adjust_fps(int delta)
     send_client_config(current_config);
 }
 
+static void cycle_audio_compression()
+{
+    std::lock_guard<std::mutex> lock(config_mutex);
+    if (!current_config.audio_compress)
+    {
+        current_config.audio_compress = 1;
+        current_config.audio_compression_level = 0;
+        std::cerr << "[AUDIO] Compression: LZ4 fast\n";
+    }
+    else if (current_config.audio_compression_level == 0)
+    {
+        current_config.audio_compression_level = 9;
+        std::cerr << "[AUDIO] Compression: LZ4 HC (level 9)\n";
+    }
+    else
+    {
+        current_config.audio_compress = 0;
+        current_config.audio_compression_level = 0;
+        std::cerr << "[AUDIO] Compression: OFF\n";
+    }
+    get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
+    send_client_config(current_config);
+}
+
+static void cycle_microphone_compression()
+{
+    std::lock_guard<std::mutex> lock(config_mutex);
+    if (!current_config.microphone_compress)
+    {
+        current_config.microphone_compress = 1;
+        current_config.microphone_compression_level = 0;
+        std::cerr << "[MICROPHONE] Compression: LZ4 fast\n";
+    }
+    else if (current_config.microphone_compression_level == 0)
+    {
+        current_config.microphone_compression_level = 9;
+        std::cerr << "[MICROPHONE] Compression: LZ4 HC (level 9)\n";
+    }
+    else
+    {
+        current_config.microphone_compress = 0;
+        current_config.microphone_compression_level = 0;
+        std::cerr << "[MICROPHONE] Compression: OFF\n";
+    }
+    get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
+    send_client_config(current_config);
+}
+
 static void cycle_output()
 {
     std::lock_guard<std::mutex> lock(config_mutex);
@@ -1355,6 +1466,8 @@ static void print_shortcuts_help()
     std::cout << "║   A            Toggle audio playback (mute/unmute)                     ║\n";
     std::cout << "║   M            Toggle microphone capture (mute/unmute)                 ║\n";
     std::cout << "║   F            Toggle follow-focus mode                                ║\n";
+    std::cout << "║   5            Cycle audio compression (off→LZ4→LZ4 HC)                ║\n";
+    std::cout << "║   6            Cycle microphone compression (off→LZ4→LZ4 HC)           ║\n";
     std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
     std::cout << "║ CURRENT STATE                                                          ║\n";
     std::cout << "║   Renderer:       " << std::setw(8) << std::left << (const char*[]){"braille", "blocks", "ascii", "hybrid"}[current_config.renderer] << "  Color: " << std::setw(9) << (const char*[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
@@ -1431,6 +1544,8 @@ static void send_key_event(uint32_t keycode, bool pressed)
     bool is_2 = (keycode == KEY_2);
     bool is_3 = (keycode == KEY_3);
     bool is_4 = (keycode == KEY_4);
+    bool is_5 = (keycode == KEY_5);
+    bool is_6 = (keycode == KEY_6);
 
     // Track modifier state
     if (is_shift)
@@ -1736,6 +1851,20 @@ static void send_key_event(uint32_t keycode, bool pressed)
             }
             get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
             send_client_config(current_config);
+            return;
+        }
+
+        // Cycle audio compression (Ctrl+Alt+Shift+5)
+        if (is_5)
+        {
+            cycle_audio_compression();
+            return;
+        }
+
+        // Cycle microphone compression (Ctrl+Alt+Shift+6)
+        if (is_6)
+        {
+            cycle_microphone_compression();
             return;
         }
 
