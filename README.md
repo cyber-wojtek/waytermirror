@@ -304,8 +304,8 @@ All client shortcuts use the **Ctrl+Alt+Shift** modifier prefix, so normal keys 
 |---------:|--------|-------|
 | Ctrl+Alt+Shift+A | Toggle audio | Mute/unmute system audio playback |
 | Ctrl+Alt+Shift+M | Toggle microphone | Mute/unmute microphone capture |
-| Ctrl+Alt+Shift+5 | Cycle audio compression | Off → LZ4 fast → LZ4 HC (level 9) |
-| Ctrl+Alt+Shift+6 | Cycle microphone compression | Off → LZ4 fast → LZ4 HC (level 9) |
+| Ctrl+Alt+Shift+5 | Cycle audio compression | Off → LZ4 fast → LZ4 HC Levels |
+| Ctrl+Alt+Shift+6 | Cycle microphone compression | Off → LZ4 fast → LZ4 HC Levels |
 
 Quick usage tips
 - Zoom panning: when zoomed (Ctrl+Alt+Shift+Z), use arrow keys to pan the viewport. Hold PageUp/PageDown for faster vertical movement.

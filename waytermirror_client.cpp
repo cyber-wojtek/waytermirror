@@ -27,6 +27,15 @@
 #include <spa/param/audio/format-utils.h>
 #include <queue>
 #include <mutex>
+#include <opus/opus.h>
+
+// Opus encoders/decoders - separate for mic (client->server) and audio (server->client)
+static OpusEncoder *mic_opus_encoder = nullptr;   // For encoding microphone data to send
+static OpusDecoder *audio_opus_decoder = nullptr; // For decoding received audio data
+static int mic_opus_sample_rate = 48000;
+static int mic_opus_channels = 2;
+static int audio_opus_sample_rate = 48000;
+static int audio_opus_channels = 2;
 
 // Input state
 static std::atomic<bool> running{true};
@@ -232,6 +241,18 @@ struct ClientConfig
     uint8_t render_device;
     uint8_t quality;
     double rotation_angle;
+    // Audio opus settings (server->client)
+    int audio_sample_rate = 48000;
+    int audio_channels = 2;
+    int audio_opus_complexity = 5;
+    int audio_bitrate = 64000; // in bps
+    int audio_opus_application = OPUS_APPLICATION_AUDIO;
+    // Microphone opus settings (client->server)
+    int mic_sample_rate = 48000;
+    int mic_channels = 2;
+    int mic_opus_complexity = 5;
+    int mic_bitrate = 64000; // in bps
+    int mic_opus_application = OPUS_APPLICATION_VOIP;
 };
 
 struct ZoomState
@@ -730,6 +751,16 @@ static void microphone_send_thread()
         send(microphone_socket, &microphone_capture.format, sizeof(microphone_capture.format), MSG_NOSIGNAL);
     }
 
+    // Opus frame size: 20ms at sample rate (common sizes: 960 samples at 48kHz)
+    const int OPUS_FRAME_MS = 20;
+    int opus_frame_size = (mic_opus_sample_rate * OPUS_FRAME_MS) / 1000;
+    int bytes_per_sample = sizeof(float); // F32LE from PipeWire
+    int frame_bytes = opus_frame_size * mic_opus_channels * bytes_per_sample;
+    
+    std::vector<uint8_t> accumulator;  // Accumulate data until we have full opus frame
+    std::vector<float> float_buffer(opus_frame_size * mic_opus_channels);  // For opus encoding
+    std::vector<int16_t> int16_buffer(opus_frame_size * mic_opus_channels); // Convert F32 to S16 for opus
+
     while (running && microphone_capture.running)
     {
         std::vector<uint8_t> microphone_data;
@@ -751,76 +782,82 @@ static void microphone_send_thread()
                 memset(microphone_data.data(), 0, microphone_data.size());
             }
 
+            // Accumulate data
+            accumulator.insert(accumulator.end(), microphone_data.begin(), microphone_data.end());
+            
             ClientConfig config_copy;
             {
                 std::lock_guard<std::mutex> lock(config_mutex);
                 config_copy = current_config;
             }
-
-            if (config_copy.microphone_compress)
+            
+            // Process full opus frames
+            while (accumulator.size() >= (size_t)frame_bytes)
             {
-                // Compress microphone data with LZ4
-                int max_compressed = LZ4_compressBound(microphone_data.size());
-                std::vector<uint8_t> compressed(max_compressed);
-                int compressed_size = 0;
-                
-                if (config_copy.microphone_compression_level == 0)
+                // Extract one opus frame worth of data
+                std::vector<uint8_t> opus_input(accumulator.begin(), accumulator.begin() + frame_bytes);
+                accumulator.erase(accumulator.begin(), accumulator.begin() + frame_bytes);
+
+                if (config_copy.microphone_compress && mic_opus_encoder)
                 {
-                    compressed_size = LZ4_compress_default(
-                        (const char *)microphone_data.data(),
-                        (char *)compressed.data(),
-                        microphone_data.size(),
-                        max_compressed);
+                    // Convert F32LE to S16LE for Opus encoding
+                    const float *float_samples = reinterpret_cast<const float *>(opus_input.data());
+                    for (int i = 0; i < opus_frame_size * mic_opus_channels; i++)
+                    {
+                        float sample = std::clamp(float_samples[i], -1.0f, 1.0f);
+                        int16_buffer[i] = static_cast<int16_t>(sample * 32767.0f);
+                    }
+
+                    // Opus encode
+                    std::vector<uint8_t> compressed(4000); // Max opus packet size
+                    int compressed_size = opus_encode(
+                        mic_opus_encoder,
+                        int16_buffer.data(),
+                        opus_frame_size,
+                        compressed.data(),
+                        compressed.size());
+
+                    if (compressed_size > 0)
+                    {
+                        MessageType type = MessageType::COMPRESSED_MICROPHONE_DATA;
+                        CompressedAudioHeader header;
+                        header.compressed_size = compressed_size;
+                        // Uncompressed size is the S16 size (for decoder on other end)
+                        header.uncompressed_size = opus_frame_size * mic_opus_channels * sizeof(int16_t);
+                        header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                                  std::chrono::steady_clock::now().time_since_epoch())
+                                                  .count();
+
+                        if (send(microphone_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
+                            send(microphone_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
+                            send(microphone_socket, compressed.data(), compressed_size, MSG_NOSIGNAL) != compressed_size)
+                        {
+                            std::cerr << "[MICROPHONE OUT] Send failed\n";
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        std::cerr << "[MICROPHONE OUT] Opus encode failed: " << opus_strerror(compressed_size) << "\n";
+                    }
                 }
                 else
                 {
-                    compressed_size = LZ4_compress_HC(
-                        (const char *)microphone_data.data(),
-                        (char *)compressed.data(),
-                        microphone_data.size(),
-                        max_compressed,
-                        config_copy.microphone_compression_level);
-                }
-
-                if (compressed_size > 0 && compressed_size < (int)microphone_data.size())
-                {
-                    MessageType type = MessageType::COMPRESSED_MICROPHONE_DATA;
-                    CompressedAudioHeader header;
-                    header.compressed_size = compressed_size;
-                    header.uncompressed_size = microphone_data.size();
+                    // Send uncompressed (raw F32 data)
+                    MessageType type = MessageType::MICROPHONE_DATA;
+                    AudioDataHeader header;
+                    header.size = opus_input.size();
                     header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
                                               std::chrono::steady_clock::now().time_since_epoch())
                                               .count();
 
                     if (send(microphone_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
                         send(microphone_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
-                        send(microphone_socket, compressed.data(), compressed_size, MSG_NOSIGNAL) != compressed_size)
+                        send(microphone_socket, opus_input.data(), opus_input.size(), MSG_NOSIGNAL) != (ssize_t)opus_input.size())
                     {
                         std::cerr << "[MICROPHONE OUT] Send failed\n";
-                        break;
+                        return;
                     }
-                }
-                else
-                {
-                    goto send_mic_uncompressed;
-                }
-            }
-            else
-            {
-            send_mic_uncompressed:
-                MessageType type = MessageType::MICROPHONE_DATA;
-                AudioDataHeader header;
-                header.size = microphone_data.size();
-                header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                                          std::chrono::steady_clock::now().time_since_epoch())
-                                          .count();
-
-                if (send(microphone_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type) ||
-                    send(microphone_socket, &header, sizeof(header), MSG_NOSIGNAL) != sizeof(header) ||
-                    send(microphone_socket, microphone_data.data(), microphone_data.size(), MSG_NOSIGNAL) != (ssize_t)microphone_data.size())
-                {
-                    std::cerr << "[MICROPHONE OUT] Send failed\n";
-                    break;
                 }
             }
         }
@@ -873,11 +910,19 @@ static void audio_receive_thread()
         return;
     }
 
+    // Update audio opus settings from received format
+    audio_opus_sample_rate = fmt.sample_rate;
+    audio_opus_channels = fmt.channels;
+
     if (!init_audio_playback(fmt))
     {
         std::cerr << "[AUDIO] Failed to init playback\n";
         return;
     }
+
+    // Opus frame size (20ms)
+    const int OPUS_FRAME_MS = 20;
+    int opus_frame_size = (audio_opus_sample_rate * OPUS_FRAME_MS) / 1000;
 
     while (running && audio_playback.running)
     {
@@ -903,16 +948,38 @@ static void audio_receive_thread()
                 total += n;
             }
 
-            audio_data.resize(header.uncompressed_size);
-            int decompressed = LZ4_decompress_safe(
-                (const char*)compressed.data(),
-                (char*)audio_data.data(),
-                header.compressed_size,
-                header.uncompressed_size);
-
-            if (decompressed != (int)header.uncompressed_size)
+            // Decode with Opus
+            if (audio_opus_decoder)
             {
-                std::cerr << "[AUDIO] Decompression failed\n";
+                // Opus decodes to S16LE
+                std::vector<int16_t> decoded_s16(opus_frame_size * audio_opus_channels);
+                int decoded_samples = opus_decode(
+                    audio_opus_decoder,
+                    compressed.data(),
+                    compressed.size(),
+                    decoded_s16.data(),
+                    opus_frame_size,
+                    0);
+
+                if (decoded_samples > 0)
+                {
+                    // Convert S16LE to F32LE for PipeWire playback
+                    audio_data.resize(decoded_samples * audio_opus_channels * sizeof(float));
+                    float *float_out = reinterpret_cast<float *>(audio_data.data());
+                    for (int i = 0; i < decoded_samples * audio_opus_channels; i++)
+                    {
+                        float_out[i] = static_cast<float>(decoded_s16[i]) / 32768.0f;
+                    }
+                }
+                else
+                {
+                    std::cerr << "[AUDIO] Opus decode failed: " << opus_strerror(decoded_samples) << "\n";
+                    continue;
+                }
+            }
+            else
+            {
+                std::cerr << "[AUDIO] No opus decoder available, cannot decode compressed audio\n";
                 continue;
             }
         }
@@ -1329,22 +1396,34 @@ static void adjust_fps(int delta)
 static void cycle_audio_compression()
 {
     std::lock_guard<std::mutex> lock(config_mutex);
+    // Toggle audio opus compression on/off
     if (!current_config.audio_compress)
     {
         current_config.audio_compress = 1;
-        current_config.audio_compression_level = 0;
-        std::cerr << "[AUDIO] Compression: LZ4 fast\n";
-    }
-    else if (current_config.audio_compression_level == 0)
-    {
-        current_config.audio_compression_level = 9;
-        std::cerr << "[AUDIO] Compression: LZ4 HC (level 9)\n";
+        std::cerr << "[AUDIO] Opus compression: ON ("
+                  << current_config.audio_sample_rate << "Hz "
+                  << current_config.audio_channels << "ch "
+                  << current_config.audio_bitrate/1000 << "kbps)\n";
+
+        // Reinitialize audio decoder if needed
+        if (!audio_opus_decoder)
+        {
+            int error;
+            audio_opus_decoder = opus_decoder_create(
+                audio_opus_sample_rate,
+                audio_opus_channels,
+                &error);
+            if (error != OPUS_OK)
+            {
+                std::cerr << "[OPUS] Failed to create audio decoder: " << opus_strerror(error) << "\n";
+                audio_opus_decoder = nullptr;
+            }
+        }
     }
     else
     {
         current_config.audio_compress = 0;
-        current_config.audio_compression_level = 0;
-        std::cerr << "[AUDIO] Compression: OFF\n";
+        std::cerr << "[AUDIO] Compression: OFF (raw PCM)\n";
     }
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
     send_client_config(current_config);
@@ -1353,22 +1432,40 @@ static void cycle_audio_compression()
 static void cycle_microphone_compression()
 {
     std::lock_guard<std::mutex> lock(config_mutex);
+    // Toggle microphone opus compression on/off
     if (!current_config.microphone_compress)
     {
         current_config.microphone_compress = 1;
-        current_config.microphone_compression_level = 0;
-        std::cerr << "[MICROPHONE] Compression: LZ4 fast\n";
-    }
-    else if (current_config.microphone_compression_level == 0)
-    {
-        current_config.microphone_compression_level = 9;
-        std::cerr << "[MICROPHONE] Compression: LZ4 HC (level 9)\n";
+        std::cerr << "[MICROPHONE] Opus compression: ON ("
+                  << current_config.mic_sample_rate << "Hz "
+                  << current_config.mic_channels << "ch "
+                  << current_config.mic_bitrate/1000 << "kbps)\n";
+
+        // Reinitialize mic encoder if needed
+        if (!mic_opus_encoder)
+        {
+            int error;
+            mic_opus_encoder = opus_encoder_create(
+                mic_opus_sample_rate,
+                mic_opus_channels,
+                current_config.mic_opus_application,
+                &error);
+            if (error != OPUS_OK)
+            {
+                std::cerr << "[OPUS] Failed to create mic encoder: " << opus_strerror(error) << "\n";
+                mic_opus_encoder = nullptr;
+            }
+            else
+            {
+                opus_encoder_ctl(mic_opus_encoder, OPUS_SET_BITRATE(current_config.mic_bitrate));
+                opus_encoder_ctl(mic_opus_encoder, OPUS_SET_COMPLEXITY(current_config.mic_opus_complexity));
+            }
+        }
     }
     else
     {
         current_config.microphone_compress = 0;
-        current_config.microphone_compression_level = 0;
-        std::cerr << "[MICROPHONE] Compression: OFF\n";
+        std::cerr << "[MICROPHONE] Compression: OFF (raw PCM)\n";
     }
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
     send_client_config(current_config);
@@ -2322,8 +2419,19 @@ int main(int argc, char **argv)
     program.add_argument("-L", "--compression-level")
         .default_value(0)
         .scan<'i', int>()
-        .help("LZ4 compression level: 0=fast, 1–12=HC");
+        .help("LZ4 compression level: 0=fast, 1-12=HC");
 
+    // audio and microphone compression
+    program.add_argument("-a", "--audio-compress")
+        .default_value(false)
+        .implicit_value(true)
+        .help("Enable audio compression");
+
+    program.add_argument("-m", "--microphone-compress")
+        .default_value(false)
+        .implicit_value(true)
+        .help("Enable microphone compression");
+    
     program.add_argument("-C", "--center-mouse")
         .default_value(false)
         .implicit_value(true)
@@ -2407,6 +2515,55 @@ int main(int argc, char **argv)
         .default_value(0.0)
         .scan<'g', double>()
         .help("Rotation angle (degrees): 0...360");
+
+    // Audio opus quality options
+    program.add_argument("--audio-sample-rate")
+        .default_value(48000)
+        .scan<'i', int>()
+        .help("Audio opus sample rate (Hz)");
+
+    program.add_argument("--audio-channels")
+        .default_value(2)
+        .scan<'i', int>()
+        .help("Audio opus channels");
+    
+    program.add_argument("--audio-bitrate")
+        .default_value(64)
+        .scan<'i', int>()
+        .help("Audio opus bitrate (kbps)");
+
+    program.add_argument("--audio-complexity")
+        .default_value(5)
+        .scan<'i', int>()
+        .help("Opus audio complexity (0-10)");
+
+    program.add_argument("--audio-application")
+        .default_value(std::string("audio"))
+        .help("Opus audio application: voip, audio, lowdelay");
+
+    // Microphone opus settings
+    program.add_argument("--mic-sample-rate")
+        .default_value(48000)
+        .scan<'i', int>()
+        .help("Microphone opus sample rate (Hz)");
+    program.add_argument("--mic-channels")
+        .default_value(2)
+        .scan<'i', int>()
+        .help("Microphone opus channels");
+
+    program.add_argument("--mic-bitrate")
+        .default_value(64)
+        .scan<'i', int>()
+        .help("Microphone opus bitrate (kbps)");
+
+    program.add_argument("--mic-complexity")
+        .default_value(5)
+        .scan<'i', int>()
+        .help("Microphone opus complexity (0-10)");
+
+    program.add_argument("--mic-application")
+        .default_value(std::string("voip"))
+        .help("Microphone opus application: voip, audio, lowdelay");
 
     try
     {
@@ -2709,6 +2866,13 @@ int main(int argc, char **argv)
     std::string mode_str = program.get<std::string>("--mode");
     std::string renderer = program.get<std::string>("--renderer");
 
+    // Parse opus application type
+    auto parse_opus_app = [](const std::string &s) -> int {
+        if (s == "voip") return OPUS_APPLICATION_VOIP;
+        if (s == "lowdelay") return OPUS_APPLICATION_RESTRICTED_LOWDELAY;
+        return OPUS_APPLICATION_AUDIO;
+    };
+
     // Send initial config through config socket
     {
         std::lock_guard<std::mutex> lock(config_mutex);
@@ -2732,6 +2896,71 @@ int main(int argc, char **argv)
         if (current_config.rotation_angle < 0)
         {
             current_config.rotation_angle += 360.0;
+        }
+
+        // Audio compress settings
+        current_config.audio_compress = program.get<bool>("--audio-compress") ? 1 : 0;
+        current_config.audio_sample_rate = program.get<int>("--audio-sample-rate");
+        current_config.audio_channels = program.get<int>("--audio-channels");
+        current_config.audio_bitrate = program.get<int>("--audio-bitrate") * 1000; // kbps to bps
+        current_config.audio_opus_complexity = std::clamp(program.get<int>("--audio-complexity"), 0, 10);
+        current_config.audio_opus_application = parse_opus_app(program.get<std::string>("--audio-application"));
+
+        // Microphone compress settings
+        current_config.microphone_compress = program.get<bool>("--microphone-compress") ? 1 : 0;
+        current_config.mic_sample_rate = program.get<int>("--mic-sample-rate");
+        current_config.mic_channels = program.get<int>("--mic-channels");
+        current_config.mic_bitrate = program.get<int>("--mic-bitrate") * 1000; // kbps to bps
+        current_config.mic_opus_complexity = std::clamp(program.get<int>("--mic-complexity"), 0, 10);
+        current_config.mic_opus_application = parse_opus_app(program.get<std::string>("--mic-application"));
+
+        // Update global opus settings for encoding/decoding
+        mic_opus_sample_rate = current_config.mic_sample_rate;
+        mic_opus_channels = current_config.mic_channels;
+        audio_opus_sample_rate = current_config.audio_sample_rate;
+        audio_opus_channels = current_config.audio_channels;
+    }
+
+    // Initialize Opus encoder for microphone (client sends mic to server)
+    if (feature_microphone && current_config.microphone_compress)
+    {
+        int error;
+        mic_opus_encoder = opus_encoder_create(
+            mic_opus_sample_rate,
+            mic_opus_channels,
+            current_config.mic_opus_application,
+            &error);
+        if (error != OPUS_OK)
+        {
+            std::cerr << "[OPUS] Failed to create mic encoder: " << opus_strerror(error) << "\n";
+            mic_opus_encoder = nullptr;
+        }
+        else
+        {
+            opus_encoder_ctl(mic_opus_encoder, OPUS_SET_BITRATE(current_config.mic_bitrate));
+            opus_encoder_ctl(mic_opus_encoder, OPUS_SET_COMPLEXITY(current_config.mic_opus_complexity));
+            std::cerr << "[OPUS] Microphone encoder: " << mic_opus_sample_rate << "Hz "
+                      << mic_opus_channels << "ch " << current_config.mic_bitrate/1000 << "kbps\n";
+        }
+    }
+
+    // Initialize Opus decoder for audio (client receives audio from server)
+    if (feature_audio && current_config.audio_compress)
+    {
+        int error;
+        audio_opus_decoder = opus_decoder_create(
+            audio_opus_sample_rate,
+            audio_opus_channels,
+            &error);
+        if (error != OPUS_OK)
+        {
+            std::cerr << "[OPUS] Failed to create audio decoder: " << opus_strerror(error) << "\n";
+            audio_opus_decoder = nullptr;
+        }
+        else
+        {
+            std::cerr << "[OPUS] Audio decoder: " << audio_opus_sample_rate << "Hz "
+                      << audio_opus_channels << "ch\n";
         }
     }
 
@@ -3002,6 +3231,18 @@ int main(int argc, char **argv)
     if (feature_microphone)
     {
         cleanup_microphone_capture();
+    }
+
+    // Cleanup opus encoders/decoders
+    if (mic_opus_encoder)
+    {
+        opus_encoder_destroy(mic_opus_encoder);
+        mic_opus_encoder = nullptr;
+    }
+    if (audio_opus_decoder)
+    {
+        opus_decoder_destroy(audio_opus_decoder);
+        audio_opus_decoder = nullptr;
     }
 
     std::cerr << "[EXIT] Shutdown complete.\n";
