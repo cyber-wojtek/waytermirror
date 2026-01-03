@@ -194,6 +194,7 @@ struct AudioPlayback
     pw_stream *stream = nullptr;
     std::mutex mutex;
     std::queue<std::vector<uint8_t>> audio_queue;
+    std::vector<uint8_t> residual;  // Leftover data from partial packet consumption
     std::atomic<bool> running{true};
     AudioFormat format{48000, 2, 1};
 };
@@ -501,7 +502,7 @@ static void on_process_playback(void *userdata)
     std::lock_guard<std::mutex> lock(pb->mutex);
 
     // Check mute flag
-    if (audio_muted.load() || pb->audio_queue.empty())
+    if (audio_muted.load() || (pb->audio_queue.empty() && pb->residual.empty()))
     {
         // Silence - fill entire buffer
         size = max_size;
@@ -509,14 +510,40 @@ static void on_process_playback(void *userdata)
     }
     else
     {
-        // Consume multiple queued packets to fill buffer and reduce choppiness
+        // Consume from residual buffer first, then queued packets
         uint32_t offset = 0;
+        
+        // First, use any residual data from previous callback
+        if (!pb->residual.empty())
+        {
+            uint32_t copy_size = std::min((uint32_t)pb->residual.size(), max_size);
+            memcpy(dst, pb->residual.data(), copy_size);
+            offset = copy_size;
+            if (copy_size < pb->residual.size())
+            {
+                // Still have residual left
+                pb->residual.erase(pb->residual.begin(), pb->residual.begin() + copy_size);
+            }
+            else
+            {
+                pb->residual.clear();
+            }
+        }
+        
+        // Then consume from queue
         while (!pb->audio_queue.empty() && offset < max_size)
         {
             auto &audio_data = pb->audio_queue.front();
-            uint32_t copy_size = std::min((uint32_t)audio_data.size(), max_size - offset);
+            uint32_t available = max_size - offset;
+            uint32_t copy_size = std::min((uint32_t)audio_data.size(), available);
             memcpy(dst + offset, audio_data.data(), copy_size);
             offset += copy_size;
+            
+            if (copy_size < audio_data.size())
+            {
+                // Save remainder as residual for next callback
+                pb->residual.assign(audio_data.begin() + copy_size, audio_data.end());
+            }
             pb->audio_queue.pop();
         }
         size = offset;
@@ -1048,8 +1075,8 @@ static void audio_receive_thread()
 
         {
             std::lock_guard<std::mutex> lock(audio_playback.mutex);
-            // Allow buffer buildup for smooth playback (about 200ms worth at 20ms packets = 10 packets)
-            while (audio_playback.audio_queue.size() > 10)
+            // Allow buffer buildup for smooth playback (about 500ms worth at 20ms packets = 25 packets)
+            while (audio_playback.audio_queue.size() > 25)
             {
                 audio_playback.audio_queue.pop();
             }
