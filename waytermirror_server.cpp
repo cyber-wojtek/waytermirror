@@ -69,27 +69,37 @@ enum {
     WL_FMT_ABGR8888 = 0x34324241,
     WL_FMT_RGBA8888 = 0x34324152,
     WL_FMT_BGRA8888 = 0x34324142,
+    WL_FMT_XRGB8888_A8 = 0x38415258,
+    WL_FMT_XBGR8888_A8 = 0x38414258,
+    WL_FMT_RGBX8888_A8 = 0x38415852,
+    WL_FMT_BGRX8888_A8 = 0x38415842,
+    WL_FMT_RGB888_A8 = 0x38413852,
+    WL_FMT_BGR888_A8 = 0x38413842,
 };
 
-// convert wl_shm_format to our PixelFormat enum
+// wl_shm format -> PixelFormat (little-endian byte order)
 static PixelFormat wl_shm_to_pixelfmt(uint32_t wl_fmt) {
+    //std::cerr << "[FMT] Converting wl_shm_format " <<  std::hex << wl_fmt <<  std::dec << " to PixelFormat\n";
     switch (wl_fmt) {
-        case WL_FMT_ARGB8888: return FMT_ARGB;
-        case WL_FMT_XRGB8888: return FMT_xRGB;
-        case WL_FMT_XBGR8888: return FMT_xBGR;
-        case WL_FMT_ABGR8888: return FMT_ABGR;
-        case WL_FMT_RGBX8888: return FMT_RGBx;
-        case WL_FMT_BGRX8888: return FMT_BGRx;
-        case WL_FMT_RGBA8888: return FMT_RGBA;
-        case WL_FMT_BGRA8888: return FMT_BGRA;
-        case WL_FMT_RGB888:   return FMT_RGB;
-        case WL_FMT_BGR888:   return FMT_BGR;
-        default:              return FMT_xRGB;  // fallback (ARGB is default for wl_shm)
+        case WL_FMT_ARGB8888: return FMT_BGRA;
+        case WL_FMT_XRGB8888: return FMT_BGRx;
+        case WL_FMT_XBGR8888: return FMT_RGBx;
+        case WL_FMT_ABGR8888: return FMT_RGBA;
+        case WL_FMT_RGBX8888: return FMT_xBGR;
+        case WL_FMT_BGRX8888: return FMT_xRGB;
+        case WL_FMT_RGBA8888: return FMT_ABGR;
+        case WL_FMT_BGRA8888: return FMT_ARGB;
+        case WL_FMT_RGB888:   return FMT_BGR;
+        case WL_FMT_BGR888:   return FMT_RGB;
+        case WL_FMT_RGBX8888_A8: return FMT_xBGR;
+        case WL_FMT_BGRX8888_A8: return FMT_xRGB;
+        case WL_FMT_RGB888_A8:   return FMT_BGR;
+        case WL_FMT_BGR888_A8:   return FMT_RGB;
+        default: return FMT_BGRx;
     }
 }
 
-// convert spa_video_format to our PixelFormat enum
-// spa values: RGBx=8, BGRx=9, xRGB=10, xBGR=11, RGBA=12, BGRA=13, ARGB=14, ABGR=15, RGB=16, BGR=17
+// spa_video_format -> PixelFormat
 static PixelFormat spa_to_pixelfmt(uint32_t spa_fmt) {
     switch (spa_fmt) {
         case  8: return FMT_RGBx;
@@ -433,6 +443,9 @@ struct ScreenInfo
 {
     uint32_t width;
     uint32_t height;
+    int32_t output_x;      // Output X offset in virtual desktop
+    int32_t output_y;      // Output Y offset in virtual desktop
+    uint32_t output_index; // Which output this info is for
 };
 
 struct RenderedFrameHeader
@@ -535,6 +548,15 @@ static zwp_virtual_keyboard_v1 *virtual_keyboard;
 static zwlr_foreign_toplevel_manager_v1 *toplevel_manager = nullptr;
 static std::vector<wl_output *> outputs;
 static std::vector<std::string> output_names;
+
+// Output geometry info (position in virtual desktop)
+struct OutputGeometry {
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t width = 0;
+    int32_t height = 0;
+};
+static std::vector<OutputGeometry> output_geometries;
 
 static CaptureBackend detect_capture_backend() {
     // Check compositor type
@@ -709,6 +731,96 @@ static int create_shm_file(size_t size) {
   return fd;
 }
 
+// --- Output geometry detection ---
+static void detect_output_geometries_hyprland()
+{
+    std::string json = exec_command("hyprctl monitors -j 2>/dev/null");
+    if (json.empty())
+        return;
+
+    rapidjson::Document doc;
+    doc.Parse(json.c_str());
+    if (doc.HasParseError() || !doc.IsArray())
+        return;
+
+    output_geometries.resize(outputs.size());
+    
+    for (rapidjson::SizeType i = 0; i < doc.Size() && i < outputs.size(); i++)
+    {
+        const rapidjson::Value &mon = doc[i];
+        if (mon.HasMember("x") && mon["x"].IsInt())
+            output_geometries[i].x = mon["x"].GetInt();
+        if (mon.HasMember("y") && mon["y"].IsInt())
+            output_geometries[i].y = mon["y"].GetInt();
+        if (mon.HasMember("width") && mon["width"].IsInt())
+            output_geometries[i].width = mon["width"].GetInt();
+        if (mon.HasMember("height") && mon["height"].IsInt())
+            output_geometries[i].height = mon["height"].GetInt();
+        
+        std::cerr << "[OUTPUT] Monitor " << i << " geometry: " 
+                  << output_geometries[i].x << "," << output_geometries[i].y
+                  << " " << output_geometries[i].width << "x" << output_geometries[i].height << "\n";
+    }
+}
+
+static void detect_output_geometries_sway()
+{
+    std::string json = exec_command("swaymsg -t get_outputs -r 2>/dev/null");
+    if (json.empty())
+        return;
+
+    rapidjson::Document doc;
+    doc.Parse(json.c_str());
+    if (doc.HasParseError() || !doc.IsArray())
+        return;
+
+    output_geometries.resize(outputs.size());
+    
+    for (rapidjson::SizeType i = 0; i < doc.Size() && i < outputs.size(); i++)
+    {
+        const rapidjson::Value &out = doc[i];
+        if (out.HasMember("rect") && out["rect"].IsObject())
+        {
+            const rapidjson::Value &rect = out["rect"];
+            if (rect.HasMember("x") && rect["x"].IsInt())
+                output_geometries[i].x = rect["x"].GetInt();
+            if (rect.HasMember("y") && rect["y"].IsInt())
+                output_geometries[i].y = rect["y"].GetInt();
+            if (rect.HasMember("width") && rect["width"].IsInt())
+                output_geometries[i].width = rect["width"].GetInt();
+            if (rect.HasMember("height") && rect["height"].IsInt())
+                output_geometries[i].height = rect["height"].GetInt();
+        }
+        
+        std::cerr << "[OUTPUT] Monitor " << i << " geometry: " 
+                  << output_geometries[i].x << "," << output_geometries[i].y
+                  << " " << output_geometries[i].width << "x" << output_geometries[i].height << "\n";
+    }
+}
+
+static void detect_output_geometries()
+{
+    output_geometries.resize(outputs.size());
+    
+    if (compositor_type == "hyprland")
+        detect_output_geometries_hyprland();
+    else if (compositor_type == "sway")
+        detect_output_geometries_sway();
+    else
+    {
+        // Fallback: assume horizontal layout with output dimensions from captures
+        std::cerr << "[OUTPUT] Using fallback geometry detection (horizontal layout)\n";
+        int x_offset = 0;
+        for (size_t i = 0; i < outputs.size(); i++)
+        {
+            output_geometries[i].x = x_offset;
+            output_geometries[i].y = 0;
+            // Width/height will be filled from captures when available
+            x_offset += 1920; // Assume 1920 wide if unknown
+        }
+    }
+}
+
 // --- Frame listeners ---
 struct CaptureContext
 {
@@ -757,7 +869,7 @@ static int detect_focused_output_sway()
             output_obj.HasMember("name") && output_obj["name"].IsString())
         {
             std::string monitor_name = output_obj["name"].GetString();
-            // Try to match to our output list
+            // Try to match to output list
             for (size_t j = 0; j < output_names.size(); j++)
             {
                 if (output_names[j] == monitor_name)
@@ -810,7 +922,6 @@ static int detect_focused_output_gnome()
     return -1;
 }
 
-// REPLACE detect_focused_output_index():
 static int detect_focused_output_index()
 {
     // Try compositor-specific CLI tools FIRST
@@ -2543,53 +2654,31 @@ static std::string render_blocks(
     int blocks_x = w_scaled;
     int blocks_y = h_scaled / 2;
 
-    // Sample top and bottom halves (2x1 blocks)
+    // Sample top and bottom halves (1x2 pixels per block character)
     for (int by = 0; by < blocks_y; by++)
     {
         for (int bx = 0; bx < blocks_x; bx++)
         {
-            uint32_t r_top = 0, g_top = 0, b_top = 0;
-            uint32_t r_bot = 0, g_bot = 0, b_bot = 0;
+            // Map block position to rotated image coordinates
+            int rot_x = bx * rot_width / blocks_x;
+            int rot_y_top = (by * 2) * rot_height / (blocks_y * 2);
+            int rot_y_bot = (by * 2 + 1) * rot_height / (blocks_y * 2);
 
-            // Top half (3 samples at y positions 0,1,2)
-            for (int i = 0; i < 3; i++)
-            {
-                int rot_x = (bx * 2 + 1) * rot_width / w_scaled;  // Center of cell
-                int rot_y = (by * 4 + i) * rot_height / h_scaled;
+            rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
+            rot_y_top = std::clamp(rot_y_top, 0, (int)rot_height - 1);
+            rot_y_bot = std::clamp(rot_y_bot, 0, (int)rot_height - 1);
 
-                rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
-                rot_y = std::clamp(rot_y, 0, (int)rot_height - 1);
+            uint8_t r_top, g_top, b_top;
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               rot_x, rot_y_top, rot_width, rot_height, rotation_angle, r_top, g_top, b_top, pixel_format);
 
-                uint8_t r, g, b;
-                sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                   rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
+            uint8_t r_bot, g_bot, b_bot;
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               rot_x, rot_y_bot, rot_width, rot_height, rotation_angle, r_bot, g_bot, b_bot, pixel_format);
 
-                r_top += r;
-                g_top += g;
-                b_top += b;
-            }
-
-            // Bottom half (1 sample at y position 3)
-            for (int i = 3; i < 4; i++)
-            {
-                int rot_x = (bx * 2 + 1) * rot_width / w_scaled;
-                int rot_y = (by * 4 + i) * rot_height / h_scaled;
-
-                rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
-                rot_y = std::clamp(rot_y, 0, (int)rot_height - 1);
-
-                uint8_t r, g, b;
-                sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                   rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
-
-                r_bot += r;
-                g_bot += g;
-                b_bot += b;
-            }
-
-            // Average by sample count
-            out << rgb_to_ansi(r_top / 3, g_top / 3, b_top / 3, mode);
-            out << rgb_to_ansi_bg(r_bot / 1, g_bot / 1, b_bot / 1, mode);
+            // Output half-block character with top/bottom colors
+            out << rgb_to_ansi(r_top, g_top, b_top, mode);
+            out << rgb_to_ansi_bg(r_bot, g_bot, b_bot, mode);
             out << "▀";
         }
 
@@ -2664,8 +2753,8 @@ static std::string render_ascii(
         for (int ax = 0; ax < w_scaled; ax++)
         {
             // Sample center of cell
-            int rot_x = (ax * 2 + 1) * rot_width / w_scaled;
-            int rot_y = (ay * 4 + 2) * rot_height / h_scaled;
+            int rot_x = (ax * rot_width) / w_scaled;
+            int rot_y = (ay * rot_height) / h_scaled;
 
             rot_x = std::clamp(rot_x, 0, (int)rot_width - 1);
             rot_y = std::clamp(rot_y, 0, (int)rot_height - 1);
@@ -3163,7 +3252,6 @@ static std::string generate_client_id(const sockaddr_in &addr)
     return std::string(inet_ntoa(addr.sin_addr)) + ":fallback";
 }
 
-// ADD helper to receive session ID:
 static bool receive_session_id(int socket, std::string &session_id)
 {
     MessageType type;
@@ -3939,7 +4027,6 @@ static void apply_zoom_transform(
     }
 }
 
-// ZOOM: Update smooth panning in zoom state
 static void update_zoom_smooth_pan(ZoomState &zoom)
 {
     if (!zoom.smooth_pan || !zoom.enabled)
@@ -4201,7 +4288,14 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                 // Build complete message with screen info
                 std::vector<uint8_t> info_msg;
                 MessageType info_type = MessageType::SCREEN_INFO;
-                ScreenInfo info{width, height};
+                
+                // Include output offset for proper multi-monitor mouse coordinate handling
+                int32_t out_x = 0, out_y = 0;
+                if (current_output < output_geometries.size()) {
+                    out_x = output_geometries[current_output].x;
+                    out_y = output_geometries[current_output].y;
+                }
+                ScreenInfo info{width, height, out_x, out_y, current_output};
                 
                 const uint8_t *type_bytes = reinterpret_cast<const uint8_t *>(&info_type);
                 info_msg.insert(info_msg.end(), type_bytes, type_bytes + sizeof(info_type));
@@ -4497,7 +4591,6 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                         std::cerr << "[CONFIG] Update for session " << session_id << "\n";
                     }
                 }
-                // ZOOM: Handle zoom config
                 else if (type == MessageType::ZOOM_CONFIG)
                 {
                     ZoomConfig zoom_config;
@@ -4558,7 +4651,6 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
     std::cerr << "[CONFIG] Client disconnected for session " << session_id << "\n";
 }
 
-// NEW: Accept config connections
 static void accept_config_thread(int server_socket)
 {
     std::cerr << "[CONFIG] Accept thread started\n";
@@ -4585,7 +4677,6 @@ static void accept_config_thread(int server_socket)
     std::cerr << "[CONFIG] Accept thread stopped\n";
 }
 
-// UPDATED: Remove config handling from input client
 static void handle_input_client(int client_socket, sockaddr_in client_addr)
 {
     std::cerr << "[INPUT] Client connected from " << inet_ntoa(client_addr.sin_addr) << "\n";
@@ -4778,7 +4869,6 @@ static void shutdown_handler(int signum)
         std::cerr << "\n[SHUTDOWN] Interrupt received, stopping...\n";
         running = false;
 
-        // CRITICAL: Close all server sockets immediately to unblock accept()
         for (int sock : all_server_sockets)
         {
             if (sock >= 0)
@@ -4980,6 +5070,9 @@ int main(int argc, char **argv)
         if (feature_video)
         {
             std::cerr << "Found " << outputs.size() << " output(s)\n";
+
+            // Detect output geometries for multi-monitor support
+            detect_output_geometries();
 
             // Initialize capture structures
             output_captures.resize(outputs.size());

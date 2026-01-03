@@ -31,8 +31,11 @@
 static std::atomic<bool> running{true};
 static std::atomic<int> current_mouse_x{0};
 static std::atomic<int> current_mouse_y{0};
-static std::atomic<int> screen_width{1920};
-static std::atomic<int> screen_height{1080};
+static std::atomic<int> screen_width{(int)-1};
+static std::atomic<int> screen_height{(int)-1};
+static std::atomic<int> output_offset_x{0};  // Current output X offset in virtual desktop
+static std::atomic<int> output_offset_y{0};  // Current output Y offset in virtual desktop
+static std::atomic<uint32_t> current_output_index{0};
 
 // Modifier tracking for exit combo and sending to server
 static std::atomic<bool> shift_pressed{false};
@@ -86,6 +89,7 @@ static std::atomic<bool> key3_pressed{false};
 static std::atomic<bool> key4_pressed{false};
 
 static std::atomic<bool> video_paused{false};
+static std::atomic<bool> showing_help{false};
 static std::atomic<bool> audio_muted{false};
 static std::atomic<bool> microphone_muted{false};
 static std::atomic<bool> input_forwarding_enabled{true};
@@ -256,6 +260,9 @@ struct ScreenInfo
 {
     uint32_t width;
     uint32_t height;
+    int32_t output_x;      // Output X offset in virtual desktop
+    int32_t output_y;      // Output Y offset in virtual desktop
+    uint32_t output_index; // Which output this info is for
 };
 
 struct KeyEvent
@@ -872,6 +879,9 @@ static bool receive_newest_frame(std::string &rendered)
             {
                 screen_width = info.width;
                 screen_height = info.height;
+                output_offset_x = info.output_x;
+                output_offset_y = info.output_y;
+                current_output_index = info.output_index;
             }
             continue;
         }
@@ -1200,7 +1210,7 @@ static void set_rotation(double angle)
 static void adjust_fps(int delta)
 {
     std::lock_guard<std::mutex> lock(config_mutex);
-    current_config.fps = std::clamp((int)current_config.fps + delta, 1, 120);
+    current_config.fps = std::clamp((int)current_config.fps + delta, 0, 120);
     std::cerr << "[FPS] Target: " << current_config.fps << "\n";
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
     send_client_config(current_config);
@@ -1246,67 +1256,67 @@ static void set_renderer(uint8_t renderer)
 static void print_shortcuts_help()
 {
     std::lock_guard<std::mutex> lock(config_mutex);
-    std::cerr << "\n";
-    std::cerr << "╔════════════════════════════════════════════════════════════════════════╗\n";
-    std::cerr << "║               WAYTERMIRROR CLIENT KEYBOARD SHORTCUTS                   ║\n";
-    std::cerr << "╠════════════════════════════════════════════════════════════════════════╣\n";
-    std::cerr << "║  All shortcuts use Ctrl+Alt+Shift as modifier prefix                   ║\n";
-    std::cerr << "╠════════════════════════════════════════════════════════════════════════╣\n";
-    std::cerr << "║ SESSION CONTROL                                                        ║\n";
-    std::cerr << "║   Q            Quit / disconnect gracefully                            ║\n";
-    std::cerr << "║   H            Show this help                                          ║\n";
-    std::cerr << "║   P            Pause / resume video rendering                          ║\n";
-    std::cerr << "╠════════════════════════════════════════════════════════════════════════╣\n";
-    std::cerr << "║ INPUT CONTROL                                                          ║\n";
-    std::cerr << "║   I            Toggle input forwarding to server                       ║\n";
-    std::cerr << "║   G            Toggle exclusive grab (EVIOCGRAB)                       ║\n";
-    std::cerr << "╠════════════════════════════════════════════════════════════════════════╣\n";
-    std::cerr << "║ ZOOM CONTROL                                                           ║\n";
-    std::cerr << "║   Z            Toggle zoom mode                                        ║\n";
-    std::cerr << "║   + / =        Zoom in (+0.5x)                                         ║\n";
-    std::cerr << "║   -            Zoom out (-0.5x)                                        ║\n";
-    std::cerr << "║   0            Reset zoom to default (2.0x)                            ║\n";
-    std::cerr << "║   N            Toggle zoom follow mouse                                ║\n";
-    std::cerr << "║   Arrow Keys   Pan viewport (20px per press)                           ║\n";
-    std::cerr << "║   PageUp/Dn    Fast vertical pan (100px per press)                     ║\n";
-    std::cerr << "║   Home/End     Fast horizontal pan (100px per press)                   ║\n";
-    std::cerr << "╠════════════════════════════════════════════════════════════════════════╣\n";
-    std::cerr << "║ RENDERING                                                              ║\n";
-    std::cerr << "║   R            Cycle renderer (braille→blocks→ascii→hybrid)            ║\n";
-    std::cerr << "║   1/2/3/4      Quick switch: braille/blocks/ascii/hybrid               ║\n";
-    std::cerr << "║   C            Cycle color mode (16→256→truecolor)                     ║\n";
-    std::cerr << "║   D / S        Increase / Decrease detail level (±10)                  ║\n";
-    std::cerr << "║   W / E        Increase / Decrease quality (±10)                       ║\n";
-    std::cerr << "║   O            Toggle smooth panning                                   ║\n";
-    std::cerr << "║   B            Toggle keep aspect ratio                                ║\n";
-    std::cerr << "║   V            Cycle render device (CPU→CUDA)                          ║\n";
-    std::cerr << "║   L            Cycle compression (off→LZ4→LZ4 HC)                      ║\n";
-    std::cerr << "╠════════════════════════════════════════════════════════════════════════╣\n";
-    std::cerr << "║ ROTATION                                                               ║\n";
-    std::cerr << "║   [            Rotate left (-15°)                                      ║\n";
-    std::cerr << "║   ]            Rotate right (+15°)                                     ║\n";
-    std::cerr << "║   \\            Reset rotation to 0°                                    ║\n";
-    std::cerr << "║   T            Rotate 90° clockwise                                    ║\n";
-    std::cerr << "║   Y            Rotate 90° counter-clockwise                            ║\n";
-    std::cerr << "╠════════════════════════════════════════════════════════════════════════╣\n";
-    std::cerr << "║ FPS / OUTPUT                                                           ║\n";
-    std::cerr << "║   J / K        Increase / Decrease target FPS (±5)                     ║\n";
-    std::cerr << "║   `            Cycle output (0→1→2→follow→...)                         ║\n";
-    std::cerr << "║   U            Toggle compression on/off                               ║\n";
-    std::cerr << "╠════════════════════════════════════════════════════════════════════════╣\n";
-    std::cerr << "║ AUDIO/VIDEO                                                            ║\n";
-    std::cerr << "║   A            Toggle audio playback (mute/unmute)                     ║\n";
-    std::cerr << "║   M            Toggle microphone capture (mute/unmute)                 ║\n";
-    std::cerr << "║   F            Toggle follow-focus mode                                ║\n";
-    std::cerr << "╠════════════════════════════════════════════════════════════════════════╣\n";
-    std::cerr << "║ CURRENT STATE                                                          ║\n";
-    std::cerr << "║   Renderer:       " << std::setw(8) << std::left << (const char*[]){"braille", "blocks", "ascii", "hybrid"}[current_config.renderer] << "  Color: " << std::setw(9) << (const char*[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
-    std::cerr << "║   Detail: " << std::setw(3) << (int)current_config.detail_level << "       Quality: " << std::setw(3) << (int)current_config.quality << "       FPS: " << std::setw(3) << current_config.fps << "             ║\n";
-    std::cerr << "║   Rotation: " << std::setw(5) << std::fixed << std::setprecision(0) << current_config.rotation_angle << "°   Aspect: " << (current_config.keep_aspect_ratio ? "ON " : "OFF") << "        Compress: " << (current_config.compress ? "ON " : "OFF") << "           ║\n";
-    std::cerr << "║   Input Fwd: " << (input_forwarding_enabled.load() ? "ON " : "OFF") << "      Exclusive: " << (exclusive_grab_enabled.load() ? "ON " : "OFF") << "       Zoom: " << (zoom_state.enabled.load() ? "ON " : "OFF") << " (" << std::setprecision(1) << zoom_state.zoom_level.load() << "x)     ║\n";
-    std::cerr << "║   Video: " << (video_paused.load() ? "PAUSED " : "RUNNING") << "    Audio: " << (audio_muted.load() ? "MUTED  " : "PLAYING") << "       Mic: " << (microphone_muted.load() ? "MUTED  " : "CAPTURE") << "        ║\n";
-    std::cerr << "╚════════════════════════════════════════════════════════════════════════╝\n";
-    std::cerr << "\n";
+    std::cout << "\n";
+    std::cout << "╔════════════════════════════════════════════════════════════════════════╗\n";
+    std::cout << "║               WAYTERMIRROR CLIENT KEYBOARD SHORTCUTS                   ║\n";
+    std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║  All shortcuts use Ctrl+Alt+Shift as modifier prefix                   ║\n";
+    std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║ SESSION CONTROL                                                        ║\n";
+    std::cout << "║   Q            Quit / disconnect gracefully                            ║\n";
+    std::cout << "║   H            Show this help                                          ║\n";
+    std::cout << "║   P            Pause / resume video rendering                          ║\n";
+    std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║ INPUT CONTROL                                                          ║\n";
+    std::cout << "║   I            Toggle input forwarding to server                       ║\n";
+    std::cout << "║   G            Toggle exclusive grab (EVIOCGRAB)                       ║\n";
+    std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║ ZOOM CONTROL                                                           ║\n";
+    std::cout << "║   Z            Toggle zoom mode                                        ║\n";
+    std::cout << "║   + / =        Zoom in (+0.5x)                                         ║\n";
+    std::cout << "║   -            Zoom out (-0.5x)                                        ║\n";
+    std::cout << "║   0            Reset zoom to default (2.0x)                            ║\n";
+    std::cout << "║   N            Toggle zoom follow mouse                                ║\n";
+    std::cout << "║   Arrow Keys   Pan viewport (20px per press)                           ║\n";
+    std::cout << "║   PageUp/Dn    Fast vertical pan (100px per press)                     ║\n";
+    std::cout << "║   Home/End     Fast horizontal pan (100px per press)                   ║\n";
+    std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║ RENDERING                                                              ║\n";
+    std::cout << "║   R            Cycle renderer (braille→blocks→ascii→hybrid)            ║\n";
+    std::cout << "║   1/2/3/4      Quick switch: braille/blocks/ascii/hybrid               ║\n";
+    std::cout << "║   C            Cycle color mode (16→256→truecolor)                     ║\n";
+    std::cout << "║   D / S        Increase / Decrease detail level (±10)                  ║\n";
+    std::cout << "║   W / E        Increase / Decrease quality (±10)                       ║\n";
+    std::cout << "║   O            Toggle smooth panning                                   ║\n";
+    std::cout << "║   B            Toggle keep aspect ratio                                ║\n";
+    std::cout << "║   V            Cycle render device (CPU→CUDA)                          ║\n";
+    std::cout << "║   L            Cycle compression (off→LZ4→LZ4 HC)                      ║\n";
+    std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║ ROTATION                                                               ║\n";
+    std::cout << "║   [            Rotate left (-15°)                                      ║\n";
+    std::cout << "║   ]            Rotate right (+15°)                                     ║\n";
+    std::cout << "║   \\            Reset rotation to 0°                                    ║\n";
+    std::cout << "║   T            Rotate 90° clockwise                                    ║\n";
+    std::cout << "║   Y            Rotate 90° counter-clockwise                            ║\n";
+    std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║ FPS / OUTPUT                                                           ║\n";
+    std::cout << "║   J / K        Increase / Decrease target FPS (±5)                     ║\n";
+    std::cout << "║   `            Cycle output (0→1→2→follow→...)                         ║\n";
+    std::cout << "║   U            Toggle compression on/off                               ║\n";
+    std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║ AUDIO/VIDEO                                                            ║\n";
+    std::cout << "║   A            Toggle audio playback (mute/unmute)                     ║\n";
+    std::cout << "║   M            Toggle microphone capture (mute/unmute)                 ║\n";
+    std::cout << "║   F            Toggle follow-focus mode                                ║\n";
+    std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║ CURRENT STATE                                                          ║\n";
+    std::cout << "║   Renderer:       " << std::setw(8) << std::left << (const char*[]){"braille", "blocks", "ascii", "hybrid"}[current_config.renderer] << "  Color: " << std::setw(9) << (const char*[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
+    std::cout << "║   Detail: " << std::setw(3) << (int)current_config.detail_level << "       Quality: " << std::setw(3) << (int)current_config.quality << "       FPS: " << std::setw(3) << current_config.fps << "             ║\n";
+    std::cout << "║   Rotation: " << std::setw(5) << std::fixed << std::setprecision(0) << current_config.rotation_angle << "°   Aspect: " << (current_config.keep_aspect_ratio ? "ON " : "OFF") << "        Compress: " << (current_config.compress ? "ON " : "OFF") << "           ║\n";
+    std::cout << "║   Input Fwd: " << (input_forwarding_enabled.load() ? "ON " : "OFF") << "      Exclusive: " << (exclusive_grab_enabled.load() ? "ON " : "OFF") << "       Zoom: " << (zoom_state.enabled.load() ? "ON " : "OFF") << " (" << std::setprecision(1) << zoom_state.zoom_level.load() << "x)     ║\n";
+    std::cout << "║   Video: " << (video_paused.load() ? "PAUSED " : "RUNNING") << "    Audio: " << (audio_muted.load() ? "MUTED  " : "PLAYING") << "       Mic: " << (microphone_muted.load() ? "MUTED  " : "CAPTURE") << "        ║\n";
+    std::cout << "╚════════════════════════════════════════════════════════════════════════╝\n";
+    std::cout << "\n";
 }
 
 static void pan_zoom(int dx, int dy)
@@ -1405,7 +1415,16 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Show help (Ctrl+Alt+Shift+H)
         if (is_h)
         {
-            print_shortcuts_help();
+            showing_help = !showing_help.load();
+            if (showing_help.load())
+            {
+                video_paused = true;
+                print_shortcuts_help();
+            }
+            else
+            {
+                video_paused = false;
+            }
             return;
         }
 
@@ -1439,6 +1458,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Toggle zoom (Ctrl+Alt+Shift+Z)
         if (is_z)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             zoom_state.enabled = !zoom_state.enabled.load();
             std::cerr << "[ZOOM] " << (zoom_state.enabled.load() ? "ENABLED" : "DISABLED") << " (" << zoom_state.zoom_level.load() << "x)\n";
             send_zoom_config();
@@ -1601,6 +1625,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
             current_config.render_device = (current_config.render_device + 1) % 2;
             const char *devices[] = {"CPU", "CUDA"};
             std::cerr << "[RENDER] Device: " << devices[current_config.render_device] << "\n";
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
             send_client_config(current_config);
             return;
@@ -1668,6 +1697,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Rotate left by 15° (Ctrl+Alt+Shift+[)
         if (is_leftbracket)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             adjust_rotation(-15.0);
             return;
         }
@@ -1675,6 +1709,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Rotate right by 15° (Ctrl+Alt+Shift+])
         if (is_rightbracket)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             adjust_rotation(15.0);
             return;
         }
@@ -1682,6 +1721,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Reset rotation (Ctrl+Alt+Shift+\)
         if (is_backslash)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             set_rotation(0.0);
             return;
         }
@@ -1689,6 +1733,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Rotate 90° clockwise (Ctrl+Alt+Shift+T)
         if (is_t)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             adjust_rotation(90.0);
             return;
         }
@@ -1696,6 +1745,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Rotate 90° counter-clockwise (Ctrl+Alt+Shift+Y)
         if (is_y)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             adjust_rotation(-90.0);
             return;
         }
@@ -1739,6 +1793,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Braille (Ctrl+Alt+Shift+1)
         if (is_1)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             set_renderer(0);
             return;
         }
@@ -1746,6 +1805,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Blocks (Ctrl+Alt+Shift+2)
         if (is_2)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             set_renderer(1);
             return;
         }
@@ -1753,6 +1817,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // ASCII (Ctrl+Alt+Shift+3)
         if (is_3)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             set_renderer(2);
             return;
         }
@@ -1760,6 +1829,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Hybrid (Ctrl+Alt+Shift+4)
         if (is_4)
         {
+            {
+                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
+                clear_screen_requested.store(true);
+                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+            }
             set_renderer(3);
             return;
         }
@@ -1784,11 +1858,18 @@ static void send_key_event(uint32_t keycode, bool pressed)
 
 static void send_mouse_move(int x, int y)
 {
-    // Always update zoom center locally if enabled
+    int w = screen_width.load();
+    int h = screen_height.load();
+    
+    // Clamp to output bounds (should already be clamped, but be safe)
+    int local_x = std::clamp(x, 0, w - 1);
+    int local_y = std::clamp(y, 0, h - 1);
+    
+    // Always update zoom center locally if enabled (use output-local coords)
     if (zoom_state.enabled.load() && zoom_state.follow_mouse.load())
     {
-        zoom_state.center_x = x;
-        zoom_state.center_y = y;
+        zoom_state.center_x = local_x;
+        zoom_state.center_y = local_y;
 
         // Send zoom config update to server (throttled - sent every frame anyway)
         static auto last_zoom_update = std::chrono::steady_clock::now();
@@ -1805,7 +1886,7 @@ static void send_mouse_move(int x, int y)
         return;
 
     MessageType type = MessageType::MOUSE_MOVE;
-    MouseMove evt{x, y, (uint32_t)screen_width.load(), (uint32_t)screen_height.load()};
+    MouseMove evt{local_x, local_y, (uint32_t)w, (uint32_t)h};
 
     send(input_socket, &type, sizeof(type), MSG_NOSIGNAL);
     send(input_socket, &evt, sizeof(evt), MSG_NOSIGNAL);
@@ -2512,7 +2593,7 @@ int main(int argc, char **argv)
     if (feature_video)
     {
         std::cerr << "[INIT] Waiting for screen info from server...\n";
-        for (int i = 0; i < 20 && screen_width.load() == 1920; i++)
+        for (int i = 0; i < 20 && screen_width.load() == (int)-1; i++)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
@@ -2530,7 +2611,11 @@ int main(int argc, char **argv)
                         {
                             screen_width = info.width;
                             screen_height = info.height;
-                            std::cerr << "[INIT] Received screen info: " << info.width << "x" << info.height << "\n";
+                            output_offset_x = info.output_x;
+                            output_offset_y = info.output_y;
+                            current_output_index = info.output_index;
+                            std::cerr << "[INIT] Received screen info: " << info.width << "x" << info.height 
+                                      << " offset: " << info.output_x << "," << info.output_y << "\n";
                             break;
                         }
                     }
