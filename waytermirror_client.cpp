@@ -509,10 +509,17 @@ static void on_process_playback(void *userdata)
     }
     else
     {
-        auto &audio_data = pb->audio_queue.front();
-        size = std::min((uint32_t)audio_data.size(), max_size);
-        memcpy(dst, audio_data.data(), size);
-        pb->audio_queue.pop();
+        // Consume multiple queued packets to fill buffer and reduce choppiness
+        uint32_t offset = 0;
+        while (!pb->audio_queue.empty() && offset < max_size)
+        {
+            auto &audio_data = pb->audio_queue.front();
+            uint32_t copy_size = std::min((uint32_t)audio_data.size(), max_size - offset);
+            memcpy(dst + offset, audio_data.data(), copy_size);
+            offset += copy_size;
+            pb->audio_queue.pop();
+        }
+        size = offset;
         
         // Fill remainder with silence if data is smaller than buffer
         if (size < max_size)
@@ -1041,8 +1048,8 @@ static void audio_receive_thread()
 
         {
             std::lock_guard<std::mutex> lock(audio_playback.mutex);
-            // Prevent queue buildup
-            while (audio_playback.audio_queue.size() > 1) // Only keep latest
+            // Allow buffer buildup for smooth playback (about 200ms worth at 20ms packets = 10 packets)
+            while (audio_playback.audio_queue.size() > 10)
             {
                 audio_playback.audio_queue.pop();
             }
