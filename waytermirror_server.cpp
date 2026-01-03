@@ -446,6 +446,7 @@ struct ScreenInfo
     int32_t output_x;      // Output X offset in virtual desktop
     int32_t output_y;      // Output Y offset in virtual desktop
     uint32_t output_index; // Which output this info is for
+    uint32_t output_count; // Total number of outputs
 };
 
 struct RenderedFrameHeader
@@ -543,8 +544,6 @@ static wl_seat *seat;
 static zwlr_screencopy_manager_v1 *manager;
 static zwlr_virtual_pointer_manager_v1 *pointer_manager;
 static zwp_virtual_keyboard_manager_v1 *keyboard_manager;
-static zwlr_virtual_pointer_v1 *virtual_pointer;
-static zwp_virtual_keyboard_v1 *virtual_keyboard;
 static zwlr_foreign_toplevel_manager_v1 *toplevel_manager = nullptr;
 static std::vector<wl_output *> outputs;
 static std::vector<std::string> output_names;
@@ -1323,103 +1322,18 @@ static const zwlr_foreign_toplevel_manager_v1_listener manager_listener = {
 };
 
 // --- Virtual input ---
-static void setup_virtual_keyboard_keymap()
-{
-    if (!virtual_keyboard)
-    {
-        std::cerr << "Cannot setup keymap: virtual_keyboard is NULL\n";
-        return;
-    }
-
-    std::string keymap_str =
-        "xkb_keymap {\n"
-        "  xkb_keycodes { include \"evdev+aliases(qwerty)\" };\n"
-        "  xkb_types { include \"complete\" };\n"
-        "  xkb_compat { include \"complete\" };\n"
-        "  xkb_symbols { include \"pc+us+inet(evdev)\" };\n"
-        "  xkb_geometry { include \"pc(pc105)\" };\n"
-        "};\n";
-
-    size_t keymap_size = keymap_str.size();
-    int fd = create_shm_file(keymap_size);
-    if (fd < 0)
-    {
-        std::cerr << "Failed to create keymap shm file\n";
-        return;
-    }
-
-    void *data = mmap(nullptr, keymap_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (data == MAP_FAILED)
-    {
-        std::cerr << "Failed to mmap keymap\n";
-        close(fd);
-        return;
-    }
-
-    memcpy(data, keymap_str.c_str(), keymap_size);
-    munmap(data, keymap_size);
-
-    zwp_virtual_keyboard_v1_keymap(virtual_keyboard,
-                                   WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, keymap_size);
-
-    close(fd);
-    wl_display_flush(display);
-
-    std::cerr << "Virtual keyboard keymap configured successfully\n";
-}
 
 static void handle_key_event(const KeyEvent &evt) {
     std::cerr << "[SERVER] Received key " << evt.keycode << " pressed=" << (int)evt.pressed
               << " [shift=" << (int)evt.shift << " ctrl=" << (int)evt.ctrl
               << " alt=" << (int)evt.alt << "]\n";
 
-    uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-
-    bool is_shift_key = (evt.keycode == KEY_LEFTSHIFT || evt.keycode == KEY_RIGHTSHIFT);
-    bool is_ctrl_key = (evt.keycode == KEY_LEFTCTRL || evt.keycode == KEY_RIGHTCTRL);
-    bool is_alt_key = (evt.keycode == KEY_LEFTALT || evt.keycode == KEY_RIGHTALT);
-    bool is_super_key = (evt.keycode == KEY_LEFTMETA || evt.keycode == KEY_RIGHTMETA);
-    bool is_altgr_key = (evt.keycode == KEY_RIGHTALT);
-    bool is_capslock_key = (evt.keycode == KEY_CAPSLOCK);
-    bool is_numlock_key = (evt.keycode == KEY_NUMLOCK);
-
-    if (is_shift_key) server_shift_pressed = evt.pressed;
-    if (is_ctrl_key) server_ctrl_pressed = evt.pressed;
-    if (is_alt_key) server_alt_pressed = evt.pressed;
-    if (is_super_key) server_super_pressed = evt.pressed;
-    if (is_altgr_key) server_altgr_pressed = evt.pressed;
-
-    if (evt.pressed) {
-        if (is_capslock_key) server_capslock_pressed = !server_capslock_pressed;
-        if (is_numlock_key) server_numlock_pressed = !server_numlock_pressed;
+    if (!virtual_input_mgr.is_initialized()) {
+        std::cerr << "[SERVER] No input backend initialized!\n";
+        return;
     }
 
-    // Try virtual input manager first, fallback to Wayland protocols
-    if (virtual_input_mgr.backend == VirtualInputManager::UINPUT) {
-        virtual_input_mgr.send_key(evt.keycode, evt.pressed);
-    } else if (virtual_keyboard) {
-        uint32_t state = evt.pressed ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED;
-        zwp_virtual_keyboard_v1_key(virtual_keyboard, time_ms, evt.keycode, state);
-
-        uint32_t mods_depressed = 0;
-        uint32_t mods_locked = 0;
-
-        if (server_shift_pressed) mods_depressed |= (1 << 0);
-        if (server_ctrl_pressed) mods_depressed |= (1 << 2);
-        if (server_alt_pressed) mods_depressed |= (1 << 3);
-        if (server_super_pressed) mods_depressed |= (1 << 6);
-        if (server_altgr_pressed) mods_depressed |= (1 << 7);
-
-        if (server_capslock_pressed) mods_locked |= (1 << 1);
-        if (server_numlock_pressed) mods_locked |= (1 << 4);
-
-        zwp_virtual_keyboard_v1_modifiers(virtual_keyboard,
-                                          mods_depressed, 0, mods_locked, 0);
-
-        wl_display_flush(display);
-    }
-
+    virtual_input_mgr.send_key(evt.keycode, evt.pressed);
     std::cerr << "[SERVER] Key event sent\n";
 }
 
@@ -1456,23 +1370,7 @@ static void handle_mouse_move(const MouseMove &evt, const std::string &client_id
     host_cursor_x = evt.x;
     host_cursor_y = evt.y;
 
-    // Try virtual input manager first
-    if (virtual_input_mgr.backend == VirtualInputManager::UINPUT) {
-        virtual_input_mgr.send_mouse_move(evt.x, evt.y, output_width, output_height);
-    } else if (virtual_pointer) {
-        uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-
-        zwlr_virtual_pointer_v1_motion_absolute(virtual_pointer,
-                                                time_ms,
-                                                (uint32_t)evt.x,
-                                                (uint32_t)evt.y,
-                                                (uint32_t)output_width,
-                                                (uint32_t)output_height);
-
-        zwlr_virtual_pointer_v1_frame(virtual_pointer);
-        wl_display_flush(display);
-    }
+    virtual_input_mgr.send_mouse_move(evt.x, evt.y, output_width, output_height);
 }
 
 static void handle_mouse_button(const MouseButton &evt) {
@@ -1483,43 +1381,14 @@ static void handle_mouse_button(const MouseButton &evt) {
     if (evt.button == 2) linux_button = BTN_MIDDLE;
     else if (evt.button == 3) linux_button = BTN_RIGHT;
 
-    // Try virtual input manager first
-    if (virtual_input_mgr.backend == VirtualInputManager::UINPUT) {
-        virtual_input_mgr.send_mouse_button(linux_button, evt.pressed);
-    } else if (virtual_pointer) {
-        uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-
-        zwlr_virtual_pointer_v1_button(virtual_pointer, time_ms, linux_button,
-                                       evt.pressed ? WL_POINTER_BUTTON_STATE_PRESSED 
-                                                   : WL_POINTER_BUTTON_STATE_RELEASED);
-
-        zwlr_virtual_pointer_v1_frame(virtual_pointer);
-        wl_display_flush(display);
-    }
-
+    virtual_input_mgr.send_mouse_button(linux_button, evt.pressed);
     std::cerr << "[SERVER] Mouse button sent\n";
 }
 
 static void handle_mouse_scroll(const MouseScroll &evt) {
     std::cerr << "[SERVER] Mouse scroll: direction=" << evt.direction << "\n";
 
-    // Try virtual input manager first
-    if (virtual_input_mgr.backend == VirtualInputManager::UINPUT) {
-        virtual_input_mgr.send_mouse_scroll(evt.direction);
-    } else if (virtual_pointer) {
-        uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-
-        wl_fixed_t value = wl_fixed_from_int(evt.direction * 15);
-
-        zwlr_virtual_pointer_v1_axis(virtual_pointer,
-                                     time_ms, WL_POINTER_AXIS_VERTICAL_SCROLL, value);
-
-        zwlr_virtual_pointer_v1_frame(virtual_pointer);
-        wl_display_flush(display);
-    }
-
+    virtual_input_mgr.send_mouse_scroll(evt.direction);
     std::cerr << "[SERVER] Mouse scroll sent\n";
 }
 
@@ -4290,7 +4159,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                     out_x = output_geometries[current_output].x;
                     out_y = output_geometries[current_output].y;
                 }
-                ScreenInfo info{width, height, out_x, out_y, current_output};
+                ScreenInfo info{width, height, out_x, out_y, current_output, outputs.size()};
                 
                 const uint8_t *type_bytes = reinterpret_cast<const uint8_t *>(&info_type);
                 info_msg.insert(info_msg.end(), type_bytes, type_bytes + sizeof(info_type));
@@ -4436,34 +4305,28 @@ cleanup:
 
 static void reset_modifier_state()
 {
-    // Release all modifier keys first
-    if (virtual_input_mgr.backend == VirtualInputManager::UINPUT) {
-        // Release all modifier keys via uinput
-        if (server_shift_pressed) {
-            virtual_input_mgr.send_key(KEY_LEFTSHIFT, false);
-            virtual_input_mgr.send_key(KEY_RIGHTSHIFT, false);
-        }
-        if (server_ctrl_pressed) {
-            virtual_input_mgr.send_key(KEY_LEFTCTRL, false);
-            virtual_input_mgr.send_key(KEY_RIGHTCTRL, false);
-        }
-        if (server_alt_pressed) {
-            virtual_input_mgr.send_key(KEY_LEFTALT, false);
-        }
-        if (server_altgr_pressed) {
-            virtual_input_mgr.send_key(KEY_RIGHTALT, false);
-        }
-        if (server_super_pressed) {
-            virtual_input_mgr.send_key(KEY_LEFTMETA, false);
-            virtual_input_mgr.send_key(KEY_RIGHTMETA, false);
-        }
-        std::cerr << "[INPUT] Released modifier keys via uinput\n";
-    } else if (virtual_keyboard) {
-        // Send modifier reset to compositor via virtual keyboard
-        zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
-        wl_display_flush(display);
-        std::cerr << "[INPUT] Modifier state reset via virtual keyboard\n";
+    if (!virtual_input_mgr.is_initialized()) return;
+    
+    // Release all modifier keys
+    if (server_shift_pressed) {
+        virtual_input_mgr.send_key(KEY_LEFTSHIFT, false);
+        virtual_input_mgr.send_key(KEY_RIGHTSHIFT, false);
     }
+    if (server_ctrl_pressed) {
+        virtual_input_mgr.send_key(KEY_LEFTCTRL, false);
+        virtual_input_mgr.send_key(KEY_RIGHTCTRL, false);
+    }
+    if (server_alt_pressed) {
+        virtual_input_mgr.send_key(KEY_LEFTALT, false);
+    }
+    if (server_altgr_pressed) {
+        virtual_input_mgr.send_key(KEY_RIGHTALT, false);
+    }
+    if (server_super_pressed) {
+        virtual_input_mgr.send_key(KEY_LEFTMETA, false);
+        virtual_input_mgr.send_key(KEY_RIGHTMETA, false);
+    }
+    std::cerr << "[INPUT] Released modifier keys via " << virtual_input_mgr.backend_name() << "\n";
 
     // Reset internal state
     server_shift_pressed = false;
@@ -4919,6 +4782,13 @@ static void shutdown_handler(int signum)
     }
 }
 
+bool wlr_virtual_input_available() 
+{
+    if (virtual_input_mgr.backend != VirtualInputManager::WLR_PROTOCOLS) {
+        return false;
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::ios::sync_with_stdio(false);
@@ -5077,42 +4947,6 @@ int main(int argc, char **argv)
                 frame_ready_cvs.push_back(std::make_unique<std::condition_variable>());
             }
             output_ready.resize(outputs.size(), false);
-        }
-
-        // Initialize virtual input devices
-        if (feature_input)
-        {
-            if (seat && pointer_manager)
-            {
-                virtual_pointer = zwlr_virtual_pointer_manager_v1_create_virtual_pointer(pointer_manager, seat);
-                std::cerr << "Virtual pointer initialized\n";
-            }
-
-            if (seat && keyboard_manager)
-            {
-                virtual_keyboard = zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(keyboard_manager, seat);
-                setup_virtual_keyboard_keymap();
-                std::cerr << "Virtual keyboard initialized\n";
-            }
-
-            // Diagnostic checks
-            std::cerr << "\n=== Virtual Input Diagnostics ===\n";
-            std::cerr << "Seat available: " << (seat ? "YES" : "NO") << "\n";
-            std::cerr << "Pointer manager available: " << (pointer_manager ? "YES" : "NO") << "\n";
-            std::cerr << "Keyboard manager available: " << (keyboard_manager ? "YES" : "NO") << "\n";
-            std::cerr << "Virtual pointer created: " << (virtual_pointer ? "YES" : "NO") << "\n";
-            std::cerr << "Virtual keyboard created: " << (virtual_keyboard ? "YES" : "NO") << "\n";
-
-            if (!virtual_pointer || !virtual_keyboard)
-            {
-                std::cerr << "\nWARNING: Virtual input devices not available!\n";
-                std::cerr << "Your compositor may not support:\n";
-                std::cerr << "  - zwlr_virtual_pointer_manager_v1\n";
-                std::cerr << "  - zwp_virtual_keyboard_manager_v1\n";
-                std::cerr << "\nSupported compositors: Hyprland, Sway, etc.\n";
-                std::cerr << "NOT supported: GNOME, KDE Plasma (without plugins)\n\n";
-            }
-            std::cerr << "================================\n\n";
         }
     }
 
@@ -5313,50 +5147,36 @@ int main(int argc, char **argv)
     
     // Initialize virtual input after checking protocols:
     if (feature_input) {
-        // Check what's available
         bool has_wlr_input = (seat && pointer_manager && keyboard_manager);
+        bool initialized = false;
         
-        VirtualInputManager::Backend input_backend;
         if (preferred_input_backend == VirtualInputManager::AUTO) {
-            // Auto-detect best available
             if (has_wlr_input) {
-                input_backend = VirtualInputManager::WLR_PROTOCOLS;
-                std::cerr << "[INPUT] Auto-selected WLR virtual input protocols\n";
-            } else if (uinput_available()) {
-                input_backend = VirtualInputManager::UINPUT;
-                std::cerr << "[INPUT] Auto-selected uinput backend\n";
-            } else {
-                std::cerr << "[INPUT] No virtual input backend available!\n";
-                feature_input = false;
+                initialized = virtual_input_mgr.init_wlr(display, seat, pointer_manager, keyboard_manager);
+                if (!initialized) std::cerr << "[INPUT] WLR init failed, trying uinput\n";
+            }
+            if (!initialized && uinput_available()) {
+                initialized = virtual_input_mgr.init_uinput();
             }
         } else if (preferred_input_backend == VirtualInputManager::WLR_PROTOCOLS) {
-            // User explicitly requested WLR protocols
             if (has_wlr_input) {
-                input_backend = VirtualInputManager::WLR_PROTOCOLS;
-                std::cerr << "[INPUT] Using WLR virtual input protocols (manual)\n";
+                initialized = virtual_input_mgr.init_wlr(display, seat, pointer_manager, keyboard_manager);
             } else {
                 std::cerr << "[INPUT] WLR protocols not available!\n";
-                feature_input = false;
             }
         } else if (preferred_input_backend == VirtualInputManager::UINPUT) {
-            // User explicitly requested uinput
             if (uinput_available()) {
-                input_backend = VirtualInputManager::UINPUT;
-                std::cerr << "[INPUT] Using uinput backend (manual)\n";
+                initialized = virtual_input_mgr.init_uinput();
             } else {
                 std::cerr << "[INPUT] uinput not available!\n";
-                feature_input = false;
             }
         }
         
-        // Initialize the selected backend
-        if (feature_input && input_backend == VirtualInputManager::UINPUT) {
-            if (!virtual_input_mgr.init(input_backend)) {
-                std::cerr << "[INPUT] Failed to initialize uinput backend\n";
-                feature_input = false;
-            }
-        } else if (feature_input && input_backend == VirtualInputManager::WLR_PROTOCOLS) {
-            // Keep using existing virtual_pointer and virtual_keyboard
+        if (!initialized) {
+            std::cerr << "[INPUT] No virtual input backend available!\n";
+            feature_input = false;
+        } else {
+            std::cerr << "[INPUT] Using " << virtual_input_mgr.backend_name() << " backend\n";
         }
     }
     

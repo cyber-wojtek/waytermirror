@@ -117,6 +117,9 @@ static struct libinput *li = nullptr;
 static struct udev *udev = nullptr;
 static bool exclusive_mode = false;
 
+// Output management
+static uint32_t outputs = 1;
+
 // Protocol definitions
 enum class MessageType : uint8_t
 {
@@ -234,7 +237,7 @@ struct ZoomConfig
 {
     uint8_t enabled;
     uint8_t follow_mouse;
-    double zoom_level;   // 1.0 - 10.0
+    double zoom_level;
     uint32_t view_width; // Viewport dimensions in screen pixels
     uint32_t view_height;
     int32_t center_x; // Center point of zoom
@@ -263,6 +266,7 @@ struct ScreenInfo
     int32_t output_x;      // Output X offset in virtual desktop
     int32_t output_y;      // Output Y offset in virtual desktop
     uint32_t output_index; // Which output this info is for
+    uint32_t output_count; // Total number of outputs
 };
 
 struct KeyEvent
@@ -1174,7 +1178,7 @@ static void adjust_detail(int delta)
 
 static void adjust_zoom(double delta)
 {
-    double new_level = std::clamp(zoom_state.zoom_level.load() + delta, 1.0, 10.0);
+    double new_level = std::max(zoom_state.zoom_level.load() + delta, 1.0);
     zoom_state.zoom_level = new_level;
     std::cerr << "[ZOOM] Level: " << new_level << "x\n";
     send_zoom_config();
@@ -1228,7 +1232,7 @@ static void cycle_output()
     }
     else
     {
-        current_config.output_index = (current_config.output_index + 1) % 4;
+        current_config.output_index = (current_config.output_index + 1) % outputs;
         if (current_config.output_index == 0)
         {
             current_config.follow_focus = 1;
@@ -2616,6 +2620,7 @@ int main(int argc, char **argv)
                             current_output_index = info.output_index;
                             std::cerr << "[INIT] Received screen info: " << info.width << "x" << info.height 
                                       << " offset: " << info.output_x << "," << info.output_y << "\n";
+                            outputs = info.output_count;
                             break;
                         }
                     }
