@@ -1629,8 +1629,8 @@ static void print_shortcuts_help()
     std::cout << "║   A            Toggle audio playback (mute/unmute)                     ║\n";
     std::cout << "║   M            Toggle microphone capture (mute/unmute)                 ║\n";
     std::cout << "║   F            Toggle follow-focus mode                                ║\n";
-    std::cout << "║   5            Cycle audio compression (off→LZ4→LZ4 HC)                ║\n";
-    std::cout << "║   6            Cycle microphone compression (off→LZ4→LZ4 HC)           ║\n";
+    std::cout << "║   5            Cycle audio compression (off→Opus)                      ║\n";
+    std::cout << "║   6            Cycle microphone compression (off→Opus)                 ║\n";
     std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
     std::cout << "║ CURRENT STATE                                                          ║\n";
     std::cout << "║   Renderer:       " << std::setw(8) << std::left << (const char*[]){"braille", "blocks", "ascii", "hybrid"}[current_config.renderer] << "  Color: " << std::setw(9) << (const char*[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
