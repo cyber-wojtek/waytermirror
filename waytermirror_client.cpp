@@ -1006,14 +1006,20 @@ static void audio_receive_thread()
 
             std::vector<uint8_t> compressed(header.compressed_size);
             size_t total = 0;
+            bool skip = false;
             while (total < header.compressed_size)
             {
                 ssize_t n = recv(audio_socket, compressed.data() + total,
                                  header.compressed_size - total, 0);
                 if (n <= 0)
-                    continue;
+                {
+                    skip = true;
+                    break;
+                }
                 total += n;
             }
+            if (skip)
+                continue;
 
             // Decode with Opus
             if (audio_opus_decoder)
@@ -1058,14 +1064,20 @@ static void audio_receive_thread()
 
             audio_data.resize(header.size);
             size_t total = 0;
+            bool skip = false;
             while (total < header.size)
             {
                 ssize_t n = recv(audio_socket, audio_data.data() + total,
                                  header.size - total, 0);
                 if (n <= 0)
-                    continue;
+                {
+                    skip = true;
+                    break;
+                }
                 total += n;
             }
+            if (skip)
+                continue;
         }
         else
         {
