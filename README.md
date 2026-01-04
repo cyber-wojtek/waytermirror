@@ -40,7 +40,7 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 - Sixel graphics support for direct pixel rendering on compatible terminals.
 
 ## Demonstration
-https://github.com/user-attachments/assets/08fab5e9-d942-4d4e-b52f-acd2f88e3107
+https://github.com/user-attachments/assets/a5edb86b-7e2e-4b95-b766-56ab9a1c43ee
 
 ## How it works (short)
 - Screen → wlr-screencopy → frame buffer → renderer (CPU/CUDA) → ANSI/Sixel string → LZ4 → TCP → client terminal
