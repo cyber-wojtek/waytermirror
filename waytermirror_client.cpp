@@ -1011,7 +1011,7 @@ static void audio_receive_thread()
                 ssize_t n = recv(audio_socket, compressed.data() + total,
                                  header.compressed_size - total, 0);
                 if (n <= 0)
-                    goto cleanup;
+                    continue;
                 total += n;
             }
 
@@ -1063,7 +1063,7 @@ static void audio_receive_thread()
                 ssize_t n = recv(audio_socket, audio_data.data() + total,
                                  header.size - total, 0);
                 if (n <= 0)
-                    goto cleanup;
+                    continue;
                 total += n;
             }
         }
@@ -1083,8 +1083,6 @@ static void audio_receive_thread()
             audio_playback.audio_queue.push(std::move(audio_data));
         }
     }
-
-cleanup:
     std::cerr << "[AUDIO] Receive thread stopped\n";
 }
 
