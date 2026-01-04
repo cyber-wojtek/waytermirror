@@ -1393,9 +1393,10 @@ static void toggle_exclusive_grab()
 static void cycle_renderer()
 {
     std::lock_guard<std::mutex> lock(config_mutex);
-    current_config.renderer = (current_config.renderer + 1) % 4;
+    // Cycle through all 5 renderers: 0=braille, 1=blocks, 2=ascii, 3=hybrid, 4=sixel
+    current_config.renderer = (current_config.renderer + 1) % 5;
 
-    const char *names[] = {"braille", "blocks", "ascii", "hybrid"};
+    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel"};
     std::cerr << "[RENDERER] Switched to: " << names[current_config.renderer] << "\n";
 
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
@@ -1577,9 +1578,10 @@ static void cycle_output()
 static void set_renderer(uint8_t renderer)
 {
     std::lock_guard<std::mutex> lock(config_mutex);
-    current_config.renderer = renderer % 4;
-    const char *names[] = {"braille", "blocks", "ascii", "hybrid"};
-    std::cerr << "[RENDERER] Switched to: " << names[current_config.renderer] << "\n";
+    current_config.renderer = renderer;
+    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel"};
+    int idx = std::min((int)renderer, 4);
+    std::cerr << "[RENDERER] Switched to: " << names[idx] << "\n";
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
     send_client_config(current_config);
 }
@@ -1613,8 +1615,7 @@ static void print_shortcuts_help()
     std::cout << "║   Home/End     Fast horizontal pan (100px per press)                   ║\n";
     std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
     std::cout << "║ RENDERING                                                              ║\n";
-    std::cout << "║   R            Cycle renderer (braille→blocks→ascii→hybrid)            ║\n";
-    std::cout << "║   1/2/3/4      Quick switch: braille/blocks/ascii/hybrid               ║\n";
+    std::cout << "║   R            Cycle renderer (braille→blocks→ascii→hybrid→sixel)      ║\n";
     std::cout << "║   C            Cycle color mode (16→256→truecolor)                     ║\n";
     std::cout << "║   D / S        Increase / Decrease detail level (±10)                  ║\n";
     std::cout << "║   W / E        Increase / Decrease quality (±10)                       ║\n";
@@ -1643,7 +1644,9 @@ static void print_shortcuts_help()
     std::cout << "║   6            Cycle microphone compression (off→Opus)                 ║\n";
     std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
     std::cout << "║ CURRENT STATE                                                          ║\n";
-    std::cout << "║   Renderer:       " << std::setw(8) << std::left << (const char*[]){"braille", "blocks", "ascii", "hybrid"}[current_config.renderer] << "  Color: " << std::setw(9) << (const char*[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
+    const char *renderer_names[] = {"braille", "blocks", "ascii", "hybrid", "sixel"};
+    int renderer_idx = std::min((int)current_config.renderer, 4);
+    std::cout << "║   Renderer:       " << std::setw(8) << std::left << renderer_names[renderer_idx] << "  Color: " << std::setw(9) << (const char*[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
     std::cout << "║   Detail: " << std::setw(3) << (int)current_config.detail_level << "       Quality: " << std::setw(3) << (int)current_config.quality << "       FPS: " << std::setw(3) << current_config.fps << "             ║\n";
     std::cout << "║   Rotation: " << std::setw(5) << std::fixed << std::setprecision(0) << current_config.rotation_angle << "°   Aspect: " << (current_config.keep_aspect_ratio ? "ON " : "OFF") << "        Compress: " << (current_config.compress ? "ON " : "OFF") << "           ║\n";
     std::cout << "║   Input Fwd: " << (input_forwarding_enabled.load() ? "ON " : "OFF") << "      Exclusive: " << (exclusive_grab_enabled.load() ? "ON " : "OFF") << "       Zoom: " << (zoom_state.enabled.load() ? "ON " : "OFF") << " (" << std::setprecision(1) << zoom_state.zoom_level.load() << "x)     ║\n";
@@ -2139,53 +2142,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
 
         // === QUICK RENDERER SELECTION ===
 
-        // Braille (Ctrl+Alt+Shift+1)
-        if (is_1)
-        {
-            {
-                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
-                clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
-            }
-            set_renderer(0);
-            return;
-        }
 
-        // Blocks (Ctrl+Alt+Shift+2)
-        if (is_2)
-        {
-            {
-                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
-                clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
-            }
-            set_renderer(1);
-            return;
-        }
-
-        // ASCII (Ctrl+Alt+Shift+3)
-        if (is_3)
-        {
-            {
-                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
-                clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
-            }
-            set_renderer(2);
-            return;
-        }
-
-        // Hybrid (Ctrl+Alt+Shift+4)
-        if (is_4)
-        {
-            {
-                std::lock_guard<std::mutex> lock2(clear_screen_mutex);
-                clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
-            }
-            set_renderer(3);
-            return;
-        }
     }
 
     // Only forward to server if input forwarding is enabled
@@ -2960,6 +2917,7 @@ int main(int argc, char **argv)
                                                                                  : 2;
         current_config.renderer = (renderer == "braille") ? 0 : (renderer == "blocks") ? 1
                                                             : (renderer == "ascii")    ? 2
+                                                            : (renderer == "sixel")    ? 4
                                                                                        : 3;
         current_config.keep_aspect_ratio = program.get<bool>("--keep-aspect-ratio") ? 1 : 0;
         current_config.scale_factor = program.get<double>("--scale");

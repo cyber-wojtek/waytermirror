@@ -3001,6 +3001,202 @@ static std::string render_hybrid(
     return out.str();
 }
 
+// Sixel renderer - uses native sixel graphics protocol for direct pixel rendering
+static std::string render_sixel(
+    const uint8_t *frame_data,
+    uint32_t frame_width,
+    uint32_t frame_height,
+    uint32_t frame_stride,
+    int term_width,
+    int term_height,
+    ColorMode mode,
+    bool keep_aspect_ratio,
+    double scale_factor,
+    uint8_t detail_level,
+    uint8_t threshold_steps,
+    double rotation_angle,
+    PixelFormat pixel_format = FMT_BGRx)
+{
+    if (!frame_data || frame_width == 0 || frame_height == 0)
+        return "";
+
+    std::ostringstream out;
+
+    // Get rotated dimensions
+    uint32_t rot_width, rot_height;
+    get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
+
+    // Calculate sixel dimensions (6 pixels per sixel height)
+    // Sixels have aspect ratio of 1:1 typically in most terminals (or 1:2.4)
+    int sixel_width, sixel_height;
+    if (keep_aspect_ratio)
+    {
+        double src_aspect = (double)rot_width / rot_height;
+        // Terminal width in sixels = term_width (chars per line)
+        // Terminal height in sixels = term_height * 6 (pixels, since each char is ~6 pixels tall)
+        double term_aspect = (double)term_width / (term_height * 6);
+
+        if (src_aspect > term_aspect)
+        {
+            sixel_width = term_width;
+            sixel_height = (int)(sixel_width / src_aspect);
+        }
+        else
+        {
+            sixel_height = term_height * 6;
+            sixel_width = (int)(sixel_height * src_aspect);
+        }
+    }
+    else
+    {
+        sixel_width = (int)(rot_width * scale_factor);
+        sixel_height = (int)(rot_height * scale_factor);
+    }
+
+    // Ensure height is multiple of 6 (sixel height)
+    sixel_height = (sixel_height / 6) * 6;
+
+    // Initialize sixel output with introduction sequence
+    out << "\033Pq";  // Start sixel sequence
+
+    // Maximum colors in sixel palette is 256
+    int palette_size = 256;
+    std::vector<std::tuple<uint8_t, uint8_t, uint8_t>> palette;
+    std::vector<int> color_map(sixel_width * sixel_height, -1);
+
+    // Quantize colors and build palette using simple nearest-neighbor matching
+    for (int y = 0; y < sixel_height; y++)
+    {
+        for (int x = 0; x < sixel_width; x++)
+        {
+            // Map to rotated image coordinates with bilinear sampling
+            double rot_x = (double)x * rot_width / sixel_width;
+            double rot_y = (double)y * rot_height / sixel_height;
+
+            uint8_t r, g, b;
+            
+            // Use bilinear interpolation for smoother scaling
+            int x0 = (int)rot_x, y0 = (int)rot_y;
+            int x1 = std::min(x0 + 1, (int)rot_width - 1);
+            int y1 = std::min(y0 + 1, (int)rot_height - 1);
+            
+            double fx = rot_x - x0;
+            double fy = rot_y - y0;
+
+            uint8_t r00, g00, b00, r10, g10, b10, r01, g01, b01, r11, g11, b11;
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               x0, y0, rot_width, rot_height, rotation_angle, r00, g00, b00, pixel_format);
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               x1, y0, rot_width, rot_height, rotation_angle, r10, g10, b10, pixel_format);
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               x0, y1, rot_width, rot_height, rotation_angle, r01, g01, b01, pixel_format);
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               x1, y1, rot_width, rot_height, rotation_angle, r11, g11, b11, pixel_format);
+
+            r = (uint8_t)(r00 * (1-fx) * (1-fy) + r10 * fx * (1-fy) + r01 * (1-fx) * fy + r11 * fx * fy);
+            g = (uint8_t)(g00 * (1-fx) * (1-fy) + g10 * fx * (1-fy) + g01 * (1-fx) * fy + g11 * fx * fy);
+            b = (uint8_t)(b00 * (1-fx) * (1-fy) + b10 * fx * (1-fy) + b01 * (1-fx) * fy + b11 * fx * fy);
+
+            // Find or add color to palette
+            int color_idx = -1;
+            
+            // Try to find exact match first
+            for (int i = 0; i < (int)palette.size(); i++)
+            {
+                auto [pr, pg, pb] = palette[i];
+                if (pr == r && pg == g && pb == b)
+                {
+                    color_idx = i;
+                    break;
+                }
+            }
+
+            // If no exact match and room in palette, add new color
+            if (color_idx == -1 && palette.size() < palette_size)
+            {
+                color_idx = palette.size();
+                palette.push_back({r, g, b});
+            }
+
+            // If palette full, find nearest color
+            if (color_idx == -1)
+            {
+                int best_idx = 0;
+                double best_dist = 1e9;
+                for (int i = 0; i < (int)palette.size(); i++)
+                {
+                    auto [pr, pg, pb] = palette[i];
+                    double dr = (double)r - pr;
+                    double dg = (double)g - pg;
+                    double db = (double)b - pb;
+                    double dist = dr*dr + dg*dg + db*db;
+                    if (dist < best_dist)
+                    {
+                        best_dist = dist;
+                        best_idx = i;
+                    }
+                }
+                color_idx = best_idx;
+            }
+
+            color_map[y * sixel_width + x] = color_idx;
+        }
+    }
+
+    // Write color palette (using Sixel color table format: #0;2;R;G;B)
+    // Colors are specified as values 0-100
+    for (int i = 0; i < (int)palette.size(); i++)
+    {
+        auto [r, g, b] = palette[i];
+        int r_sixel = (r * 100) / 255;
+        int g_sixel = (g * 100) / 255;
+        int b_sixel = (b * 100) / 255;
+        out << "#" << i << ";2;" << r_sixel << ";" << g_sixel << ";" << b_sixel;
+    }
+
+    // Encode image data in sixel format
+    // Process 6 pixels at a time (sixel height)
+    for (int y = 0; y < sixel_height; y += 6)
+    {
+        for (int x = 0; x < sixel_width; x++)
+        {
+            // Build sixel for this column (6 pixels tall)
+            int sixel_byte = 63;  // Start with all pixels off (binary 111111 = 63 + 63 = 126, offset by -63)
+            
+            for (int dy = 0; dy < 6 && y + dy < sixel_height; dy++)
+            {
+                int pixel_idx = (y + dy) * sixel_width + x;
+                if (color_map[pixel_idx] > 0)
+                {
+                    sixel_byte |= (1 << dy);
+                }
+            }
+
+            // Track color changes - only emit color directive when color changes
+            static int last_color = -1;
+            int current_color = color_map[y * sixel_width + x];
+            
+            if (current_color != last_color)
+            {
+                out << "#" << current_color;
+                last_color = current_color;
+            }
+
+            // Sixel characters are in range 63-127 (ASCII 63 is '?')
+            out << (char)(63 + sixel_byte);
+        }
+
+        // New line in sixel format
+        if (y + 6 < sixel_height)
+            out << "-";  // Sixel carriage return (move to next scanline)
+    }
+
+    // End sixel sequence
+    out << "\033\\";
+
+    return out.str();
+}
+
 static void capture_thread(int output_index, int fps) {
     if (output_index >= (int)outputs.size())
         return;
@@ -4490,6 +4686,14 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                         break;
                     case 2:
                         rendered = render_ascii(
+                            frame_to_render.data(), render_width, render_height, render_stride,
+                            config.term_width, config.term_height,
+                            mode, keep_aspect_ratio, config.scale_factor, 
+                            config.detail_level, config.quality, config.rotation_angle,
+                            pixel_fmt);
+                        break;
+                    case 4:
+                        rendered = render_sixel(
                             frame_to_render.data(), render_width, render_height, render_stride,
                             config.term_width, config.term_height,
                             mode, keep_aspect_ratio, config.scale_factor, 
