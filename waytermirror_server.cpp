@@ -3026,20 +3026,24 @@ static std::string render_sixel(
     uint32_t rot_width, rot_height;
     get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
 
+    // Calculate target dimensions
+    int target_width = term_width * 8;  // Assume 8 pixels per character width
+    int target_height = term_height * 16; // Assume 16 pixels per character height
+    
     int sixel_width, sixel_height;
     if (keep_aspect_ratio)
     {
         double src_aspect = (double)rot_width / rot_height;
-        double term_aspect = (double)term_width / (term_height * 6);
+        double term_aspect = (double)target_width / target_height;
 
         if (src_aspect > term_aspect)
         {
-            sixel_width = term_width;
+            sixel_width = target_width;
             sixel_height = (int)(sixel_width / src_aspect);
         }
         else
         {
-            sixel_height = term_height * 6;
+            sixel_height = target_height;
             sixel_width = (int)(sixel_height * src_aspect);
         }
     }
@@ -3049,127 +3053,147 @@ static std::string render_sixel(
         sixel_height = (int)(rot_height * scale_factor);
     }
 
-    sixel_height = (sixel_height / 6) * 6;
+    // Sixel height must be multiple of 6
+    sixel_height = ((sixel_height + 5) / 6) * 6;
 
-    out << "\033Pq";
-
-    int palette_size = 256;
-    std::vector<std::tuple<uint8_t, uint8_t, uint8_t>> palette;
-    std::vector<int> color_map(sixel_width * sixel_height, -1);
-
+    // Build color palette (256 colors max)
+    std::map<uint32_t, int> color_to_index;
+    std::vector<uint32_t> palette;  // Store as RGB888
+    
+    // Sample and quantize colors
     for (int y = 0; y < sixel_height; y++)
     {
         for (int x = 0; x < sixel_width; x++)
         {
-            double rot_x = (double)x * rot_width / sixel_width;
-            double rot_y = (double)y * rot_height / sixel_height;
-
             uint8_t r, g, b;
             
-            int x0 = (int)rot_x, y0 = (int)rot_y;
-            int x1 = std::min(x0 + 1, (int)rot_width - 1);
-            int y1 = std::min(y0 + 1, (int)rot_height - 1);
+            double rot_x = (double)x * rot_width / sixel_width;
+            double rot_y = (double)y * rot_height / sixel_height;
             
-            double fx = rot_x - x0;
-            double fy = rot_y - y0;
-
-            uint8_t r00, g00, b00, r10, g10, b10, r01, g01, b01, r11, g11, b11;
             sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               x0, y0, rot_width, rot_height, rotation_angle, r00, g00, b00, pixel_format);
-            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               x1, y0, rot_width, rot_height, rotation_angle, r10, g10, b10, pixel_format);
-            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               x0, y1, rot_width, rot_height, rotation_angle, r01, g01, b01, pixel_format);
-            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               x1, y1, rot_width, rot_height, rotation_angle, r11, g11, b11, pixel_format);
-
-            r = (uint8_t)(r00 * (1-fx) * (1-fy) + r10 * fx * (1-fy) + r01 * (1-fx) * fy + r11 * fx * fy);
-            g = (uint8_t)(g00 * (1-fx) * (1-fy) + g10 * fx * (1-fy) + g01 * (1-fx) * fy + g11 * fx * fy);
-            b = (uint8_t)(b00 * (1-fx) * (1-fy) + b10 * fx * (1-fy) + b01 * (1-fx) * fy + b11 * fx * fy);
-
-            int color_idx = -1;
+                               (int)rot_x, (int)rot_y, rot_width, rot_height, 
+                               rotation_angle, r, g, b, pixel_format);
             
-            for (int i = 0; i < (int)palette.size(); i++)
+            uint32_t rgb = (r << 16) | (g << 8) | b;
+            
+            if (color_to_index.find(rgb) == color_to_index.end())
             {
-                auto [pr, pg, pb] = palette[i];
-                if (pr == r && pg == g && pb == b)
+                if (palette.size() < 256)
                 {
-                    color_idx = i;
-                    break;
+                    color_to_index[rgb] = palette.size();
+                    palette.push_back(rgb);
                 }
             }
-
-            if (color_idx == -1 && palette.size() < palette_size)
-            {
-                color_idx = palette.size();
-                palette.push_back({r, g, b});
-            }
-
-            if (color_idx == -1)
-            {
-                int best_idx = 0;
-                double best_dist = 1e9;
-                for (int i = 0; i < (int)palette.size(); i++)
-                {
-                    auto [pr, pg, pb] = palette[i];
-                    double dr = (double)r - pr;
-                    double dg = (double)g - pg;
-                    double db = (double)b - pb;
-                    double dist = dr*dr + dg*dg + db*db;
-                    if (dist < best_dist)
-                    {
-                        best_dist = dist;
-                        best_idx = i;
-                    }
-                }
-                color_idx = best_idx;
-            }
-
-            color_map[y * sixel_width + x] = color_idx;
         }
     }
 
-    for (int i = 0; i < (int)palette.size(); i++)
+    // Start sixel sequence
+    out << "\033Pq";  // DCS - Device Control String, 'q' for sixel
+    
+    // Define color palette
+    for (size_t i = 0; i < palette.size(); i++)
     {
-        auto [r, g, b] = palette[i];
+        uint32_t rgb = palette[i];
+        int r = (rgb >> 16) & 0xFF;
+        int g = (rgb >> 8) & 0xFF;
+        int b = rgb & 0xFF;
+        
+        // Convert to 0-100 scale
         int r_sixel = (r * 100) / 255;
         int g_sixel = (g * 100) / 255;
         int b_sixel = (b * 100) / 255;
-        out << "#" << i << ";2;" << r_sixel << ";" << g_sixel << ";" << b_sixel << ';';
+        
+        out << "#" << i << ";2;" << r_sixel << ";" << g_sixel << ";" << b_sixel;
     }
 
-    for (int y = 0; y < sixel_height; y += 6)
+    // Render sixel data (process 6 rows at a time)
+    for (int band = 0; band < sixel_height; band += 6)
     {
-        for (int x = 0; x < sixel_width; x++)
+        // Process each color in this band
+        for (size_t color_idx = 0; color_idx < palette.size(); color_idx++)
         {
-            int sixel_byte = 63;
+            out << "#" << color_idx;  // Select color
             
-            for (int dy = 0; dy < 6 && y + dy < sixel_height; dy++)
-            {
-                int pixel_idx = (y + dy) * sixel_width + x;
-                sixel_byte |= (1 << dy);
-            }
-
-            static int last_color = -1;
-            int current_color = color_map[y * sixel_width + x];
+            int repeat_count = 0;
+            int last_sixel = -1;
             
-            if (current_color != last_color)
+            for (int x = 0; x < sixel_width; x++)
             {
-                out << "#" << current_color;
-                last_color = current_color;
+                // Build sixel byte for this column
+                int sixel_byte = 0;
+                
+                for (int dy = 0; dy < 6; dy++)
+                {
+                    int y = band + dy;
+                    if (y >= sixel_height) break;
+                    
+                    // Sample pixel
+                    uint8_t r, g, b;
+                    double rot_x = (double)x * rot_width / sixel_width;
+                    double rot_y = (double)y * rot_height / sixel_height;
+                    
+                    sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                                       (int)rot_x, (int)rot_y, rot_width, rot_height,
+                                       rotation_angle, r, g, b, pixel_format);
+                    
+                    uint32_t rgb = (r << 16) | (g << 8) | b;
+                    
+                    if (color_to_index[rgb] == (int)color_idx)
+                    {
+                        sixel_byte |= (1 << dy);
+                    }
+                }
+                
+                // Use repeat count for compression
+                if (sixel_byte == last_sixel && repeat_count < 255)
+                {
+                    repeat_count++;
+                }
+                else
+                {
+                    if (repeat_count > 3)
+                    {
+                        out << "!" << repeat_count << (char)(63 + last_sixel);
+                    }
+                    else
+                    {
+                        for (int i = 0; i < repeat_count; i++)
+                        {
+                            out << (char)(63 + last_sixel);
+                        }
+                    }
+                    last_sixel = sixel_byte;
+                    repeat_count = 1;
+                }
             }
-
-            // Sixel characters are in range 63-127 (ASCII 63 is '?')
-            out << (char)(63 + sixel_byte);
+            
+            // Flush remaining
+            if (repeat_count > 0)
+            {
+                if (repeat_count > 3)
+                {
+                    out << "!" << repeat_count << (char)(63 + last_sixel);
+                }
+                else
+                {
+                    for (int i = 0; i < repeat_count; i++)
+                    {
+                        out << (char)(63 + last_sixel);
+                    }
+                }
+            }
+            
+            out << "$";  // Carriage return (stay on same sixel row)
         }
-
-        // New line in sixel format
-        if (y + 6 < sixel_height)
-            out << "-";  // Sixel carriage return (move to next scanline)
+        
+        if (band + 6 < sixel_height)
+        {
+            out << "-";  // Line feed (move to next sixel row)
+        }
     }
 
     // End sixel sequence
-    out << "\033\\";
+    out << "\033\\";  // ST - String Terminator
 
     return out.str();
 }
