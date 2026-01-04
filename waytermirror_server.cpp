@@ -1409,10 +1409,36 @@ static void handle_mouse_move(const MouseMove &evt, const std::string &client_id
         output_height = evt.height;
     }
 
+    // Client sends output-relative coordinates
+    // Convert to virtual desktop coordinates for the virtual pointer
+    int32_t offset_x = 0, offset_y = 0;
+    if (output_index < output_geometries.size()) {
+        offset_x = output_geometries[output_index].x;
+        offset_y = output_geometries[output_index].y;
+    }
+    
+    int32_t virtual_x = evt.x + offset_x;
+    int32_t virtual_y = evt.y + offset_y;
+
+    // Calculate total virtual desktop bounds
+    int32_t min_x = 0, min_y = 0, max_x = 0, max_y = 0;
+    for (const auto &geom : output_geometries) {
+        min_x = std::min(min_x, geom.x);
+        min_y = std::min(min_y, geom.y);
+        max_x = std::max(max_x, geom.x + geom.width);
+        max_y = std::max(max_y, geom.y + geom.height);
+    }
+    uint32_t virtual_width = max_x - min_x;
+    uint32_t virtual_height = max_y - min_y;
+    
+    // Adjust coordinates to be relative to virtual desktop origin
+    virtual_x -= min_x;
+    virtual_y -= min_y;
+
     host_cursor_x = evt.x;
     host_cursor_y = evt.y;
 
-    virtual_input_mgr.send_mouse_move(evt.x, evt.y, output_width, output_height);
+    virtual_input_mgr.send_mouse_move(virtual_x, virtual_y, virtual_width, virtual_height);
 }
 
 static void handle_mouse_button(const MouseButton &evt) {
@@ -4883,6 +4909,9 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                         conn->zoom.smooth_pan = zoom_config.smooth_pan != 0;
                         conn->zoom.pan_speed = zoom_config.pan_speed;
 
+                        // Client sends coordinates relative to the output - use them as-is
+                        // (apply_zoom_transform operates on single output frame data)
+                        
                         // Update target position
                         if (conn->zoom.follow_mouse)
                         {
