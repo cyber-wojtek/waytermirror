@@ -51,6 +51,20 @@
 #include <rapidjson/document.h>
 #include <opus/opus.h>
 
+static const uint32_t MAX_FRAME_WIDTH = 8192;
+static const uint32_t MAX_FRAME_HEIGHT = 8192;
+static const uint32_t MAX_FRAME_STRIDE = 65536;
+static const size_t MAX_BUFFER_SIZE = 512 * 1024 * 1024; // 512MB
+
+static bool validate_frame_dimensions(uint32_t width, uint32_t height, uint32_t stride) {
+    if (width == 0 || height == 0 || stride == 0 ||
+        width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT || stride > MAX_FRAME_STRIDE) {
+        return false;
+    }
+    size_t calculated_size = (size_t)stride * (size_t)height;
+    return calculated_size <= MAX_BUFFER_SIZE;
+}
+
 // pixel color channel layout from compositor/capture source
 enum PixelFormat : uint8_t {
   FMT_BGRx = 0,   // BGRX (wayland default, X ignored)
@@ -260,8 +274,6 @@ struct ClientConfig
     uint8_t render_device;
     uint8_t quality;
     double rotation_angle;
-    uint8_t capture_quality;     // Server-side capture quality: 0-100 (100=native res)
-    double client_scale;         // Additional client-side scale: 0.1-2.0
     // Audio opus settings (server->client)
     int audio_sample_rate = 48000;
     int audio_channels = 2;
@@ -269,11 +281,14 @@ struct ClientConfig
     int audio_bitrate = 64000; // in bps
     int audio_opus_application = OPUS_APPLICATION_AUDIO;
     // Microphone opus settings (client->server)
-    int mic_sample_rate = 48000;
-    int mic_channels = 2;
-    int mic_opus_complexity = 5;
-    int mic_bitrate = 64000; // in bps
-    int mic_opus_application = OPUS_APPLICATION_VOIP;
+    int microphone_sample_rate = 48000;
+    int microphone_channels = 2;
+    int microphone_opus_complexity = 5;
+    int microphone_bitrate = 64000; // in bps
+    int microphone_opus_application = OPUS_APPLICATION_VOIP;
+    uint32_t requested_capture_width;   // 0 = native
+    uint32_t requested_capture_height;  // 0 = native
+    
 };
 
 enum CaptureBackend {
@@ -324,9 +339,9 @@ static std::atomic<size_t> total_audio_bytes_original{0};
 static std::atomic<size_t> total_audio_bytes_compressed{0};
 
 // Microphone compression stats
-static std::atomic<int> total_mic_packets{0};
-static std::atomic<size_t> total_mic_bytes_original{0};
-static std::atomic<size_t> total_mic_bytes_compressed{0};
+static std::atomic<int> total_microphone_packets{0};
+static std::atomic<size_t> total_microphone_bytes_original{0};
+static std::atomic<size_t> total_microphone_bytes_compressed{0};
 
 static std::vector<int> all_server_sockets;
 
@@ -374,7 +389,7 @@ struct ClientConnection
     // Audio opus (server->client): encoder encodes captured audio
     OpusEncoder *audio_opus_encoder = nullptr;
     // Microphone opus (client->server): decoder decodes received mic data
-    OpusDecoder *mic_opus_decoder = nullptr;
+    OpusDecoder *microphone_opus_decoder = nullptr;
 };
 
 static std::map<std::string, std::shared_ptr<ClientConnection>> clients;
@@ -609,6 +624,8 @@ struct OutputGeometry {
     int32_t height = 0;
 };
 static std::vector<OutputGeometry> output_geometries;
+
+static uint64_t capture_width = 0, capture_height = 0;
 
 static CaptureBackend detect_capture_backend() {
     // Check compositor type
@@ -1072,6 +1089,14 @@ static void frame_buffer(void *data, zwlr_screencopy_frame_v1 *frame,
 
     Capture *cap = ctx->capture;
 
+    // Validate frame dimensions before proceeding
+    if (!validate_frame_dimensions(width, height, stride)) {
+        std::cerr << "[ERROR] Invalid frame dimensions: " << width << "x" << height
+                  << " stride=" << stride << "\n";
+        zwlr_screencopy_frame_v1_destroy(frame);
+        return;
+    }
+
     // Clean up old buffer if exists
     if (cap->front_buffer)
     {
@@ -1084,17 +1109,22 @@ static void frame_buffer(void *data, zwlr_screencopy_frame_v1 *frame,
     cap->width = width;
     cap->height = height;
     cap->stride = stride;
-    cap->size = stride * height;
+    // Use size_t to prevent overflow
+    cap->size = (size_t)stride * (size_t)height;
     cap->format = format;
 
     int fd = create_shm_file(cap->size);
     if (fd < 0)
+    {
+        zwlr_screencopy_frame_v1_destroy(frame);
         return;
+    }
 
     void *data_ptr = mmap(nullptr, cap->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (data_ptr == MAP_FAILED)
     {
         close(fd);
+        zwlr_screencopy_frame_v1_destroy(frame);
         return;
     }
     madvise(data_ptr, cap->size, MADV_SEQUENTIAL | MADV_WILLNEED);
@@ -3379,8 +3409,22 @@ static std::vector<uint8_t> render_framebuffer(
     double rotation_angle,
     PixelFormat pixel_format)
 {
-    if (!frame_data || frame_width == 0 || frame_height == 0)
+    if (!frame_data || frame_width == 0 || frame_height == 0) {
+        std::cerr << "[FRAMEBUFFER] ERROR: Invalid input - frame_data=" << (void*)frame_data 
+                  << " w=" << frame_width << " h=" << frame_height << "\n";
         return {};
+    }
+    
+    // Debug: Check if frame data is mostly zeros (blank)
+    size_t frame_size = frame_stride * frame_height;
+    size_t non_zero = 0;
+    for (size_t i = 0; i < std::min(frame_size, (size_t)10000); i += 4) {
+        if (frame_data[i] != 0 || frame_data[i+1] != 0 || frame_data[i+2] != 0) {
+            non_zero++;
+        }
+    }
+    static int frame_count = 0;
+    frame_count++;
 
     uint32_t rot_width, rot_height;
     get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
@@ -3410,8 +3454,17 @@ static std::vector<uint8_t> render_framebuffer(
         img_height = (int)(target_height * scale_factor);
     }
 
+    // Ensure valid dimensions
+    if (img_width <= 0) img_width = target_width;
+    if (img_height <= 0) img_height = target_height;
+    if (img_width <= 0) img_width = 1920;
+    if (img_height <= 0) img_height = 1080;
+
     // Create RGB24 buffer (3 bytes per pixel)
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
+    
+    size_t pixels_filled = 0;
+    size_t pixels_black = 0;
     
     for (int y = 0; y < img_height; y++) {
         for (int x = 0; x < img_width; x++) {
@@ -3427,20 +3480,116 @@ static std::vector<uint8_t> render_framebuffer(
             rgb_data[idx + 0] = r;
             rgb_data[idx + 1] = g;
             rgb_data[idx + 2] = b;
+            
+            pixels_filled++;
+            if (r == 0 && g == 0 && b == 0) pixels_black++;
         }
     }
-
+    
     // Prepare header: width (4 bytes) + height (4 bytes) + RGB data
     std::vector<uint8_t> result;
     result.resize(8);
     *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
     *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
     result.insert(result.end(), rgb_data.begin(), rgb_data.end());
-
-    std::cerr << "[FRAMEBUFFER] Prepared " << img_width << "x" << img_height 
-              << " RGB24 (" << result.size() << " bytes) for client\n";
     
     return result;
+}
+
+template <typename TW, typename TH, typename TS>
+static void apply_capture_resolution(
+    std::vector<uint8_t>& frame_data,
+    TW& width,
+    TH& height,
+    TS& stride,
+    PixelFormat pixel_format)
+{
+    if (capture_width == 0 || capture_height == 0) return;
+    if (width == capture_width && height == capture_height) return;
+    if (capture_width >= width && capture_height >= height) return;
+    
+    int bpp = bpp_for_fmt(pixel_format);
+    std::vector<uint8_t> scaled(capture_width * capture_height * bpp);
+    
+    for (uint32_t y = 0; y < capture_height; y++) {
+        for (uint32_t x = 0; x < capture_width; x++) {
+            double sx = ((double)x + 0.5) * width / capture_width - 0.5;
+            double sy = ((double)y + 0.5) * height / capture_height - 0.5;
+            
+            int x0 = std::clamp((int)floor(sx), 0, (int)width - 1);
+            int y0 = std::clamp((int)floor(sy), 0, (int)height - 1);
+            int x1 = std::min(x0 + 1, (int)width - 1);
+            int y1 = std::min(y0 + 1, (int)height - 1);
+            
+            double fx = std::clamp(sx - x0, 0.0, 1.0);
+            double fy = std::clamp(sy - y0, 0.0, 1.0);
+            
+            const uint8_t* p00 = frame_data.data() + y0 * stride + x0 * bpp;
+            const uint8_t* p10 = frame_data.data() + y0 * stride + x1 * bpp;
+            const uint8_t* p01 = frame_data.data() + y1 * stride + x0 * bpp;
+            const uint8_t* p11 = frame_data.data() + y1 * stride + x1 * bpp;
+            
+            uint8_t* dst = scaled.data() + (y * capture_width + x) * bpp;
+            for (int c = 0; c < bpp; c++) {
+                double v = (1-fx)*(1-fy)*p00[c] + fx*(1-fy)*p10[c] + 
+                          (1-fx)*fy*p01[c] + fx*fy*p11[c]; // Bilinear interpolation (basically a weighted average)
+                dst[c] = (uint8_t)std::clamp(v, 0.0, 255.0);
+            }
+        }
+    }
+    
+    frame_data = std::move(scaled);
+    width = capture_width;
+    height = capture_height;
+    stride = capture_width * bpp;
+}
+
+template <typename TW, typename TH, typename TS>
+static void apply_client_resolution(
+    std::vector<uint8_t>& frame_data,
+    TW& width,
+    TH& height,
+    TS& stride,
+    PixelFormat pixel_format,
+    int client_width,
+    int client_height)
+{
+    if (client_width == 0 || client_height == 0) return;
+    if (width == (uint32_t)client_width && height == (uint32_t)client_height) return;
+    
+    int bpp = bpp_for_fmt(pixel_format);
+    std::vector<uint8_t> scaled(client_width * client_height * bpp);
+    
+    for (int y = 0; y < client_height; y++) {
+        for (int x = 0; x < client_width; x++) {
+            double sx = ((double)x + 0.5) * width / client_width - 0.5;
+            double sy = ((double)y + 0.5) * height / client_height - 0.5;
+            
+            int x0 = std::clamp((int)floor(sx), 0, (int)width - 1);
+            int y0 = std::clamp((int)floor(sy), 0, (int)height - 1);
+            int x1 = std::min(x0 + 1, (int)width - 1);
+            int y1 = std::min(y0 + 1, (int)height - 1);
+            
+            double fx = std::clamp(sx - x0, 0.0, 1.0);
+            double fy = std::clamp(sy - y0, 0.0, 1.0);
+            
+            const uint8_t* p00 = frame_data.data() + y0 * stride + x0 * bpp;
+            const uint8_t* p10 = frame_data.data() + y0 * stride + x1 * bpp;
+            const uint8_t* p01 = frame_data.data() + y1 * stride + x0 * bpp;
+            const uint8_t* p11 = frame_data.data() + y1 * stride + x1 * bpp;
+            
+            uint8_t* dst = scaled.data() + (y * client_width + x) * bpp;
+            for (int c = 0; c < bpp; c++) {
+                double v = (1-fx)*(1-fy)*p00[c] + fx*(1-fy)*p10[c] + 
+                          (1-fx)*fy*p01[c] + fx*fy*p11[c];
+                dst[c] = (uint8_t)std::clamp(v, 0.0, 255.0);
+            }
+        }
+    }
+    frame_data = std::move(scaled);
+    width = client_width;
+    height = client_height;
+    stride = client_width * bpp;
 }
 
 static void capture_thread(int output_index, int fps) {
@@ -3474,6 +3623,7 @@ static void capture_thread(int output_index, int fps) {
                 // Copy to output buffer
                 std::lock_guard<std::mutex> lock(*output_mutexes[output_index]);
                 Capture &cap = output_captures[output_index];
+                apply_capture_resolution(frame_data, width, height, stride, FMT_BGRA);
                 
                 cap.back_buffer = std::move(frame_data);
                 cap.width = width;
@@ -3507,7 +3657,7 @@ static void capture_thread(int output_index, int fps) {
             last_frame_time = std::chrono::steady_clock::now();
         }
     } else {
-        // Original wlr-screencopy
+        // wlr-screencopy
         wl_output *output = outputs[output_index];
         
         CaptureContext ctx;
@@ -3561,6 +3711,13 @@ static void capture_thread(int output_index, int fps) {
                     memcpy(ctx.capture->back_buffer.data(),
                            ctx.capture->front_data,
                            ctx.capture->size);
+
+                    apply_capture_resolution(
+                        ctx.capture->back_buffer,
+                        ctx.capture->width,
+                        ctx.capture->height,
+                        ctx.capture->stride,
+                        FMT_BGRA);
 
                     ctx.capture->back_ready = true;
                     ctx.capture->front_ready = false;
@@ -3777,7 +3934,7 @@ static std::vector<uint8_t> encode_audio_opus(
 // Decode microphone data (client->server) using Opus
 // Input: Opus compressed data
 // Output: F32LE audio data for PipeWire virtual source
-static std::vector<uint8_t> decode_mic_opus(
+static std::vector<uint8_t> decode_microphone_opus(
     const std::vector<uint8_t> &opus_data,
     int sample_rate,
     int channels,
@@ -3815,17 +3972,17 @@ static std::vector<uint8_t> decode_mic_opus(
     }
 
     // Stats
-    total_mic_packets++;
-    total_mic_bytes_compressed += opus_data.size();
-    total_mic_bytes_original += f32_data.size();
+    total_microphone_packets++;
+    total_microphone_bytes_compressed += opus_data.size();
+    total_microphone_bytes_original += f32_data.size();
     
-    if (total_mic_packets % 100 == 0)
+    if (total_microphone_packets % 100 == 0)
     {
-        double saved = 100.0 * (1.0 - (double)total_mic_bytes_compressed / total_mic_bytes_original);
-        double ratio = (double)total_mic_bytes_original / total_mic_bytes_compressed;
+        double saved = 100.0 * (1.0 - (double)total_microphone_bytes_compressed / total_microphone_bytes_original);
+        double ratio = (double)total_microphone_bytes_original / total_microphone_bytes_compressed;
         std::cerr << "[MICROPHONE] Opus compression | Saved: " << std::fixed << std::setprecision(2) 
                   << saved << "% | Ratio: " << ratio << "x over " 
-                  << total_mic_packets << " packets\n";
+                  << total_microphone_packets << " packets\n";
     }
 
     return f32_data;
@@ -4493,15 +4650,15 @@ static void microphone_thread(int client_socket, std::string session_id)
                 auto it = clients.find(session_id);
                 if (it != clients.end())
                 {
-                    decoder = it->second->mic_opus_decoder;
-                    sample_rate = it->second->config.mic_sample_rate;
-                    channels = it->second->config.mic_channels;
+                    decoder = it->second->microphone_opus_decoder;
+                    sample_rate = it->second->config.microphone_sample_rate;
+                    channels = it->second->config.microphone_channels;
                 }
             }
 
             if (decoder)
             {
-                microphone_data = decode_mic_opus(compressed, sample_rate, channels, decoder);
+                microphone_data = decode_microphone_opus(compressed, sample_rate, channels, decoder);
                 if (microphone_data.empty())
                 {
                     std::cerr << "[MICROPHONE IN] Opus decode failed\n";
@@ -4606,7 +4763,6 @@ static void apply_zoom_transform(
     uint32_t &dst_stride,
     const ZoomState &zoom)
 {
-
     std::lock_guard<std::mutex> lock(const_cast<ZoomState &>(zoom).mutex);
 
     if (!zoom.enabled || zoom.zoom_level <= 1.0)
@@ -4615,8 +4771,16 @@ static void apply_zoom_transform(
         dst_width = src_width;
         dst_height = src_height;
         dst_stride = src_stride;
-        dst_data.resize(src_height * src_stride);
-        memcpy(dst_data.data(), src_data, src_height * src_stride);
+        size_t copy_size = (size_t)src_height * (size_t)src_stride;
+        dst_data.resize(copy_size);
+        memcpy(dst_data.data(), src_data, copy_size);
+        return;
+    }
+
+    // Validate source buffer
+    size_t src_buffer_size = (size_t)src_height * (size_t)src_stride;
+    if (src_buffer_size == 0) {
+        std::cerr << "[ZOOM ERROR] Invalid source buffer size\n";
         return;
     }
 
@@ -4625,20 +4789,23 @@ static void apply_zoom_transform(
     int region_width = (int)(zoom.view_width * inv_zoom);
     int region_height = (int)(zoom.view_height * inv_zoom);
 
-    // Center point from mouse position (client sends coordinates in screen space)
-    // No scaling needed - client was already told the screen dimensions via SCREEN_INFO
+    // CRITICAL FIX: Ensure region doesn't exceed source dimensions
+    region_width = std::min(region_width, (int)src_width);
+    region_height = std::min(region_height, (int)src_height);
+    
+    // Ensure region is at least 1 pixel
+    region_width = std::max(region_width, 1);
+    region_height = std::max(region_height, 1);
+
+    // Center point from mouse position
     int center_x = zoom.center_x;
     int center_y = zoom.center_y;
 
-    /*std::cerr << "[ZOOM] Applying zoom: level=" << zoom.zoom_level
-              << " center=(" << center_x << "," << center_y << ")"
-              << " follow_mouse=" << zoom.follow_mouse << "\n";*/
-
-    // Calculate source region
+    // Calculate source region with proper bounds
     int src_x = center_x - region_width / 2;
     int src_y = center_y - region_height / 2;
 
-    // Clamp to screen bounds
+    // Now safe to clamp (upper bound is guaranteed non-negative)
     src_x = std::clamp(src_x, 0, (int)src_width - region_width);
     src_y = std::clamp(src_y, 0, (int)src_height - region_height);
 
@@ -4647,7 +4814,7 @@ static void apply_zoom_transform(
     dst_height = zoom.view_height;
     dst_stride = dst_width * 4; // BGRA
 
-    dst_data.resize(dst_height * dst_stride);
+    dst_data.resize((size_t)dst_height * (size_t)dst_stride);
 
     // High-quality bilinear interpolation zoom
     for (uint32_t dy = 0; dy < dst_height; dy++)
@@ -4671,14 +4838,30 @@ static void apply_zoom_transform(
             sx0 = std::clamp(sx0, 0, (int)src_width - 1);
             sy0 = std::clamp(sy0, 0, (int)src_height - 1);
 
+            // CRITICAL FIX: Validate buffer access before dereferencing
+            size_t off00 = (size_t)sy0 * src_stride + (size_t)sx0 * 4;
+            size_t off10 = (size_t)sy0 * src_stride + (size_t)sx1 * 4;
+            size_t off01 = (size_t)sy1 * src_stride + (size_t)sx0 * 4;
+            size_t off11 = (size_t)sy1 * src_stride + (size_t)sx1 * 4;
+
+            // Ensure all offsets are within bounds (need 4 bytes for BGRA)
+            if (off00 + 4 > src_buffer_size || off10 + 4 > src_buffer_size ||
+                off01 + 4 > src_buffer_size || off11 + 4 > src_buffer_size) {
+                // Fill with black if out of bounds
+                uint8_t *dst = dst_data.data() + (size_t)dy * dst_stride + (size_t)dx * 4;
+                dst[0] = dst[1] = dst[2] = 0;
+                dst[3] = 255;
+                continue;
+            }
+
             // Sample 4 pixels
-            const uint8_t *p00 = src_data + sy0 * src_stride + sx0 * 4;
-            const uint8_t *p10 = src_data + sy0 * src_stride + sx1 * 4;
-            const uint8_t *p01 = src_data + sy1 * src_stride + sx0 * 4;
-            const uint8_t *p11 = src_data + sy1 * src_stride + sx1 * 4;
+            const uint8_t *p00 = src_data + off00;
+            const uint8_t *p10 = src_data + off10;
+            const uint8_t *p01 = src_data + off01;
+            const uint8_t *p11 = src_data + off11;
 
             // Interpolate each channel
-            uint8_t *dst = dst_data.data() + dy * dst_stride + dx * 4;
+            uint8_t *dst = dst_data.data() + (size_t)dy * dst_stride + (size_t)dx * 4;
             for (int c = 0; c < 4; c++)
             {
                 double top = p00[c] * (1.0 - fx) + p10[c] * fx;
@@ -4769,11 +4952,11 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
             conn->config.audio_sample_rate = 48000; // 48kHz
             // Microphone opus defaults
             conn->config.microphone_compress = 1;
-            conn->config.mic_bitrate = 64000;
-            conn->config.mic_opus_complexity = 5;
-            conn->config.mic_channels = 2;
-            conn->config.mic_opus_application = OPUS_APPLICATION_VOIP;
-            conn->config.mic_sample_rate = 48000;
+            conn->config.microphone_bitrate = 64000;
+            conn->config.microphone_opus_complexity = 5;
+            conn->config.microphone_channels = 2;
+            conn->config.microphone_opus_application = OPUS_APPLICATION_VOIP;
+            conn->config.microphone_sample_rate = 48000;
 
             clients[session_id] = conn;
             std::cerr << "[FRAME] Created new client session: " << session_id << "\n";
@@ -4866,11 +5049,18 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                         continue;
                     }
                     
+                    // Make defensive copy of buffer
                     local_frame = cap.back_buffer;
                     width = cap.width;
                     height = cap.height;
                     stride = cap.stride;
                     raw_format = cap.format;
+                    
+                    // Validate dimensions are sane
+                    if (!validate_frame_dimensions(width, height, stride)) {
+                        std::cerr << "[RENDER ERROR] Invalid frame dimensions from capture\n";
+                        continue;
+                    }
                 }
                 
                 // Apply zoom if enabled
@@ -4999,6 +5189,11 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                     std::cerr << "[RENDER] Warning: Empty rendered frame\n";
                     continue;
                 }
+
+                // Scale down/up
+                apply_client_resolution(
+                    rendered_buf, width, height, stride, pixel_fmt,
+                    config.requested_capture_width, config.requested_capture_height);
                 
                 // Build complete message with screen info
                 std::vector<uint8_t> info_msg;
@@ -5255,14 +5450,22 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
 
             if (n == sizeof(type))
             {
-                if (type == MessageType::CLIENT_CONFIG)
-                {
+                if (type == MessageType::CLIENT_CONFIG) {
                     ClientConfig new_config;
                     n = recv(client_socket, &new_config, sizeof(new_config), 0);
-                    if (n == sizeof(new_config))
-                    {
+                    if (n == sizeof(new_config)) {
                         std::lock_guard<std::mutex> lock(clients_mutex);
                         
+                        // Apply client's requested capture resolution
+                        if (new_config.requested_capture_width > 0 && 
+                            new_config.requested_capture_height > 0) {
+                            capture_width = new_config.requested_capture_width;
+                            capture_height = new_config.requested_capture_height;
+                            std::cerr << "[CONFIG] Client " << session_id 
+                                    << " requested capture resolution: "
+                                    << capture_width << "x" << capture_height << "\n";
+                        }
+                                                
                         // Check if audio opus config changed
                         bool audio_opus_changed =
                             (conn->config.audio_channels != new_config.audio_channels) ||
@@ -5271,10 +5474,10 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                             (conn->config.audio_compress != new_config.audio_compress);
 
                         // Check if mic opus config changed
-                        bool mic_opus_changed =
-                            (conn->config.mic_channels != new_config.mic_channels) ||
-                            (conn->config.mic_opus_application != new_config.mic_opus_application) ||
-                            (conn->config.mic_sample_rate != new_config.mic_sample_rate) ||
+                        bool microphone_opus_changed =
+                            (conn->config.microphone_channels != new_config.microphone_channels) ||
+                            (conn->config.microphone_opus_application != new_config.microphone_opus_application) ||
+                            (conn->config.microphone_sample_rate != new_config.microphone_sample_rate) ||
                             (conn->config.microphone_compress != new_config.microphone_compress);
 
                         conn->config = new_config;
@@ -5285,7 +5488,7 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                                   << " detail=" << (int)new_config.detail_level
                                   << " quality=" << (int)new_config.quality 
                                   << " audio_compress=" << (int)new_config.audio_compress
-                                  << " mic_compress=" << (int)new_config.microphone_compress << "\n";
+                                  << " microphone_compress=" << (int)new_config.microphone_compress << "\n";
 
                         bool old_follow = focus_tracker.follow_focus.load();
                         bool new_follow = new_config.follow_focus != 0;
@@ -5339,33 +5542,33 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                         }
 
                         // Reinitialize mic opus decoder if needed (server decodes received mic data)
-                        if (new_config.microphone_compress && (mic_opus_changed || !conn->mic_opus_decoder))
+                        if (new_config.microphone_compress && (microphone_opus_changed || !conn->microphone_opus_decoder))
                         {
-                            if (conn->mic_opus_decoder)
+                            if (conn->microphone_opus_decoder)
                             {
-                                opus_decoder_destroy(conn->mic_opus_decoder);
-                                conn->mic_opus_decoder = nullptr;
+                                opus_decoder_destroy(conn->microphone_opus_decoder);
+                                conn->microphone_opus_decoder = nullptr;
                             }
 
                             std::cerr << "[CONFIG] Initializing mic opus decoder: "
-                                      << new_config.mic_sample_rate << "Hz "
-                                      << new_config.mic_channels << "ch\n";
+                                      << new_config.microphone_sample_rate << "Hz "
+                                      << new_config.microphone_channels << "ch\n";
                             int error;
-                            conn->mic_opus_decoder = opus_decoder_create(
-                                new_config.mic_sample_rate,
-                                new_config.mic_channels,
+                            conn->microphone_opus_decoder = opus_decoder_create(
+                                new_config.microphone_sample_rate,
+                                new_config.microphone_channels,
                                 &error);
                             if (error != OPUS_OK)
                             {
                                 std::cerr << "[CONFIG] Failed to create mic Opus decoder: "
                                           << opus_strerror(error) << "\n";
-                                conn->mic_opus_decoder = nullptr;
+                                conn->microphone_opus_decoder = nullptr;
                             }
                         }
-                        else if (!new_config.microphone_compress && conn->mic_opus_decoder)
+                        else if (!new_config.microphone_compress && conn->microphone_opus_decoder)
                         {
-                            opus_decoder_destroy(conn->mic_opus_decoder);
-                            conn->mic_opus_decoder = nullptr;
+                            opus_decoder_destroy(conn->microphone_opus_decoder);
+                            conn->microphone_opus_decoder = nullptr;
                         }
 
                         std::cerr << "[CONFIG] Update for session " << session_id << "\n";
@@ -5728,6 +5931,10 @@ int main(int argc, char **argv)
         .scan<'i', int>()
         .help("Default capture FPS");
 
+    program.add_argument("-R", "--capture-resolution")
+        .default_value(std::string("auto"))
+        .help("Capture resolution: auto or WxH (e.g., 1920x1080)");
+
     program.add_argument("-n", "--no-video")
         .default_value(false)
         .implicit_value(true)
@@ -5768,6 +5975,15 @@ int main(int argc, char **argv)
     {
         std::cerr << program;
         return 1;
+    }
+
+    std::string capture_resolution = program.get<std::string>("--capture-resolution");
+    if (capture_resolution != "auto") {
+        size_t x_pos = capture_resolution.find('x');
+        if (x_pos != std::string::npos) {
+            capture_width = std::stoul(capture_resolution.substr(0, x_pos));
+            capture_height = std::stoul(capture_resolution.substr(x_pos + 1));
+        }
     }
 
     std::string backend_str = program.get<std::string>("--capture-backend");

@@ -33,6 +33,8 @@
 #include <sys/select.h>
 #include <linux/fb.h>
 #include <sys/mman.h>
+#include <emmintrin.h>  // SSE2
+#include <immintrin.h>  // AVX2
 
 // Opus encoders/decoders - separate for mic (client->server) and audio (server->client)
 static OpusEncoder *mic_opus_encoder = nullptr;   // For encoding microphone data to send
@@ -252,8 +254,6 @@ struct ClientConfig
     uint8_t render_device;
     uint8_t quality;
     double rotation_angle;
-    uint8_t capture_quality;     // Server-side capture quality: 0-100 (100=native res)
-    double client_scale;         // Additional client-side scale: 0.1-2.0
     // Audio opus settings (server->client)
     int audio_sample_rate = 48000;
     int audio_channels = 2;
@@ -266,6 +266,8 @@ struct ClientConfig
     int mic_opus_complexity = 5;
     int mic_bitrate = 64000; // in bps
     int mic_opus_application = OPUS_APPLICATION_VOIP;
+    uint32_t requested_capture_width;   // 0 = native
+    uint32_t requested_capture_height;  // 0 = native
 };
 
 struct ZoomState
@@ -2577,118 +2579,262 @@ static void input_thread()
     std::cerr << "[INPUT] Thread stopped\n";
 }
 
-// Framebuffer rendering function for client-side /dev/fb0 display
-static void render_to_framebuffer(const std::vector<uint8_t> &data)
+// Framebuffer rendering - persistent state to avoid open/mmap every frame
+static int fb_fd = -1;
+static uint8_t *fb_mem = nullptr;
+static size_t fb_size = 0;
+static uint32_t fb_width = 0, fb_height = 0, fb_bpp = 0, fb_line_length = 0;
+
+static void init_framebuffer()
 {
-    if (data.size() < 8) {
-        std::cerr << "[FRAMEBUFFER] Invalid data size\n";
-        return;
-    }
-
-    // Parse header: width (4 bytes) + height (4 bytes) + RGB24 data
-    uint32_t img_width = *reinterpret_cast<const uint32_t*>(&data[0]);
-    uint32_t img_height = *reinterpret_cast<const uint32_t*>(&data[4]);
+    if (fb_fd >= 0) return;  // Already initialized
     
-    size_t expected_size = 8 + (img_width * img_height * 3);
-    if (data.size() != expected_size) {
-        std::cerr << "[FRAMEBUFFER] Data size mismatch: got " << data.size() 
-                  << " expected " << expected_size << "\n";
-        return;
-    }
-
-    // Open framebuffer device
-    int fb_fd = open("/dev/fb0", O_RDWR);
+    fb_fd = open("/dev/fb0", O_RDWR);
     if (fb_fd < 0) {
         std::cerr << "[FRAMEBUFFER] Failed to open /dev/fb0: " << strerror(errno) << "\n";
         return;
     }
 
-    // Get framebuffer info
     struct fb_var_screeninfo vinfo;
     struct fb_fix_screeninfo finfo;
     
     if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) < 0) {
         std::cerr << "[FRAMEBUFFER] Failed to get variable screen info\n";
         close(fb_fd);
+        fb_fd = -1;
         return;
     }
     
     if (ioctl(fb_fd, FBIOGET_FSCREENINFO, &finfo) < 0) {
         std::cerr << "[FRAMEBUFFER] Failed to get fixed screen info\n";
         close(fb_fd);
+        fb_fd = -1;
         return;
     }
 
-    uint32_t fb_width = vinfo.xres;
-    uint32_t fb_height = vinfo.yres;
-    uint32_t fb_bpp = vinfo.bits_per_pixel / 8;
-    uint32_t fb_line_length = finfo.line_length;
-    size_t fb_size = fb_line_length * fb_height;
+    fb_width = vinfo.xres;
+    fb_height = vinfo.yres;
+    fb_bpp = vinfo.bits_per_pixel / 8;
+    fb_line_length = finfo.line_length;
+    fb_size = fb_line_length * fb_height;
 
-    // Map framebuffer to memory
-    uint8_t *fb_mem = (uint8_t *)mmap(nullptr, fb_size, PROT_READ | PROT_WRITE, 
-                                       MAP_SHARED, fb_fd, 0);
+    fb_mem = (uint8_t *)mmap(nullptr, fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, fb_fd, 0);
     if (fb_mem == MAP_FAILED) {
         std::cerr << "[FRAMEBUFFER] Failed to mmap framebuffer\n";
         close(fb_fd);
+        fb_fd = -1;
+        fb_mem = nullptr;
         return;
     }
+    
+    std::cerr << "[FRAMEBUFFER] Initialized: " << fb_width << "x" << fb_height 
+              << " " << (fb_bpp * 8) << "bpp\n";
+}
 
-    // Determine target size: downscale to fit framebuffer if needed
-    uint32_t target_width = std::min(img_width, fb_width);
-    uint32_t target_height = std::min(img_height, fb_height);
+static void cleanup_framebuffer()
+{
+    if (fb_mem && fb_mem != MAP_FAILED) {
+        munmap(fb_mem, fb_size);
+        fb_mem = nullptr;
+    }
+    if (fb_fd >= 0) {
+        close(fb_fd);
+        fb_fd = -1;
+    }
+}
 
-    // Calculate centering offset
-    int offset_x = (int)((int)fb_width - (int)target_width) / 2;
-    int offset_y = (int)((int)fb_height - (int)target_height) / 2;
+static void convert_rgb24_to_bgra32_simd(const uint8_t* src, uint32_t* dst, size_t pixel_count)
+{
+#ifdef __AVX2__
+    // AVX2 path - process 8 pixels at once
+    size_t i = 0;
+    for (; i + 8 <= pixel_count; i += 8) {
+        // Load 24 bytes (8 RGB pixels)
+        // RGB layout: R0 G0 B0 R1 G1 B1 R2 G2 B2 R3 G3 B3 R4 G4 B4 R5 G5 B5 R6 G6 B6 R7 G7 B7
+        __m256i rgb = _mm256_loadu_si256((__m256i*)(src + i * 3));
+        
+        // Shuffle to BGRA format (this is complex, use lookup tables or scalar for simplicity)
+        // For now, fall back to SSE2 or scalar for the shuffle
+        // This is a placeholder - proper AVX2 RGB->BGRA is complex
+        
+        // Fallback to scalar for these 8 pixels
+        for (size_t j = 0; j < 8 && (i + j) < pixel_count; j++) {
+            const uint8_t* p = src + (i + j) * 3;
+            dst[i + j] = ((uint32_t)p[2]) |       // B
+                        ((uint32_t)p[1] << 8) |   // G
+                        ((uint32_t)p[0] << 16) |  // R
+                        0xFF000000;               // A
+        }
+    }
+    
+    // Handle remaining pixels
+    for (; i < pixel_count; i++) {
+        const uint8_t* p = src + i * 3;
+        dst[i] = ((uint32_t)p[2]) |
+                ((uint32_t)p[1] << 8) |
+                ((uint32_t)p[0] << 16) |
+                0xFF000000;
+    }
+    
+#elif defined(__SSE2__)
+    // SSE2 path - process 4 pixels at once
+    size_t i = 0;
+    for (; i + 4 <= pixel_count; i += 4) {
+        // Load 12 bytes and convert to 4 BGRA pixels
+        const uint8_t* p0 = src + i * 3;
+        const uint8_t* p1 = p0 + 3;
+        const uint8_t* p2 = p1 + 3;
+        const uint8_t* p3 = p2 + 3;
+        
+        uint32_t bgra[4] = {
+            ((uint32_t)p0[2]) | ((uint32_t)p0[1] << 8) | ((uint32_t)p0[0] << 16) | 0xFF000000,
+            ((uint32_t)p1[2]) | ((uint32_t)p1[1] << 8) | ((uint32_t)p1[0] << 16) | 0xFF000000,
+            ((uint32_t)p2[2]) | ((uint32_t)p2[1] << 8) | ((uint32_t)p2[0] << 16) | 0xFF000000,
+            ((uint32_t)p3[2]) | ((uint32_t)p3[1] << 8) | ((uint32_t)p3[0] << 16) | 0xFF000000
+        };
+        
+        __m128i pixels = _mm_loadu_si128((__m128i*)bgra);
+        _mm_storeu_si128((__m128i*)(dst + i), pixels);
+    }
+    
+    // Handle remaining pixels
+    for (; i < pixel_count; i++) {
+        const uint8_t* p = src + i * 3;
+        dst[i] = ((uint32_t)p[2]) |
+                ((uint32_t)p[1] << 8) |
+                ((uint32_t)p[0] << 16) |
+                0xFF000000;
+    }
+    
+#else
+    // Scalar fallback - but optimized with single 32-bit writes
+    for (size_t i = 0; i < pixel_count; i++) {
+        const uint8_t* p = src + i * 3;
+        dst[i] = ((uint32_t)p[2]) |       // B
+                ((uint32_t)p[1] << 8) |   // G
+                ((uint32_t)p[0] << 16) |  // R
+                0xFF000000;               // A
+    }
+#endif
+}
 
-    // Clear framebuffer (black background)
-    memset(fb_mem, 0, fb_size);
+static void render_to_framebuffer(const std::vector<uint8_t>& data)
+{
+    if (data.size() < 8) return;
 
-    // Copy (with optional downscale) RGB24 data to framebuffer
-    const uint8_t *rgb_data = data.data() + 8;
+    const uint32_t img_width  = *reinterpret_cast<const uint32_t*>(&data[0]);
+    const uint32_t img_height = *reinterpret_cast<const uint32_t*>(&data[4]);
+    const size_t expected_size = 8ull + (size_t)img_width * img_height * 3;
 
-    for (uint32_t y = 0; y < target_height; y++) {
-        // Map framebuffer row to source row (nearest-neighbor)
-        uint32_t src_y = (uint64_t)y * img_height / target_height;
-        for (uint32_t x = 0; x < target_width; x++) {
-            uint32_t src_x = (uint64_t)x * img_width / target_width;
+    if (data.size() != expected_size) return;
 
-            int fb_x = offset_x + (int)x;
-            int fb_y = offset_y + (int)y;
-            if (fb_x < 0 || fb_y < 0 || fb_x >= (int)fb_width || fb_y >= (int)fb_height)
-                continue;
+    if (fb_fd < 0 || !fb_mem) {
+        init_framebuffer();
+        if (fb_fd < 0 || !fb_mem) return;
+    }
 
-            const uint8_t *src_pixel = &rgb_data[(src_y * img_width + src_x) * 3];
-            uint8_t *dst_pixel = fb_mem + fb_y * fb_line_length + fb_x * fb_bpp;
+    const uint8_t* rgb = data.data() + 8;
 
-            if (fb_bpp == 4) {
-                // Assume BGRA/XBGR layout in framebuffer
-                dst_pixel[0] = src_pixel[2];  // B
-                dst_pixel[1] = src_pixel[1];  // G
-                dst_pixel[2] = src_pixel[0];  // R
-                dst_pixel[3] = 255;           // A
-            } else if (fb_bpp == 3) {
-                dst_pixel[0] = src_pixel[2];
-                dst_pixel[1] = src_pixel[1];
-                dst_pixel[2] = src_pixel[0];
-            } else if (fb_bpp == 2) {
-                // RGB565 fallback
-                uint16_t r = src_pixel[0] >> 3;
-                uint16_t g = src_pixel[1] >> 2;
-                uint16_t b = src_pixel[2] >> 3;
-                uint16_t pixel = (r << 11) | (g << 5) | b;
-                *reinterpret_cast<uint16_t*>(dst_pixel) = pixel;
+    if (img_width == fb_width && img_height == fb_height) {
+        if (fb_bpp == 3) {
+            if (fb_line_length == img_width * 3) {
+                memcpy(fb_mem, rgb, img_width * img_height * 3);
+            } else {
+                for (uint32_t y = 0; y < img_height; ++y) {
+                    memcpy(fb_mem + y * fb_line_length,
+                           rgb + y * img_width * 3,
+                           img_width * 3);
+                }
             }
+            return;
+        }
+
+        if (fb_bpp == 4) {
+            convert_rgb24_to_bgra32_simd(
+                rgb,
+                reinterpret_cast<uint32_t*>(fb_mem),
+                img_width * img_height
+            );
+            return;
+        }
+
+        if (fb_bpp == 2) {
+            uint16_t* dst = reinterpret_cast<uint16_t*>(fb_mem);
+            const size_t n = img_width * img_height;
+            for (size_t i = 0; i < n; ++i) {
+                const uint8_t* p = rgb + i * 3;
+                dst[i] = ((p[0] >> 3) << 11) |
+                         ((p[1] >> 2) << 5)  |
+                         (p[2] >> 3);
+            }
+            return;
         }
     }
 
-    // Unmap and close
-    munmap(fb_mem, fb_size);
-    close(fb_fd);
-    
-    std::cerr << "[FRAMEBUFFER] Rendered " << img_width << "x" << img_height 
-              << " to /dev/fb0 (" << fb_width << "x" << fb_height << ")\n";
+    const uint32_t target_w = std::min(img_width, fb_width);
+    const uint32_t target_h = std::min(img_height, fb_height);
+    const int off_x = ((int)fb_width  - (int)target_w) / 2;
+    const int off_y = ((int)fb_height - (int)target_h) / 2;
+
+    if (fb_bpp == 4) {
+        std::vector<uint8_t> row(target_w * 3);
+
+        for (uint32_t y = 0; y < target_h; ++y) {
+            const uint32_t src_y = (uint64_t)y * img_height / target_h;
+            const int fb_y = off_y + y;
+            if ((unsigned)fb_y >= fb_height) continue;
+
+            const uint8_t* src_row = rgb + src_y * img_width * 3;
+
+            for (uint32_t x = 0; x < target_w; ++x) {
+                const uint32_t src_x = (uint64_t)x * img_width / target_w;
+                const uint8_t* p = src_row + src_x * 3;
+                row[x*3+0] = p[0];
+                row[x*3+1] = p[1];
+                row[x*3+2] = p[2];
+            }
+
+            uint32_t* dst = reinterpret_cast<uint32_t*>(
+                fb_mem + fb_y * fb_line_length
+            );
+
+            convert_rgb24_to_bgra32_simd(
+                row.data(),
+                dst + off_x,
+                target_w
+            );
+        }
+        return;
+    }
+
+    for (uint32_t y = 0; y < target_h; ++y) {
+        const uint32_t src_y = (uint64_t)y * img_height / target_h;
+        const int fb_y = off_y + y;
+        if ((unsigned)fb_y >= fb_height) continue;
+
+        const uint8_t* src_row = rgb + src_y * img_width * 3;
+
+        for (uint32_t x = 0; x < target_w; ++x) {
+            const uint32_t src_x = (uint64_t)x * img_width / target_w;
+            const int fb_x = off_x + x;
+            if ((unsigned)fb_x >= fb_width) continue;
+
+            const uint8_t* p = src_row + src_x * 3;
+
+            if (fb_bpp == 3) {
+                uint8_t* dst = fb_mem + fb_y * fb_line_length + fb_x * 3;
+                dst[0] = p[2];
+                dst[1] = p[1];
+                dst[2] = p[0];
+            } else if (fb_bpp == 2) {
+                uint16_t* dst = (uint16_t*)
+                    (fb_mem + fb_y * fb_line_length) + fb_x;
+                *dst = ((p[0] >> 3) << 11) |
+                       ((p[1] >> 2) << 5)  |
+                       (p[2] >> 3);
+            }
+        }
+    }
 }
 
 int main(int argc, char **argv)
@@ -2719,6 +2865,10 @@ int main(int argc, char **argv)
     program.add_argument("-R", "--renderer")
         .default_value(std::string("braille"))
         .help("Renderer");
+
+    program.add_argument("-K", "--receive-resolution")
+        .default_value(std::string("native"))
+        .help("Receive resolution: native or WxH (e.g., 1920x1080)");
 
     program.add_argument("-S", "--scale")
         .default_value(1.0)
@@ -2901,6 +3051,21 @@ int main(int argc, char **argv)
     feature_microphone = !program.get<bool>("--no-microphone");
 
     exclusive_mode = program.get<bool>("--exclusive-input");
+
+    std::string recv_res = program.get<std::string>("--receive-resolution");
+    if (recv_res != "native") {
+        size_t x_pos = recv_res.find('x');
+        if (x_pos != std::string::npos) {
+            current_config.requested_capture_width = std::stoul(recv_res.substr(0, x_pos));
+            current_config.requested_capture_height = std::stoul(recv_res.substr(x_pos + 1));
+            std::cerr << "[CONFIG] Requesting receive resolution: " 
+                    << current_config.requested_capture_width << "x" 
+                    << current_config.requested_capture_height << "\n";
+        }
+    } else {
+        current_config.requested_capture_width = 0;
+        current_config.requested_capture_height = 0;
+    }
 
     std::cerr << "=== Client Features ===\n";
     std::cerr << "Video: " << (feature_video ? "ON" : "OFF") << "\n";
@@ -3209,13 +3374,32 @@ int main(int argc, char **argv)
                                                                                        : 3;
         
         // Query actual pixel dimensions if using sixel or kitty
-        if (current_config.renderer == 4 || current_config.renderer == 5)  // 4 = sixel, 5 = kitty
+        if (current_config.renderer == 4 || current_config.renderer == 5 || current_config.renderer == 6)
         {
-            query_terminal_geometry(current_config.renderer == 4, (int&)current_config.term_pixel_width, 
-                                  (int&)current_config.term_pixel_height);
-            const char *proto = (current_config.renderer == 4) ? "SIXEL" : "KITTY";
-            std::cerr << "[" << proto << "] Initial geometry: " << current_config.term_pixel_width << "x"
-                      << current_config.term_pixel_height << " pixels\n";
+            if (current_config.renderer == 6) {
+                // Framebuffer
+                int fb_fd = open("/dev/fb0", O_RDONLY);
+                if (fb_fd >= 0) {
+                    struct fb_var_screeninfo vinfo;
+                    if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) == 0) {
+                        current_config.term_pixel_width = vinfo.xres;
+                        current_config.term_pixel_height = vinfo.yres;
+                        std::cerr << "[CONFIG] Framebuffer dimensions: " 
+                                << vinfo.xres << "x" << vinfo.yres << "\n";
+                    } else {
+                        // Fallback
+                        current_config.term_pixel_width = 1920;
+                        current_config.term_pixel_height = 1080;
+                        std::cerr << "[CONFIG] Could not query FB, using 1920x1080\n";
+                    }
+                    close(fb_fd);
+                }
+            } else {
+                // Sixel or Kitty
+                query_terminal_geometry(current_config.renderer == 4, 
+                                    (int&)current_config.term_pixel_width, 
+                                    (int&)current_config.term_pixel_height);
+            }
         }
         else
         {
@@ -3225,8 +3409,6 @@ int main(int argc, char **argv)
         
         current_config.keep_aspect_ratio = program.get<bool>("--keep-aspect-ratio") ? 1 : 0;
         current_config.scale_factor = program.get<double>("--scale");
-        current_config.capture_quality = 100;  // Default: native resolution
-        current_config.client_scale = 1.0;     // Default: no additional scaling
         current_config.compress = program.get<bool>("--compress") ? 1 : 0;
         current_config.compression_level = program.get<int>("--compression-level");
         current_config.detail_level = std::clamp(program.get<int>("--detail-level"), 0, 100);
@@ -3369,9 +3551,16 @@ int main(int argc, char **argv)
             }
         }
 
-        if (screen_width.load() == 1920)
+        if (screen_width.load() == (int)-1 || screen_height.load() == (int)-1)
         {
             std::cerr << "[INIT] Warning: No screen info received, using default 1920x1080\n";
+            screen_width = 1920;
+            screen_height = 1080;
+        }
+        else
+        {
+            std::cerr << "[INIT] Screen info received: " << screen_width.load() 
+                    << "x" << screen_height.load() << "\n";
         }
     }
 
