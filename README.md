@@ -34,7 +34,7 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 - A client/server application:
   - Server runs on the Wayland host (captures screen & audio, performs rendering, injects input).
   - Client runs in a terminal (receives ANSI/Sixel frames, displays them, captures local input, sends it to server).
-- Rendering modes: braille, half-blocks, ASCII, sixels, kitty graphics, framebuffer (/dev/fb0), and hybrid (auto-select per cell).
+- Rendering modes: braille, half-blocks, ASCII, sixels, kitty graphics, framebuffer (/dev/fb0), and hybrid (auto-select per cell). Framebuffer mode allows direct writing to the Linux framebuffer device, enabling output to physical TTYs or virtual consoles without a terminal emulator.
 - Color modes: 16, 256, truecolor (24‑bit).
 - Optional CUDA acceleration for server-side rendering (NVIDIA only).
 - Sixel graphics support for direct pixel rendering on compatible terminals.
@@ -63,6 +63,11 @@ https://github.com/user-attachments/assets/a5edb86b-7e2e-4b95-b766-56ab9a1c43ee
    ```
 
 3. Run the client in your terminal (replace <host>):
+   - To use framebuffer mode (e.g., on a TTY/console), run the client as root or with permissions to access /dev/fb0, and specify the framebuffer renderer:
+     ```bash
+     sudo ./waytermirror_client -H <host> -R framebuffer
+     ```
+   - This will write frames directly to the framebuffer device, bypassing terminal emulators. Useful for full-screen mirroring on physical consoles.
    ```bash
    ./waytermirror_client -H <host>
    ```
@@ -177,6 +182,7 @@ Video & rendering
 | -F <n> | --fps <n> | Target client FPS / playback framerate | 30 |
 | -M <16\|256\|true> | --mode <16\|256\|true> | Color mode (16, 256, truecolor) | 256 |
 | -R <type> | --renderer <braille\|blocks\|ascii\|sixel\|kitty\|framebuffer\|hybrid> | Rendering method | braille |
+| framebuffer | Directly writes to /dev/fb0 (Linux framebuffer). Requires root or fb permissions. |
 | -r <cpu\|cuda> | --render-device <cpu\|cuda> | Prefer server-side renderer | cpu |
 | -d <0-100> | --detail-level <0-100> | Visual detail (0: fast/smooth, 100: sharp) | 50 |
 | -Q <0-100> | --quality <0-100> | Pattern search precision | 50 |
@@ -224,6 +230,12 @@ Zoom / viewport
   ```bash
   ./waytermirror_client -H 192.168.1.100 -r cuda -d 90 -Q 100 -M true -R braille
   ```
+
+- Framebuffer output (on a TTY/console):
+  ```bash
+  sudo ./waytermirror_client -H 192.168.1.100 -R framebuffer
+  ```
+  This will mirror the remote screen directly to the local framebuffer device (/dev/fb0). Useful for headless setups, kiosks, or when no terminal emulator is available.
 
 - Low bandwidth:
   ```bash
@@ -316,7 +328,7 @@ Quick usage tips
 - Renderer cycling: use **R** to cycle through all renderers (braille → blocks → ascii → hybrid → sixel → kitty → framebuffer) in sequence.
 - Sixel rendering: press **R** repeatedly to cycle to the sixel renderer for native pixel graphics display on compatible terminals (xterm, mlterm, foot, etc.). Sixels provide significantly higher visual fidelity than Unicode modes.
 - Kitty graphics: cycle to the kitty renderer for terminals that support kitty graphics protocol (e.g., WezTerm/foot/kitty) for faster pixel pushes than sixel on many terminals.
-- Framebuffer mode: cycle to framebuffer to write directly to /dev/fb0 on the client (TTY/console), bypassing terminal emulators entirely.
+- Framebuffer mode: cycle to framebuffer to write directly to /dev/fb0 on the client (TTY/console), bypassing terminal emulators entirely. Requires root or appropriate permissions. Useful for full-screen mirroring on physical consoles or embedded devices.
 - FPS adjustment: use **J** to increase and **K** to decrease FPS by 5 (range: 1-120).
 - Output cycling: press **`** (backtick) to cycle through outputs or toggle follow-focus mode.
 - Compression toggle: use **U** to quickly enable/disable LZ4 compression for video frames.
@@ -336,13 +348,13 @@ Default base port is 9999 (see -P / --port).
 
 ## Performance tuning
 - **Sixel graphics mode** (native pixel rendering):
-  - Best visual quality on compatible terminals
+  - Good visual quality on compatible terminals
   - Terminal example: `-R sixel` (use Ctrl+Alt+Shift+R to cycle)
   - Requires terminal sixel support (xterm, mlterm, foot, konsole, etc.)
   - Highest visual fidelity with direct pixel rendering
 
 - **Kitty graphics mode** (kitty graphics protocol):
-  - Fast pixel pushes on terminals with kitty graphics (kitty, WezTerm, foot)
+  - Best visual quality on kitty-compatible terminals
   - Terminal example: `-R kitty` (use Ctrl+Alt+Shift+R to cycle)
   - Often faster than sixel at similar quality; still full-color RGBA
 
@@ -350,6 +362,10 @@ Default base port is 9999 (see -P / --port).
   - Writes frames directly to the client framebuffer (TTY/console)
   - Use when no terminal emulator is available; run client as root or with fb permissions
   - Example: `-R framebuffer`
+  - Supports 32bpp framebuffers (BGRA). If your system uses a different format, you may need to adapt the code.
+  - Framebuffer device is auto-detected as /dev/fb0 by default.
+  - Useful for kiosks, embedded, or headless systems.
+  - Has terrible performance. Only use if you have no terminal emulator.
 
 - Maximum quality:
   - Server: render_device=cuda, renderer=braille, detail=100, quality=100, color=true

@@ -3282,12 +3282,11 @@ static std::vector<uint8_t> render_kitty(
     png_structp png_ptr = nullptr;
     png_infop info_ptr = nullptr;
     
-    struct MemoryWriter {
-        std::vector<uint8_t> *data;
-        static void write_fn(png_structp png_ptr, png_bytep data_ptr, png_size_t length) {
-            auto *vec = (std::vector<uint8_t>*)png_get_io_ptr(png_ptr);
-            vec->insert(vec->end(), data_ptr, data_ptr + length);
-        }
+    std::vector<uint8_t> *data;
+
+    static auto write_fn = [](png_structp png_ptr, png_bytep data, png_size_t length) {
+        std::vector<uint8_t> *png_data = static_cast<std::vector<uint8_t>*>(png_get_io_ptr(png_ptr));
+        png_data->insert(png_data->end(), data, data + length);
     };
     
     png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
@@ -3309,7 +3308,7 @@ static std::vector<uint8_t> render_kitty(
         return {};
     }
     
-    png_set_write_fn(png_ptr, &png_data, MemoryWriter::write_fn, nullptr);
+    png_set_write_fn(png_ptr, &png_data, write_fn, nullptr);
     
     int compression = 1 + (quality / 33);
     png_set_compression_level(png_ptr, compression);
