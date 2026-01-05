@@ -2623,6 +2623,23 @@ static void init_framebuffer()
         fb_fd = -1;
         return;
     }
+
+    vinfo.grayscale = 0;
+    vinfo.bits_per_pixel = 32;
+
+    if (ioctl(fb_fd, FBIOPUT_VSCREENINFO, &vinfo) < 0) {
+        std::cerr << "[FRAMEBUFFER] Failed to set variable screen info\n";
+        close(fb_fd);
+        fb_fd = -1;
+        return;
+    }
+
+    if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) < 0) {
+        std::cerr << "[FRAMEBUFFER] Failed to re-get variable screen info\n";
+        close(fb_fd);
+        fb_fd = -1;
+        return;
+    }
     
     if (ioctl(fb_fd, FBIOGET_FSCREENINFO, &finfo) < 0) {
         std::cerr << "[FRAMEBUFFER] Failed to get fixed screen info\n";
@@ -2740,13 +2757,19 @@ static inline void fast_memcpy_simd(void* __restrict__ dst,
     }
 #endif
     
-    for (; i < size; ++i) {
-        d[i] = s[i];
-    }
+    memcpy(d + i, s + i, size - i); // Copy remaining bytes
 }
 
 static void render_to_framebuffer(const std::vector<uint8_t>& data)
 {
+    if (fb_fd < 0) {
+        init_framebuffer();
+        if (fb_fd < 0) {
+            std::cerr << "[FRAMEBUFFER] Cannot render: framebuffer not initialized\n";
+            return;
+        }
+    }
+
     if (data.size() < 8 || !fb_mmap) return;
 
     const uint32_t img_width  = *reinterpret_cast<const uint32_t*>(&data[0]);
@@ -2754,9 +2777,6 @@ static void render_to_framebuffer(const std::vector<uint8_t>& data)
     const size_t expected_size = 8ull + (size_t)img_width * img_height * 3;
 
     if (data.size() != expected_size) return;
-
-    std::cerr << "[FRAMEBUFFER] Rendering image " << img_width << "x" << img_height << " to framebuffer "
-              << fb_width << "x" << fb_height << " " << (fb_bpp * 8) << "bpp\n";
 
     const uint8_t* rgb = data.data() + 8;
 
@@ -3772,6 +3792,7 @@ int main(int argc, char **argv)
             {
                 // Renderer 6 = framebuffer - write to /dev/fb0 instead of terminal
                 if (current_config.renderer == 6) {
+                    std::cerr << "[FRAMEBUFFER] Rendering to framebuffer\n";
                     render_to_framebuffer(rendered);
                 } else {
                     std::cout << "\033[H" << std::flush;
@@ -3867,6 +3888,8 @@ int main(int argc, char **argv)
         opus_decoder_destroy(audio_opus_decoder);
         audio_opus_decoder = nullptr;
     }
+
+    cleanup_framebuffer();
 
     std::cerr << "[EXIT] Shutdown complete.\n";
     return 0;
