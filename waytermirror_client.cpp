@@ -2720,51 +2720,51 @@ int main(int argc, char **argv)
         .help("Rotation angle (degrees): 0...360");
 
     // Audio opus quality options
-    program.add_argument("--audio-sample-rate")
+    program.add_argument("-u", "--audio-sample-rate")
         .default_value(48000)
         .scan<'i', int>()
         .help("Audio opus sample rate (Hz)");
 
-    program.add_argument("--audio-channels")
+    program.add_argument("-v", "--audio-channels")
         .default_value(2)
         .scan<'i', int>()
         .help("Audio opus channels");
     
-    program.add_argument("--audio-bitrate")
+    program.add_argument("-b", "--audio-bitrate")
         .default_value(64)
         .scan<'i', int>()
         .help("Audio opus bitrate (kbps)");
 
-    program.add_argument("--audio-complexity")
+    program.add_argument("-y", "--audio-complexity")
         .default_value(5)
         .scan<'i', int>()
         .help("Opus audio complexity (0-10)");
 
-    program.add_argument("--audio-application")
+    program.add_argument("-w", "--audio-application")
         .default_value(std::string("audio"))
         .help("Opus audio application: voip, audio, lowdelay");
 
     // Microphone opus settings
-    program.add_argument("--mic-sample-rate")
+    program.add_argument("-U", "--microphone-sample-rate")
         .default_value(48000)
         .scan<'i', int>()
         .help("Microphone opus sample rate (Hz)");
-    program.add_argument("--mic-channels")
+    program.add_argument("-V", "--microphone-channels")
         .default_value(2)
         .scan<'i', int>()
         .help("Microphone opus channels");
 
-    program.add_argument("--mic-bitrate")
+    program.add_argument("-B", "--microphone-bitrate")
         .default_value(64)
         .scan<'i', int>()
         .help("Microphone opus bitrate (kbps)");
 
-    program.add_argument("--mic-complexity")
+    program.add_argument("-Y", "--microphone-complexity")
         .default_value(5)
         .scan<'i', int>()
         .help("Microphone opus complexity (0-10)");
 
-    program.add_argument("--mic-application")
+    program.add_argument("-W", "--microphone-application")
         .default_value(std::string("voip"))
         .help("Microphone opus application: voip, audio, lowdelay");
 
@@ -3131,11 +3131,11 @@ int main(int argc, char **argv)
 
         // Microphone compress settings
         current_config.microphone_compress = program.get<bool>("--microphone-compress") ? 1 : 0;
-        current_config.mic_sample_rate = program.get<int>("--mic-sample-rate");
-        current_config.mic_channels = program.get<int>("--mic-channels");
-        current_config.mic_bitrate = program.get<int>("--mic-bitrate") * 1000; // kbps to bps
-        current_config.mic_opus_complexity = std::clamp(program.get<int>("--mic-complexity"), 0, 10);
-        current_config.mic_opus_application = parse_opus_app(program.get<std::string>("--mic-application"));
+        current_config.mic_sample_rate = program.get<int>("--microphone-sample-rate");
+        current_config.mic_channels = program.get<int>("--microphone-channels");
+        current_config.mic_bitrate = program.get<int>("--microphone-bitrate") * 1000; // kbps to bps
+        current_config.mic_opus_complexity = std::clamp(program.get<int>("--microphone-complexity"), 0, 10);
+        current_config.mic_opus_application = parse_opus_app(program.get<std::string>("--microphone-application"));
 
         // Update global opus settings for encoding/decoding
         mic_opus_sample_rate = current_config.mic_sample_rate;
