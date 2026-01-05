@@ -2931,6 +2931,10 @@ static void render_to_framebuffer(const std::vector<uint8_t>& data)
 
 int main(int argc, char **argv)
 {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+    std::cout.tie(nullptr);
+
     argparse::ArgumentParser program("waytermirror_client");
     program.add_argument("-H", "--host")
         .required()
