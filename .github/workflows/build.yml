@@ -29,7 +29,9 @@ jobs:
           systemd \
           argparse \
           opus \
-          opusfile
+          opusfile \
+          libsixel \
+          libpng
 
     - uses: actions/checkout@v4
 
@@ -64,7 +66,9 @@ jobs:
           pkg-config \
           libargparse-dev \
           libopus-dev \
-          libopusfile-dev
+          libopusfile-dev \
+          libsixel-dev \
+          libpng-dev
 
     - uses: actions/checkout@v4
 
