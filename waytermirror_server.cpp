@@ -28,6 +28,11 @@
 #include <lz4.h>
 #include <lz4hc.h>
 #include <unistd.h>
+#include <sixel.h>
+#include <termios.h>
+#include <sys/ioctl.h>
+#include <sys/select.h>
+#include <png.h>
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
@@ -236,6 +241,8 @@ struct ClientConfig
     uint32_t fps;
     uint32_t term_width;
     uint32_t term_height;
+    uint32_t term_pixel_width;   // Actual terminal pixel dimensions (for sixel)
+    uint32_t term_pixel_height;  // Actual terminal pixel dimensions (for sixel)
     uint8_t color_mode;
     uint8_t renderer;
     uint8_t keep_aspect_ratio;
@@ -251,6 +258,8 @@ struct ClientConfig
     uint8_t render_device;
     uint8_t quality;
     double rotation_angle;
+    uint8_t capture_quality;     // Server-side capture quality: 0-100 (100=native res)
+    double client_scale;         // Additional client-side scale: 0.1-2.0
     // Audio opus settings (server->client)
     int audio_sample_rate = 48000;
     int audio_channels = 2;
@@ -3002,200 +3011,375 @@ static std::string render_hybrid(
 }
 
 // Sixel renderer - uses native sixel graphics protocol for direct pixel rendering
-static std::string render_sixel(
+static std::vector<uint8_t> render_sixel(
     const uint8_t *frame_data,
     uint32_t frame_width,
     uint32_t frame_height,
     uint32_t frame_stride,
     int term_width,
     int term_height,
+    int term_pixel_width,
+    int term_pixel_height,
     ColorMode mode,
     bool keep_aspect_ratio,
     double scale_factor,
     uint8_t detail_level,
-    uint8_t threshold_steps,
+    uint8_t quality,
     double rotation_angle,
     PixelFormat pixel_format = FMT_BGRx)
 {
     if (!frame_data || frame_width == 0 || frame_height == 0)
-        return "";
-
-    std::ostringstream out;
+        return {};
 
     // Get rotated dimensions
     uint32_t rot_width, rot_height;
     get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
 
-    // Calculate target dimensions
-    int target_width = term_width * 8;  // Assume 8 pixels per character width
-    int target_height = term_height * 16; // Assume 16 pixels per character height
+    // Use client's actual pixel dimensions if available (from query_terminal_geometry)
+    // Otherwise fallback to estimating from cell dimensions (10x20 pixels per cell)
+    int terminal_pixel_width = (term_pixel_width > 0) ? term_pixel_width : term_width * 10;
+    int terminal_pixel_height = (term_pixel_height > 0) ? term_pixel_height : term_height * 20;
     
     int sixel_width, sixel_height;
+    
     if (keep_aspect_ratio)
     {
         double src_aspect = (double)rot_width / rot_height;
-        double term_aspect = (double)target_width / target_height;
-
-        if (src_aspect > term_aspect)
-        {
-            sixel_width = target_width;
+        double term_aspect = (double)terminal_pixel_width / terminal_pixel_height;
+        
+        // Fit within terminal while preserving aspect ratio
+        if (src_aspect > term_aspect) {
+            // Image is wider - fit to width
+            sixel_width = terminal_pixel_width;
             sixel_height = (int)(sixel_width / src_aspect);
-        }
-        else
-        {
-            sixel_height = target_height;
+        } else {
+            // Image is taller - fit to height
+            sixel_height = terminal_pixel_height;
             sixel_width = (int)(sixel_height * src_aspect);
         }
+        
+        // Apply scale factor for user adjustment
+        sixel_width = (int)(sixel_width * scale_factor);
+        sixel_height = (int)(sixel_height * scale_factor);
     }
     else
     {
-        sixel_width = (int)(rot_width * scale_factor);
-        sixel_height = (int)(rot_height * scale_factor);
+        // Without aspect ratio, use terminal size with scale factor
+        sixel_width = (int)(terminal_pixel_width * scale_factor);
+        sixel_height = (int)(terminal_pixel_height * scale_factor);
     }
-
-    // Sixel height must be multiple of 6
-    sixel_height = ((sixel_height + 5) / 6) * 6;
-
-    // Build color palette (256 colors max)
-    std::map<uint32_t, int> color_to_index;
-    std::vector<uint32_t> palette;  // Store as RGB888
     
-    // Sample and quantize colors
+        
+    std::cerr << "[SIXEL] Encoding " << sixel_width << "x" << sixel_height 
+              << " from source " << rot_width << "x" << rot_height 
+              << " (scale=" << scale_factor << ", quality=" << (int)quality 
+              << ", detail=" << (int)detail_level << ")\n";
+
+    // Build RGB888 image with rotation and scaling applied
+    std::vector<uint8_t> rgb_data(sixel_width * sixel_height * 3);
+    
     for (int y = 0; y < sixel_height; y++)
     {
         for (int x = 0; x < sixel_width; x++)
         {
-            uint8_t r, g, b;
-            
+            // Bilinear sampling for better quality
             double rot_x = (double)x * rot_width / sixel_width;
             double rot_y = (double)y * rot_height / sixel_height;
             
+            uint8_t r, g, b;
             sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
                                (int)rot_x, (int)rot_y, rot_width, rot_height, 
                                rotation_angle, r, g, b, pixel_format);
             
-            uint32_t rgb = (r << 16) | (g << 8) | b;
-            
-            if (color_to_index.find(rgb) == color_to_index.end())
-            {
-                if (palette.size() < 256)
-                {
-                    color_to_index[rgb] = palette.size();
-                    palette.push_back(rgb);
-                }
-            }
+            int idx = (y * sixel_width + x) * 3;
+            rgb_data[idx + 0] = r;
+            rgb_data[idx + 1] = g;
+            rgb_data[idx + 2] = b;
         }
     }
 
-    // Start sixel sequence
-    out << "\033Pq";  // DCS - Device Control String, 'q' for sixel
+    // Use libsixel to encode
+    sixel_output_t *output = nullptr;
+    sixel_dither_t *dither = nullptr;
+    std::vector<uint8_t> output_buffer;
+
+    SIXELSTATUS status = sixel_output_new(&output, 
+        [](char *data, int size, void *priv) -> int {
+            auto *vec = static_cast<std::vector<uint8_t>*>(priv);
+            vec->insert(vec->end(), data, data + size);
+            return size;
+        }, 
+        &output_buffer, nullptr);
     
-    // Define color palette
-    for (size_t i = 0; i < palette.size(); i++)
+    if (SIXEL_FAILED(status))
     {
-        uint32_t rgb = palette[i];
-        int r = (rgb >> 16) & 0xFF;
-        int g = (rgb >> 8) & 0xFF;
-        int b = rgb & 0xFF;
-        
-        // Convert to 0-100 scale
-        int r_sixel = (r * 100) / 255;
-        int g_sixel = (g * 100) / 255;
-        int b_sixel = (b * 100) / 255;
-        
-        out << "#" << i << ";2;" << r_sixel << ";" << g_sixel << ";" << b_sixel;
+        std::cerr << "[SIXEL] Failed to create output\n";
+        return {};
     }
 
-    // Render sixel data (process 6 rows at a time)
-    for (int band = 0; band < sixel_height; band += 6)
+    // Configure output options based on quality setting
+    // quality: 0-100 where 100 is best quality (slower), 0 is fastest
+    if (quality >= 80)
     {
-        // Process each color in this band
-        for (size_t color_idx = 0; color_idx < palette.size(); color_idx++)
-        {
-            out << "#" << color_idx;  // Select color
-            
-            int repeat_count = 0;
-            int last_sixel = -1;
-            
-            for (int x = 0; x < sixel_width; x++)
-            {
-                // Build sixel byte for this column
-                int sixel_byte = 0;
-                
-                for (int dy = 0; dy < 6; dy++)
-                {
-                    int y = band + dy;
-                    if (y >= sixel_height) break;
-                    
-                    // Sample pixel
-                    uint8_t r, g, b;
-                    double rot_x = (double)x * rot_width / sixel_width;
-                    double rot_y = (double)y * rot_height / sixel_height;
-                    
-                    sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                       (int)rot_x, (int)rot_y, rot_width, rot_height,
-                                       rotation_angle, r, g, b, pixel_format);
-                    
-                    uint32_t rgb = (r << 16) | (g << 8) | b;
-                    
-                    if (color_to_index[rgb] == (int)color_idx)
-                    {
-                        sixel_byte |= (1 << dy);
-                    }
-                }
-                
-                // Use repeat count for compression
-                if (sixel_byte == last_sixel && repeat_count < 255)
-                {
-                    repeat_count++;
-                }
-                else
-                {
-                    if (repeat_count > 3)
-                    {
-                        out << "!" << repeat_count << (char)(63 + last_sixel);
-                    }
-                    else
-                    {
-                        for (int i = 0; i < repeat_count; i++)
-                        {
-                            out << (char)(63 + last_sixel);
-                        }
-                    }
-                    last_sixel = sixel_byte;
-                    repeat_count = 1;
-                }
-            }
-            
-            // Flush remaining
-            if (repeat_count > 0)
-            {
-                if (repeat_count > 3)
-                {
-                    out << "!" << repeat_count << (char)(63 + last_sixel);
-                }
-                else
-                {
-                    for (int i = 0; i < repeat_count; i++)
-                    {
-                        out << (char)(63 + last_sixel);
-                    }
-                }
-            }
-            
-            out << "$";  // Carriage return (stay on same sixel row)
+        sixel_output_set_encode_policy(output, SIXEL_ENCODEPOLICY_SIZE);
+    }
+    else if (quality >= 50)
+    {
+        sixel_output_set_encode_policy(output, SIXEL_ENCODEPOLICY_AUTO);
+    }
+    else
+    {
+        sixel_output_set_encode_policy(output, SIXEL_ENCODEPOLICY_FAST);
+    }
+    
+    // Create dither
+    int palette_size = 256;
+    
+    status = sixel_dither_new(&dither, palette_size, nullptr);
+    if (SIXEL_FAILED(status))
+    {
+        std::cerr << "[SIXEL] Failed to create dither\n";
+        sixel_output_unref(output);
+        return {};
+    }
+    
+    // Configure dithering based on detail level
+    // detail_level: 0-100 where 100 is maximum detail
+    int diffusion_type = SIXEL_DIFFUSE_NONE;
+    int sixel_quality = SIXEL_QUALITY_HIGH;
+    
+    if (detail_level >= 80)
+    {
+        diffusion_type = SIXEL_DIFFUSE_ATKINSON;  // High quality dithering
+        sixel_quality = SIXEL_QUALITY_FULL;       // Full quality palette
+    }
+    else if (detail_level >= 60)
+    {
+        diffusion_type = SIXEL_DIFFUSE_FS;        // Floyd-Steinberg dithering
+        sixel_quality = SIXEL_QUALITY_HIGH;
+    }
+    else if (detail_level >= 40)
+    {
+        diffusion_type = SIXEL_DIFFUSE_NONE;      // No dithering for speed
+        sixel_quality = SIXEL_QUALITY_HIGH;
+    }
+    else
+    {
+        diffusion_type = SIXEL_DIFFUSE_NONE;      // No dithering for speed
+        sixel_quality = SIXEL_QUALITY_LOW;
+    }
+    
+    sixel_dither_set_diffusion_type(dither, diffusion_type);
+    
+    // Initialize with RGB888 format (3 bytes per pixel, no stride)
+    sixel_dither_initialize(dither, rgb_data.data(), sixel_width, sixel_height,
+                           SIXEL_PIXELFORMAT_RGB888,
+                           SIXEL_LARGE_AUTO, SIXEL_REP_AUTO, sixel_quality);
+
+    // Encode to sixel
+    status = sixel_encode(rgb_data.data(), sixel_width, sixel_height,
+                         0, // depth (unused with RGB888)
+                         dither, output);
+    
+    sixel_dither_unref(dither);
+    sixel_output_unref(output);
+    
+    if (SIXEL_FAILED(status))
+    {
+        std::cerr << "[SIXEL] Encoding failed\n";
+        return {};
+    }
+ 
+    return output_buffer;
+}
+
+static std::vector<uint8_t> render_kitty(
+    const uint8_t *frame_data,
+    uint32_t frame_width,
+    uint32_t frame_height,
+    uint32_t frame_stride,
+    int term_width,
+    int term_height,
+    int term_pixel_width,
+    int term_pixel_height,
+    ColorMode mode,
+    bool keep_aspect_ratio,
+    double scale_factor,
+    uint8_t detail_level,
+    uint8_t quality,
+    double rotation_angle,
+    PixelFormat pixel_format)
+{
+    if (!frame_data || frame_width == 0 || frame_height == 0)
+        return {};
+
+    uint32_t rot_width, rot_height;
+    get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
+
+    int terminal_pixel_width = (term_pixel_width > 0) ? term_pixel_width : (term_width * 10);
+    int terminal_pixel_height = (term_pixel_height > 0) ? term_pixel_height : (term_height * 20);
+    
+    terminal_pixel_width = std::max(terminal_pixel_width, 320);
+    terminal_pixel_height = std::max(terminal_pixel_height, 240);
+    
+    int img_width, img_height;
+    
+    if (keep_aspect_ratio)
+    {
+        double src_aspect = (double)rot_width / rot_height;
+        double term_aspect = (double)terminal_pixel_width / terminal_pixel_height;
+        
+        if (src_aspect > term_aspect) {
+            img_width = terminal_pixel_width;
+            img_height = (int)(img_width / src_aspect);
+        } else {
+            img_height = terminal_pixel_height;
+            img_width = (int)(img_height * src_aspect);
         }
         
-        if (band + 6 < sixel_height)
+        img_width = (int)(img_width * scale_factor);
+        img_height = (int)(img_height * scale_factor);
+    }
+    else
+    {
+        img_width = (int)(terminal_pixel_width * scale_factor);
+        img_height = (int)(terminal_pixel_height * scale_factor);
+    }
+    
+    img_width = std::clamp(img_width, 32, 2048);
+    img_height = std::clamp(img_height, 32, 2048);
+    
+    /*std::cerr << "[KITTY] Encoding " << img_width << "x" << img_height 
+              << " from " << rot_width << "x" << rot_height 
+              << " (term: " << terminal_pixel_width << "x" << terminal_pixel_height << ")\n";*/
+
+    std::vector<uint8_t> rgba_data(img_width * img_height * 4);
+    
+    for (int y = 0; y < img_height; y++)
+    {
+        for (int x = 0; x < img_width; x++)
         {
-            out << "-";  // Line feed (move to next sixel row)
+            double rot_x = (double)x * rot_width / img_width;
+            double rot_y = (double)y * rot_height / img_height;
+            
+            uint8_t r, g, b;
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               (int)rot_x, (int)rot_y, rot_width, rot_height, 
+                               rotation_angle, r, g, b, pixel_format);
+            
+            int idx = (y * img_width + x) * 4;
+            rgba_data[idx + 0] = r;
+            rgba_data[idx + 1] = g;
+            rgba_data[idx + 2] = b;
+            rgba_data[idx + 3] = 255;
         }
     }
 
-    // End sixel sequence
-    out << "\033\\";  // ST - String Terminator
-
-    return out.str();
+    std::vector<uint8_t> png_data;
+    png_structp png_ptr = nullptr;
+    png_infop info_ptr = nullptr;
+    
+    struct MemoryWriter {
+        std::vector<uint8_t> *data;
+        static void write_fn(png_structp png_ptr, png_bytep data_ptr, png_size_t length) {
+            auto *vec = (std::vector<uint8_t>*)png_get_io_ptr(png_ptr);
+            vec->insert(vec->end(), data_ptr, data_ptr + length);
+        }
+    };
+    
+    png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+    if (!png_ptr) {
+        std::cerr << "[KITTY] Failed to create PNG write struct\n";
+        return {};
+    }
+    
+    info_ptr = png_create_info_struct(png_ptr);
+    if (!info_ptr) {
+        png_destroy_write_struct(&png_ptr, nullptr);
+        std::cerr << "[KITTY] Failed to create PNG info struct\n";
+        return {};
+    }
+    
+    if (setjmp(png_jmpbuf(png_ptr))) {
+        png_destroy_write_struct(&png_ptr, &info_ptr);
+        std::cerr << "[KITTY] PNG encoding error\n";
+        return {};
+    }
+    
+    png_set_write_fn(png_ptr, &png_data, MemoryWriter::write_fn, nullptr);
+    png_set_compression_level(png_ptr, std::clamp(quality / 20, 0, 9));
+    
+    png_set_IHDR(png_ptr, info_ptr, img_width, img_height, 8,
+                 PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+    
+    png_write_info(png_ptr, info_ptr);
+    
+    for (int y = 0; y < img_height; y++) {
+        png_write_row(png_ptr, &rgba_data[y * img_width * 4]);
+    }
+    
+    png_write_end(png_ptr, nullptr);
+    png_destroy_write_struct(&png_ptr, &info_ptr);
+    
+    if (png_data.empty() || png_data.size() < 8) {
+        std::cerr << "[KITTY] PNG encoding produced invalid data\n";
+        return {};
+    }
+    
+    if (png_data[0] != 0x89 || png_data[1] != 'P' || 
+        png_data[2] != 'N' || png_data[3] != 'G') {
+        std::cerr << "[KITTY] Invalid PNG signature\n";
+        return {};
+    }
+    
+    static const char base64_chars[] = 
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    
+    std::string base64_encoded;
+    base64_encoded.reserve(((png_data.size() + 2) / 3) * 4);
+    
+    for (size_t i = 0; i < png_data.size(); i += 3) {
+        size_t remaining = png_data.size() - i;
+        
+        uint32_t b = (static_cast<uint32_t>(png_data[i]) << 16);
+        if (remaining > 1) b |= (static_cast<uint32_t>(png_data[i + 1]) << 8);
+        if (remaining > 2) b |= static_cast<uint32_t>(png_data[i + 2]);
+        
+        base64_encoded += base64_chars[(b >> 18) & 0x3F];
+        base64_encoded += base64_chars[(b >> 12) & 0x3F];
+        base64_encoded += (remaining > 1) ? base64_chars[(b >> 6) & 0x3F] : '=';
+        base64_encoded += (remaining > 2) ? base64_chars[b & 0x3F] : '=';
+    }
+    
+    std::vector<uint8_t> result;
+    const size_t CHUNK_SIZE = 4096;
+    
+    if (base64_encoded.size() <= CHUNK_SIZE) {
+        std::string msg = "\033_Gf=100,a=T,t=d,q=2;" + base64_encoded + "\033\\";
+        result.assign(msg.begin(), msg.end());
+    } else {
+        for (size_t i = 0; i < base64_encoded.size(); i += CHUNK_SIZE) {
+            size_t chunk_size = std::min(CHUNK_SIZE, base64_encoded.size() - i);
+            bool is_last = (i + chunk_size >= base64_encoded.size());
+            
+            std::ostringstream chunk_msg;
+            chunk_msg << "\033_Gf=100,a=T,t=d,q=2";
+            if (!is_last) chunk_msg << ",m=1";
+            chunk_msg << ";";
+            chunk_msg << base64_encoded.substr(i, chunk_size);
+            chunk_msg << "\033\\";
+            
+            std::string chunk_str = chunk_msg.str();
+            result.insert(result.end(), chunk_str.begin(), chunk_str.end());
+        }
+    }
+    
+    /*std::cerr << "[KITTY] Encoded " << png_data.size() << " bytes PNG -> " 
+              << base64_encoded.size() << " bytes base64 -> " 
+              << result.size() << " bytes total\n";*/
+    
+    return result;
 }
 
 static void capture_thread(int output_index, int fps) {
@@ -4385,9 +4569,9 @@ static void apply_zoom_transform(
     int center_x = zoom.center_x;
     int center_y = zoom.center_y;
 
-    std::cerr << "[ZOOM] Applying zoom: level=" << zoom.zoom_level
+    /*std::cerr << "[ZOOM] Applying zoom: level=" << zoom.zoom_level
               << " center=(" << center_x << "," << center_y << ")"
-              << " follow_mouse=" << zoom.follow_mouse << "\n";
+              << " follow_mouse=" << zoom.follow_mouse << "\n";*/
 
     // Calculate source region
     int src_x = center_x - region_width / 2;
@@ -4658,6 +4842,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                     ? spa_to_pixelfmt(raw_format) 
                     : wl_shm_to_pixelfmt(raw_format);
                 
+                std::vector<uint8_t> rendered_buf;
                 std::string rendered;
                 switch (config.renderer) {
                     case 0:
@@ -4668,6 +4853,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                                 mode, keep_aspect_ratio, config.scale_factor, 
                                 config.detail_level, config.quality, config.rotation_angle,
                                 pixel_fmt);
+                            rendered_buf.assign(rendered.begin(), rendered.end());
                         } else {
                             rendered = render_braille(
                                 frame_to_render.data(), render_width, render_height, render_stride,
@@ -4675,6 +4861,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                                 mode, keep_aspect_ratio, config.scale_factor, 
                                 config.detail_level, config.quality, config.rotation_angle,
                                 pixel_fmt);
+                            rendered_buf.assign(rendered.begin(), rendered.end());
                         }
                         break;
                     case 1:
@@ -4684,6 +4871,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                             mode, keep_aspect_ratio, config.scale_factor, 
                             config.detail_level, config.quality, config.rotation_angle,
                             pixel_fmt);
+                            rendered_buf.assign(rendered.begin(), rendered.end());
                         break;
                     case 2:
                         rendered = render_ascii(
@@ -4692,14 +4880,33 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                             mode, keep_aspect_ratio, config.scale_factor, 
                             config.detail_level, config.quality, config.rotation_angle,
                             pixel_fmt);
+                            rendered_buf.assign(rendered.begin(), rendered.end());
                         break;
-                    case 4:
-                        rendered = render_sixel(
-                            frame_to_render.data(), render_width, render_height, render_stride,
-                            config.term_width, config.term_height,
-                            mode, keep_aspect_ratio, config.scale_factor, 
-                            config.detail_level, config.quality, config.rotation_angle,
-                            pixel_fmt);
+                    case 4: {
+                            rendered_buf = std::move(render_sixel(
+                                frame_to_render.data(), render_width, render_height, render_stride,
+                                config.term_width, config.term_height,
+                                config.term_pixel_width, config.term_pixel_height,
+                                mode, keep_aspect_ratio, config.scale_factor, 
+                                config.detail_level, config.quality, config.rotation_angle,
+                                pixel_fmt));
+                            
+                            // also write to /tmp/sixel_debug.bin for debugging
+                            std::ofstream debug_file("/tmp/sixel_debug.bin", std::ios::binary);
+                            debug_file.write(reinterpret_cast<const char *>(rendered_buf.data()), rendered_buf.size());
+                            debug_file.close();
+ 
+                        }
+                        break;
+                    case 5: {
+                            rendered_buf = std::move(render_kitty(
+                                frame_to_render.data(), render_width, render_height, render_stride,
+                                config.term_width, config.term_height,
+                                config.term_pixel_width, config.term_pixel_height,
+                                mode, keep_aspect_ratio, config.scale_factor, 
+                                config.detail_level, config.quality, config.rotation_angle,
+                                pixel_fmt));
+                        }
                         break;
                     case 3:
                     default:
@@ -4710,6 +4917,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                                 mode, keep_aspect_ratio, config.scale_factor, 
                                 config.detail_level, config.quality, config.rotation_angle,
                                 pixel_fmt);
+                            rendered_buf.assign(rendered.begin(), rendered.end());
                         } else {
                             rendered = render_hybrid(
                                 frame_to_render.data(), render_width, render_height, render_stride,
@@ -4717,11 +4925,12 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                                 mode, keep_aspect_ratio, config.scale_factor, 
                                 config.detail_level, config.quality, config.rotation_angle,
                                 pixel_fmt);
+                            rendered_buf.assign(rendered.begin(), rendered.end());
                         }
                         break;
                 }
                 
-                if (rendered.empty()) {
+                if (rendered_buf.empty()) {
                     std::cerr << "[RENDER] Warning: Empty rendered frame\n";
                     continue;
                 }
@@ -4754,12 +4963,12 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                     uncompressed.insert(uncompressed.end(), type_bytes, type_bytes + sizeof(msg_type));
                     
                     RenderedFrameHeader header;
-                    header.data_size = rendered.size();
+                    header.data_size = rendered_buf.size();
                     const uint8_t *header_bytes = reinterpret_cast<const uint8_t *>(&header);
                     uncompressed.insert(uncompressed.end(), header_bytes, header_bytes + sizeof(header));
                     
-                    const uint8_t *data_bytes = reinterpret_cast<const uint8_t *>(rendered.data());
-                    uncompressed.insert(uncompressed.end(), data_bytes, data_bytes + rendered.size());
+                    const uint8_t *data_bytes = reinterpret_cast<const uint8_t *>(rendered_buf.data());
+                    uncompressed.insert(uncompressed.end(), data_bytes, data_bytes + rendered_buf.size());
                     
                     std::vector<uint8_t> compressed = compress_frame(uncompressed, config.compression_level);
                     
@@ -4779,12 +4988,12 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                     frame_msg.insert(frame_msg.end(), type_bytes, type_bytes + sizeof(msg_type));
                     
                     RenderedFrameHeader header;
-                    header.data_size = rendered.size();
+                    header.data_size = rendered_buf.size();
                     const uint8_t *header_bytes = reinterpret_cast<const uint8_t *>(&header);
                     frame_msg.insert(frame_msg.end(), header_bytes, header_bytes + sizeof(header));
                     
-                    const uint8_t *data_bytes = reinterpret_cast<const uint8_t *>(rendered.data());
-                    frame_msg.insert(frame_msg.end(), data_bytes, data_bytes + rendered.size());
+                    const uint8_t *data_bytes = reinterpret_cast<const uint8_t *>(rendered_buf.data());
+                    frame_msg.insert(frame_msg.end(), data_bytes, data_bytes + rendered_buf.size());
                 }
                 
                 // Combine messages
@@ -5108,14 +5317,11 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
 
                         conn->zoom.enabled = zoom_config.enabled != 0;
                         conn->zoom.follow_mouse = zoom_config.follow_mouse != 0;
-                        conn->zoom.zoom_level = std::clamp(zoom_config.zoom_level, 1.0, 10.0);
+                        conn->zoom.zoom_level = std::max(zoom_config.zoom_level, 1.0);
                         conn->zoom.view_width = zoom_config.view_width;
                         conn->zoom.view_height = zoom_config.view_height;
                         conn->zoom.smooth_pan = zoom_config.smooth_pan != 0;
                         conn->zoom.pan_speed = zoom_config.pan_speed;
-
-                        // Client sends coordinates relative to the output - use them as-is
-                        // (apply_zoom_transform operates on single output frame data)
                         
                         // Update target position
                         if (conn->zoom.follow_mouse)

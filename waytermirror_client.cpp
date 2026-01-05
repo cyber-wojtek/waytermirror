@@ -29,6 +29,8 @@
 #include <queue>
 #include <mutex>
 #include <opus/opus.h>
+#include <termios.h>
+#include <sys/select.h>
 
 // Opus encoders/decoders - separate for mic (client->server) and audio (server->client)
 static OpusEncoder *mic_opus_encoder = nullptr;   // For encoding microphone data to send
@@ -110,6 +112,9 @@ static std::atomic<bool> clear_screen_requested{false};
 static std::atomic<int> skip_frames_counter{0};
 static std::mutex clear_screen_mutex;
 
+// Terminal query mutex - protects terminal I/O during geometry queries
+static std::mutex terminal_query_mutex;
+
 // Network
 static int frame_socket = -1;
 static int input_socket = -1;
@@ -121,7 +126,7 @@ static bool feature_input = true;
 static bool feature_microphone = true;
 
 // Last received frame for delta encoding
-static std::string last_received_frame;
+static std::vector<uint8_t> last_received_frame;
 
 // libinput context
 static struct libinput *li = nullptr;
@@ -228,6 +233,8 @@ struct ClientConfig
     uint32_t fps;
     uint32_t term_width;
     uint32_t term_height;
+    uint32_t term_pixel_width;   // Actual terminal pixel dimensions (for sixel)
+    uint32_t term_pixel_height;  // Actual terminal pixel dimensions (for sixel)
     uint8_t color_mode;
     uint8_t renderer;
     uint8_t keep_aspect_ratio;
@@ -243,6 +250,8 @@ struct ClientConfig
     uint8_t render_device;
     uint8_t quality;
     double rotation_angle;
+    uint8_t capture_quality;     // Server-side capture quality: 0-100 (100=native res)
+    double client_scale;         // Additional client-side scale: 0.1-2.0
     // Audio opus settings (server->client)
     int audio_sample_rate = 48000;
     int audio_channels = 2;
@@ -945,7 +954,11 @@ static void audio_receive_thread()
     if (!feature_audio || audio_socket < 0)
         return;
 
-    std::cerr << "[AUDIO] Receive thread started\n";
+    {
+        std::lock_guard<std::mutex> lock(terminal_query_mutex);
+        std::cerr << "[AUDIO] Receive thread started\n";
+        fflush(stderr);
+    }
 
     // Receive format
     MessageType type;
@@ -955,12 +968,18 @@ static void audio_receive_thread()
         type != MessageType::AUDIO_FORMAT ||
         recv(audio_socket, &fmt, sizeof(fmt), 0) != sizeof(fmt))
     {
+        std::lock_guard<std::mutex> lock(terminal_query_mutex);
         std::cerr << "[AUDIO] Failed to receive format\n";
+        fflush(stderr);
         return;
     }
 
-    std::cerr << "[AUDIO] Received format: " << fmt.sample_rate << "Hz "
-              << fmt.channels << "ch format=" << fmt.format << "\n";
+    {
+        std::lock_guard<std::mutex> lock(terminal_query_mutex);
+        std::cerr << "[AUDIO] Received format: " << fmt.sample_rate << "Hz "
+                  << fmt.channels << "ch format=" << fmt.format << "\n";
+        fflush(stderr);
+    }
 
     // Update audio opus settings from received format
     audio_opus_sample_rate = fmt.sample_rate;
@@ -968,11 +987,17 @@ static void audio_receive_thread()
 
     if (!init_audio_playback(fmt))
     {
+        std::lock_guard<std::mutex> lock(terminal_query_mutex);
         std::cerr << "[AUDIO] Failed to init playback\n";
+        fflush(stderr);
         return;
     }
 
-    std::cerr << "[AUDIO] Starting receive loop...\n";
+    {
+        std::lock_guard<std::mutex> lock(terminal_query_mutex);
+        std::cerr << "[AUDIO] Starting receive loop...\n";
+        fflush(stderr);
+    }
 
     // Opus frame size (20ms - must match server)
     const int OPUS_FRAME_MS = 20;
@@ -990,8 +1015,10 @@ static void audio_receive_thread()
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - last_log).count() >= 5)
         {
+            std::lock_guard<std::mutex> lock(terminal_query_mutex);
             std::cerr << "[AUDIO] Received " << packets_received << " packets, queue size: "
                       << audio_playback.audio_queue.size() << "\n";
+            fflush(stderr);
             packets_received = 0;
             last_log = now;
         }
@@ -1046,13 +1073,17 @@ static void audio_receive_thread()
                 }
                 else
                 {
+                    std::lock_guard<std::mutex> lock(terminal_query_mutex);
                     std::cerr << "[AUDIO] Opus decode failed: " << opus_strerror(decoded_samples) << "\n";
+                    fflush(stderr);
                     continue;
                 }
             }
             else
             {
+                std::lock_guard<std::mutex> lock(terminal_query_mutex);
                 std::cerr << "[AUDIO] No opus decoder available, cannot decode compressed audio\n";
+                fflush(stderr);
                 continue;
             }
         }
@@ -1081,7 +1112,9 @@ static void audio_receive_thread()
         }
         else
         {
+            std::lock_guard<std::mutex> lock(terminal_query_mutex);
             std::cerr << "[AUDIO] Unexpected message type\n";
+            fflush(stderr);
             continue;
         }
 
@@ -1095,10 +1128,131 @@ static void audio_receive_thread()
             audio_playback.audio_queue.push(std::move(audio_data));
         }
     }
-    std::cerr << "[AUDIO] Receive thread stopped\n";
+    
+    {
+        std::lock_guard<std::mutex> lock(terminal_query_mutex);
+        std::cerr << "[AUDIO] Receive thread stopped\n";
+        fflush(stderr);
+    }
 }
 
-static bool receive_newest_frame(std::string &rendered)
+// Query actual sixel/terminal geometry from terminal
+static void query_terminal_geometry(bool sixel, int& width, int& height)
+{
+    std::lock_guard<std::mutex> lock(terminal_query_mutex);
+    
+    struct winsize term;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &term);
+    
+    // Get cell-based dimensions first
+    int cols = term.ws_col;
+    int rows = term.ws_row;
+    
+    // Reserve lines at top and bottom (typically 1 line each for UI)
+    // This prevents cutting off the top and the bottom status line
+    int reserved_top = 1;
+    int reserved_bottom = 1;
+    int usable_rows = std::max(1, rows - reserved_top - reserved_bottom);
+    
+    struct termios old_tio, new_tio;
+    tcgetattr(STDIN_FILENO, &old_tio);
+    new_tio = old_tio;
+    new_tio.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
+    
+    // Flush any pending output before querying
+    fflush(stdout);
+    fflush(stderr);
+    
+    bool got_response = false;
+    char response[128] = {0};
+    fd_set fds;
+    struct timeval tv;
+    
+    // Method 1: Try Sixel geometry query (works on mlterm, xterm)
+    if (sixel) {
+        printf("\033[?2;1;0S");
+        fflush(stdout);
+        
+        FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000;
+        
+        if (select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0) {
+            ssize_t n = read(STDIN_FILENO, response, sizeof(response) - 1);
+            if (n > 0 && sscanf(response, "\033[?2;0;%d;%dS", &width, &height) == 2) {
+                if (width > 0 && height > 0) {
+                    // Account for reserved lines
+                    height -= (reserved_top + reserved_bottom) * 20;  // ~20px per line
+                    height = std::max(height, 240);
+                    got_response = true;
+                    std::cerr << "[CLIENT] Got geometry from sixel query: " << width << "x" << height 
+                            << " (reserved " << reserved_top << " top, " << reserved_bottom << " bottom)\n";
+                }
+            }
+        }
+        
+        // Method 2: Try XTerm window size query
+        if (!got_response) {
+            tcflush(STDIN_FILENO, TCIFLUSH);
+            memset(response, 0, sizeof(response));
+            
+            printf("\033[14t");
+            fflush(stdout);
+            
+            FD_ZERO(&fds);
+            FD_SET(STDIN_FILENO, &fds);
+            tv.tv_sec = 0;
+            tv.tv_usec = 100000;
+            
+            if (select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0) {
+                ssize_t n = read(STDIN_FILENO, response, sizeof(response) - 1);
+                if (n > 0) {
+                    int h = 0, w = 0;
+                    if (sscanf(response, "\033[4;%d;%dt", &h, &w) == 2) {
+                        if (w > 0 && h > 0) {
+                            width = w;
+                            height = h - ((reserved_top + reserved_bottom) * 20);
+                            height = std::max(height, 240);
+                            got_response = true;
+                            std::cerr << "[CLIENT] Got geometry from XTerm query: " << width << "x" << height 
+                                    << " (reserved " << reserved_top << " top, " << reserved_bottom << " bottom)\n";
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Method 3: Try ioctl pixel dimensions
+    if (!got_response) {
+        if (term.ws_xpixel > 0 && term.ws_ypixel > 0) {
+            width = term.ws_xpixel;
+            height = term.ws_ypixel - ((reserved_top + reserved_bottom) * 20);
+            height = std::max(height, 240);
+            got_response = true;
+            std::cerr << "[CLIENT] Got geometry from ioctl: " << width << "x" << height 
+                      << " (reserved " << reserved_top << " top, " << reserved_bottom << " bottom)\n";
+        }
+    }
+    
+    tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
+    tcflush(STDIN_FILENO, TCIFLUSH);
+    
+    // Flush stderr to prevent mixing with terminal escape sequences
+    fflush(stderr);
+    
+    // Fallback: Calculate from terminal cell dimensions
+    if (!got_response || width <= 0 || height <= 0) {
+        width = cols * 10;
+        height = usable_rows * 20;
+        std::cerr << "[CLIENT] Using calculated geometry: " << width << "x" << height 
+                  << " (" << cols << "x" << usable_rows << " usable cells)\n";
+    }
+}
+
+static bool receive_newest_frame(std::vector<uint8_t> &rendered)
 {
     struct pollfd pfd = {frame_socket, POLLIN, 0};
 
@@ -1169,7 +1323,7 @@ static bool receive_newest_frame(std::string &rendered)
             }
 
             // Apply delta to last frame
-            std::string result = last_received_frame;
+            std::vector<uint8_t> result = last_received_frame;
 
             for (uint32_t i = 0; i < header.num_changes; i++)
             {
@@ -1258,7 +1412,7 @@ static bool receive_newest_frame(std::string &rendered)
                     continue;
                 }
 
-                std::string result = last_received_frame;
+                std::vector<uint8_t> result = last_received_frame;
 
                 for (uint32_t i = 0; i < header.num_changes; i++)
                 {
@@ -1321,7 +1475,7 @@ static bool receive_newest_frame(std::string &rendered)
 
     if (got_frame)
     {
-        rendered = std::string(latest_data.begin(), latest_data.end());
+        rendered = std::move(latest_data);
         last_received_frame = rendered; // Cache for delta decoding
         return true;
     }
@@ -1393,13 +1547,29 @@ static void toggle_exclusive_grab()
 static void cycle_renderer()
 {
     std::lock_guard<std::mutex> lock(config_mutex);
-    // Cycle through all 5 renderers: 0=braille, 1=blocks, 2=ascii, 3=hybrid, 4=sixel
-    current_config.renderer = (current_config.renderer + 1) % 5;
+    // Cycle through all 6 renderers: 0=braille, 1=blocks, 2=ascii, 3=hybrid, 4=sixel, 5=kitty
+    current_config.renderer = (current_config.renderer + 1) % 6;
 
-    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel"};
+    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty"};
     std::cerr << "[RENDERER] Switched to: " << names[current_config.renderer] << "\n";
 
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
+    
+    // Query actual pixel dimensions if using sixel or kitty
+    if (current_config.renderer == 4 || current_config.renderer == 5)  // 4 = sixel, 5 = kitty
+    {
+        query_terminal_geometry(current_config.renderer == 4, (int&)current_config.term_pixel_width, 
+                              (int&)current_config.term_pixel_height);
+        const char *proto = (current_config.renderer == 4) ? "SIXEL" : "KITTY";
+        std::cerr << "[" << proto << "] Detected geometry: " << current_config.term_pixel_width << "x"
+                  << current_config.term_pixel_height << " pixels\n";
+    }
+    else
+    {
+        current_config.term_pixel_width = current_config.term_width * 10;   // Fallback estimates
+        current_config.term_pixel_height = current_config.term_height * 20;
+    }
+    
     send_client_config(current_config);
 }
 
@@ -1615,7 +1785,7 @@ static void print_shortcuts_help()
     std::cout << "║   Home/End     Fast horizontal pan (100px per press)                   ║\n";
     std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
     std::cout << "║ RENDERING                                                              ║\n";
-    std::cout << "║   R            Cycle renderer (braille→blocks→ascii→hybrid→sixel)      ║\n";
+    std::cout << "║   R            Cycle renderer (braille→blocks→ascii→hybrid→sixel→kitty) ║\n";
     std::cout << "║   C            Cycle color mode (16→256→truecolor)                     ║\n";
     std::cout << "║   D / S        Increase / Decrease detail level (±10)                  ║\n";
     std::cout << "║   W / E        Increase / Decrease quality (±10)                       ║\n";
@@ -1644,7 +1814,7 @@ static void print_shortcuts_help()
     std::cout << "║   6            Cycle microphone compression (off→Opus)                 ║\n";
     std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
     std::cout << "║ CURRENT STATE                                                          ║\n";
-    const char *renderer_names[] = {"braille", "blocks", "ascii", "hybrid", "sixel"};
+    const char *renderer_names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty"};
     int renderer_idx = std::min((int)current_config.renderer, 4);
     std::cout << "║   Renderer:       " << std::setw(8) << std::left << renderer_names[renderer_idx] << "  Color: " << std::setw(9) << (const char*[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
     std::cout << "║   Detail: " << std::setw(3) << (int)current_config.detail_level << "       Quality: " << std::setw(3) << (int)current_config.quality << "       FPS: " << std::setw(3) << current_config.fps << "             ║\n";
@@ -2918,9 +3088,28 @@ int main(int argc, char **argv)
         current_config.renderer = (renderer == "braille") ? 0 : (renderer == "blocks") ? 1
                                                             : (renderer == "ascii")    ? 2
                                                             : (renderer == "sixel")    ? 4
+                                                            : (renderer == "kitty")    ? 5
                                                                                        : 3;
+        
+        // Query actual pixel dimensions if using sixel or kitty
+        if (current_config.renderer == 4 || current_config.renderer == 5)  // 4 = sixel, 5 = kitty
+        {
+            query_terminal_geometry(current_config.renderer == 4, (int&)current_config.term_pixel_width, 
+                                  (int&)current_config.term_pixel_height);
+            const char *proto = (current_config.renderer == 4) ? "SIXEL" : "KITTY";
+            std::cerr << "[" << proto << "] Initial geometry: " << current_config.term_pixel_width << "x"
+                      << current_config.term_pixel_height << " pixels\n";
+        }
+        else
+        {
+            current_config.term_pixel_width = current_config.term_width * 10;   // Fallback estimates
+            current_config.term_pixel_height = current_config.term_height * 20;
+        }
+        
         current_config.keep_aspect_ratio = program.get<bool>("--keep-aspect-ratio") ? 1 : 0;
         current_config.scale_factor = program.get<double>("--scale");
+        current_config.capture_quality = 100;  // Default: native resolution
+        current_config.client_scale = 1.0;     // Default: no additional scaling
         current_config.compress = program.get<bool>("--compress") ? 1 : 0;
         current_config.compression_level = program.get<int>("--compression-level");
         current_config.detail_level = std::clamp(program.get<int>("--detail-level"), 0, 100);
@@ -3141,7 +3330,7 @@ int main(int argc, char **argv)
     {
         if (feature_video)
         {
-            std::string rendered;
+            std::vector<uint8_t> rendered;
             int new_term_width, new_term_height;
             get_terminal_size(new_term_width, new_term_height);
 
@@ -3157,11 +3346,27 @@ int main(int argc, char **argv)
                 std::lock_guard<std::mutex> lock(config_mutex);
                 current_config.term_width = new_term_width;
                 current_config.term_height = new_term_height;
+                
+                // Query actual pixel dimensions if using sixel or kitty
+                if (current_config.renderer == 4 || current_config.renderer == 5)  // 4 = sixel, 5 = kitty
+                {
+                    query_terminal_geometry(current_config.renderer == 4, (int&)current_config.term_pixel_width, 
+                                          (int&)current_config.term_pixel_height);
+                    const char *proto = (current_config.renderer == 4) ? "SIXEL" : "KITTY";
+                    std::cerr << "[RESIZE] Terminal resized to " << new_term_width << "x"
+                              << new_term_height << " cells (" << current_config.term_pixel_width << "x"
+                              << current_config.term_pixel_height << " pixels via " << proto << ")\n";
+                }
+                else
+                {
+                    current_config.term_pixel_width = new_term_width * 10;   // Fallback estimates
+                    current_config.term_pixel_height = new_term_height * 20;
+                    std::cerr << "[RESIZE] Terminal resized to " << new_term_width << "x"
+                              << new_term_height << "\n";
+                }
                 send_client_config(current_config);
 
                 std::cout << "\033[2J";
-                std::cerr << "[RESIZE] Terminal resized to " << new_term_width << "x"
-                          << new_term_height << "\n";
             }
 
             // Handle clear screen request
@@ -3181,13 +3386,14 @@ int main(int argc, char **argv)
             {
                 skip_frames_counter.store(skip_count - 1);
                 // Still consume frames to prevent buffer buildup
-                std::string dummy;
+                std::vector<uint8_t> dummy;
                 receive_newest_frame(dummy);
                 std::this_thread::sleep_for(std::chrono::milliseconds(16));
             }
             else if (!video_paused.load() && receive_newest_frame(rendered))
             {
-                std::cout << "\033[H" << rendered << std::flush;
+                std::cout << "\033[H" << std::flush;
+                write(STDOUT_FILENO, rendered.data(), rendered.size());
             }
             else if (video_paused.load())
             {

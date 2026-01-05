@@ -43,6 +43,12 @@ depends=(
     # Opus
     opus
     opusfile
+
+    # Sixel
+    libsixel
+
+    # PNG
+    libpng
 )
 
 makedepends=(

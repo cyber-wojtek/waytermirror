@@ -1,7 +1,7 @@
 CC = gcc
 CXX = g++
-CXXFLAGS = -std=c++23 -Wall -O3
-CFLAGS = -Wall -O3
+CXXFLAGS = -std=c++23 -Wall -Ofast
+CFLAGS = -Wall -Ofast
 
 # Include directories
 INCLUDES = -I. \
@@ -11,7 +11,7 @@ INCLUDES = -I. \
            $(shell pkg-config --cflags gio-2.0)
 
 # Base libraries
-LIBS_BASE = -lwayland-client -lm -llz4 -lpthread -linput -ludev -lopus -lopusfile $(shell pkg-config --libs gio-2.0)
+LIBS_BASE = -lwayland-client -lm -llz4 -lpthread -linput -ludev -lopus -lopusfile -lsixel -lpng $(shell pkg-config --libs gio-2.0)
 
 # PipeWire support (default: enabled)
 # To disable: make PIPEWIRE=false

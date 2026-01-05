@@ -72,19 +72,19 @@ Tip: run `./waytermirror_client --help` or `./waytermirror_server --help` to see
 ## Build & install
 
 Prerequisites
-- Core: [gcc/g++](https://github.com/gcc-mirror/gcc.git), [make](https://git.savannah.gnu.org/git/make.git), [wayland](https://gitlab.com/freedesktop-sdk/mirrors/freedesktop/wayland/wayland.git), [wayland-protocols](https://gitlab.freedesktop.org/wayland/wayland-protocols.git), [libinput](https://gitlab.freedesktop.org/libinput/libinput.git), [pipewire](https://gitlab.freedesktop.org/pipewire/pipewire.git), [lz4](https://github.com/lz4/lz4.git), [rapidjson](https://github.com/Tencent/rapidjson.git), [systemd](https://github.com/systemd/systemd.git), [argparse](https://github.com/p-ranav/argparse.git)
+- Core: [gcc/g++](https://github.com/gcc-mirror/gcc.git), [make](https://git.savannah.gnu.org/git/make.git), [wayland](https://gitlab.com/freedesktop-sdk/mirrors/freedesktop/wayland/wayland.git), [wayland-protocols](https://gitlab.freedesktop.org/wayland/wayland-protocols.git), [libinput](https://gitlab.freedesktop.org/libinput/libinput.git), [pipewire](https://gitlab.freedesktop.org/pipewire/pipewire.git), [lz4](https://github.com/lz4/lz4.git), [rapidjson](https://github.com/Tencent/rapidjson.git), [systemd](https://github.com/systemd/systemd.git), [argparse](https://github.com/p-ranav/argparse.git), [libsixel](https://github.com/saitoha/libsixel), [libpng](http://www.libpng.org/pub/png/libpng.html)
 - Optional: NVIDIA CUDA toolkit for GPU rendering (nvcc) — see NVIDIA CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit
 
 Arch Linux-based
 ```bash
-sudo pacman -S base-devel git gcc wayland wayland-protocols libinput pipewire lz4 rapidjson systemd argparse 
+sudo pacman -S base-devel git gcc wayland wayland-protocols libinput pipewire lz4 rapidjson systemd argparse libsixel libpng
 # Optional for CUDA:
 sudo pacman -S cuda
 ```
 
 Debian-based
 ```bash
-sudo apt install build-essential git gcc libwayland-dev wayland-protocols libinput-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libsystemd-dev pkg-config cmake libargparse-dev
+sudo apt install build-essential git gcc libwayland-dev wayland-protocols libinput-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libsystemd-dev pkg-config cmake libargparse-dev libsixel-dev libpng-dev
 # For CUDA: install NVIDIA CUDA toolkit from https://developer.nvidia.com/cuda-toolkit
 ```
 
