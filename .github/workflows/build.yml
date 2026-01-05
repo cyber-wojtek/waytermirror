@@ -66,9 +66,7 @@ jobs:
           pkg-config \
           libargparse-dev \
           libopus-dev \
-          libopusfile-dev \
-          libsixel-dev \
-          libpng-dev
+          libopusfile-dev libsixel-dev libpng-dev
 
     - uses: actions/checkout@v4
 
