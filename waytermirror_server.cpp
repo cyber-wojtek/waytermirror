@@ -3102,10 +3102,10 @@ static std::vector<uint8_t> render_sixel(
     }
     
         
-    std::cerr << "[SIXEL] Encoding " << sixel_width << "x" << sixel_height 
+    /*std::cerr << "[SIXEL] Encoding " << sixel_width << "x" << sixel_height 
               << " from source " << rot_width << "x" << rot_height 
               << " (scale=" << scale_factor << ", quality=" << (int)quality 
-              << ", detail=" << (int)detail_level << ")\n";
+              << ", detail=" << (int)detail_level << ")\n";*/
 
     // Build RGB888 image with rotation and scaling applied
     std::vector<uint8_t> rgb_data(sixel_width * sixel_height * 3);
@@ -3508,40 +3508,114 @@ static void apply_capture_resolution(
     if (width == capture_width && height == capture_height) return;
     if (capture_width >= width && capture_height >= height) return;
     
-    int bpp = bpp_for_fmt(pixel_format);
-    std::vector<uint8_t> scaled(capture_width * capture_height * bpp);
+    // Validate input dimensions
+    if (width == 0 || height == 0 || stride == 0) {
+        std::cerr << "[SCALE ERROR] Invalid input dimensions\n";
+        return;
+    }
     
-    for (uint32_t y = 0; y < capture_height; y++) {
-        for (uint32_t x = 0; x < capture_width; x++) {
-            double sx = ((double)x + 0.5) * width / capture_width - 0.5;
-            double sy = ((double)y + 0.5) * height / capture_height - 0.5;
+    // Validate source buffer size
+    int bpp = bpp_for_fmt(pixel_format);
+    size_t expected_buffer = (size_t)height * (size_t)width * bpp;
+    if (frame_data.size() < expected_buffer) {
+        std::cerr << "[CLIENT SCALE ERROR] Source buffer too small: " 
+                << frame_data.size() << " < " << expected_buffer 
+                << " (w=" << width << " h=" << height << " bpp=" << bpp << ")\n";
+        return;
+    }
+    
+    // Ensure destination dimensions are valid
+    uint32_t dst_width = std::min((uint32_t)capture_width, (uint32_t)width);
+    uint32_t dst_height = std::min((uint32_t)capture_height, (uint32_t)height);
+    
+    if (dst_width == 0 || dst_height == 0) {
+        std::cerr << "[SCALE ERROR] Invalid destination dimensions\n";
+        return;
+    }
+    
+    size_t dst_stride = (size_t)dst_width * bpp;
+    size_t dst_size = dst_height * dst_stride;
+    
+    // Validate destination buffer won't overflow
+    if (dst_size > 512 * 1024 * 1024) { // 512MB sanity check
+        std::cerr << "[SCALE ERROR] Destination buffer too large\n";
+        return;
+    }
+    
+    std::vector<uint8_t> scaled(dst_size);
+    
+    // Bilinear interpolation with proper bounds checking
+    for (uint32_t dy = 0; dy < dst_height; dy++) {
+        for (uint32_t dx = 0; dx < dst_width; dx++) {
+            // Map destination pixel to source coordinates
+            double sx = ((double)dx + 0.5) * width / dst_width - 0.5;
+            double sy = ((double)dy + 0.5) * height / dst_height - 0.5;
             
-            int x0 = std::clamp((int)floor(sx), 0, (int)width - 1);
-            int y0 = std::clamp((int)floor(sy), 0, (int)height - 1);
+            // Clamp to valid range BEFORE converting to int
+            sx = std::clamp(sx, 0.0, (double)(width - 1));
+            sy = std::clamp(sy, 0.0, (double)(height - 1));
+            
+            int x0 = (int)sx;
+            int y0 = (int)sy;
             int x1 = std::min(x0 + 1, (int)width - 1);
             int y1 = std::min(y0 + 1, (int)height - 1);
             
-            double fx = std::clamp(sx - x0, 0.0, 1.0);
-            double fy = std::clamp(sy - y0, 0.0, 1.0);
+            double fx = sx - x0;
+            double fy = sy - y0;
             
-            const uint8_t* p00 = frame_data.data() + y0 * stride + x0 * bpp;
-            const uint8_t* p10 = frame_data.data() + y0 * stride + x1 * bpp;
-            const uint8_t* p01 = frame_data.data() + y1 * stride + x0 * bpp;
-            const uint8_t* p11 = frame_data.data() + y1 * stride + x1 * bpp;
+            // Additional safety clamps
+            x0 = std::clamp(x0, 0, (int)width - 1);
+            y0 = std::clamp(y0, 0, (int)height - 1);
+            x1 = std::clamp(x1, 0, (int)width - 1);
+            y1 = std::clamp(y1, 0, (int)height - 1);
             
-            uint8_t* dst = scaled.data() + (y * capture_width + x) * bpp;
+            // Calculate offsets with overflow protection
+            size_t off00 = (size_t)y0 * stride + (size_t)x0 * bpp;
+            size_t off10 = (size_t)y0 * stride + (size_t)x1 * bpp;
+            size_t off01 = (size_t)y1 * stride + (size_t)x0 * bpp;
+            size_t off11 = (size_t)y1 * stride + (size_t)x1 * bpp;
+            
+            // Validate ALL offsets are in bounds (need bpp bytes)
+            if (off00 + bpp > frame_data.size() || 
+                off10 + bpp > frame_data.size() ||
+                off01 + bpp > frame_data.size() || 
+                off11 + bpp > frame_data.size()) {
+                std::cerr << "[SCALE ERROR] Buffer access out of bounds at dx=" << dx << " dy=" << dy << "\n";
+                // Fill with black and continue
+                size_t dst_off = (size_t)dy * dst_stride + (size_t)dx * bpp;
+                if (dst_off + bpp <= scaled.size()) {
+                    memset(&scaled[dst_off], 0, bpp);
+                }
+                continue;
+            }
+            
+            // Sample 4 pixels - now safe
+            const uint8_t* p00 = frame_data.data() + off00;
+            const uint8_t* p10 = frame_data.data() + off10;
+            const uint8_t* p01 = frame_data.data() + off01;
+            const uint8_t* p11 = frame_data.data() + off11;
+            
+            // Interpolate each channel
+            size_t dst_off = (size_t)dy * dst_stride + (size_t)dx * bpp;
+            if (dst_off + bpp > scaled.size()) {
+                std::cerr << "[SCALE ERROR] Destination offset out of bounds\n";
+                continue;
+            }
+            
+            uint8_t* dst = scaled.data() + dst_off;
             for (int c = 0; c < bpp; c++) {
-                double v = (1-fx)*(1-fy)*p00[c] + fx*(1-fy)*p10[c] + 
-                          (1-fx)*fy*p01[c] + fx*fy*p11[c]; // Bilinear interpolation (basically a weighted average)
-                dst[c] = (uint8_t)std::clamp(v, 0.0, 255.0);
+                double top = p00[c] * (1.0 - fx) + p10[c] * fx;
+                double bot = p01[c] * (1.0 - fx) + p11[c] * fx;
+                double val = top * (1.0 - fy) + bot * fy;
+                dst[c] = (uint8_t)std::clamp(val, 0.0, 255.0);
             }
         }
     }
     
     frame_data = std::move(scaled);
-    width = capture_width;
-    height = capture_height;
-    stride = capture_width * bpp;
+    width = dst_width;
+    height = dst_height;
+    stride = dst_stride;
 }
 
 template <typename TW, typename TH, typename TS>
@@ -3557,39 +3631,99 @@ static void apply_client_resolution(
     if (client_width == 0 || client_height == 0) return;
     if (width == (uint32_t)client_width && height == (uint32_t)client_height) return;
     
-    int bpp = bpp_for_fmt(pixel_format);
-    std::vector<uint8_t> scaled(client_width * client_height * bpp);
+    if (width == 0 || height == 0) {
+        std::cerr << "[CLIENT SCALE ERROR] Invalid input dimensions\n";
+        return;
+    }
     
-    for (int y = 0; y < client_height; y++) {
-        for (int x = 0; x < client_width; x++) {
-            double sx = ((double)x + 0.5) * width / client_width - 0.5;
-            double sy = ((double)y + 0.5) * height / client_height - 0.5;
+    int bpp = bpp_for_fmt(pixel_format);
+    if (bpp == 0) {
+        std::cerr << "[CLIENT SCALE ERROR] Invalid pixel format\n";
+        return;
+    }
+    
+    size_t expected_size = (size_t)height * (size_t)width * bpp;
+    if (frame_data.size() < expected_size) {
+        std::cerr << "[CLIENT SCALE ERROR] Source buffer too small: " << frame_data.size() 
+                  << " < " << expected_size << " (w=" << width << " h=" << height 
+                  << " stride=" << stride << " bpp=" << bpp << ")\n";
+        return;
+    }
+    
+    stride = width * bpp;
+    
+    client_width = std::clamp(client_width, 1, 8192);
+    client_height = std::clamp(client_height, 1, 8192);
+    
+    size_t dst_stride = (size_t)client_width * bpp;
+    size_t dst_size = (size_t)client_height * dst_stride;
+    
+    if (dst_size > 512 * 1024 * 1024) {
+        std::cerr << "[CLIENT SCALE ERROR] Destination buffer too large\n";
+        return;
+    }
+    
+    std::vector<uint8_t> scaled(dst_size);
+    
+    for (int dy = 0; dy < client_height; dy++) {
+        for (int dx = 0; dx < client_width; dx++) {
+            double sx = ((double)dx + 0.5) * width / client_width - 0.5;
+            double sy = ((double)dy + 0.5) * height / client_height - 0.5;
             
-            int x0 = std::clamp((int)floor(sx), 0, (int)width - 1);
-            int y0 = std::clamp((int)floor(sy), 0, (int)height - 1);
+            sx = std::clamp(sx, 0.0, (double)(width - 1));
+            sy = std::clamp(sy, 0.0, (double)(height - 1));
+            
+            int x0 = (int)sx;
+            int y0 = (int)sy;
             int x1 = std::min(x0 + 1, (int)width - 1);
             int y1 = std::min(y0 + 1, (int)height - 1);
             
-            double fx = std::clamp(sx - x0, 0.0, 1.0);
-            double fy = std::clamp(sy - y0, 0.0, 1.0);
+            double fx = sx - x0;
+            double fy = sy - y0;
             
-            const uint8_t* p00 = frame_data.data() + y0 * stride + x0 * bpp;
-            const uint8_t* p10 = frame_data.data() + y0 * stride + x1 * bpp;
-            const uint8_t* p01 = frame_data.data() + y1 * stride + x0 * bpp;
-            const uint8_t* p11 = frame_data.data() + y1 * stride + x1 * bpp;
+            x0 = std::clamp(x0, 0, (int)width - 1);
+            y0 = std::clamp(y0, 0, (int)height - 1);
+            x1 = std::clamp(x1, 0, (int)width - 1);
+            y1 = std::clamp(y1, 0, (int)height - 1);
             
-            uint8_t* dst = scaled.data() + (y * client_width + x) * bpp;
+            size_t off00 = (size_t)y0 * stride + (size_t)x0 * bpp;
+            size_t off10 = (size_t)y0 * stride + (size_t)x1 * bpp;
+            size_t off01 = (size_t)y1 * stride + (size_t)x0 * bpp;
+            size_t off11 = (size_t)y1 * stride + (size_t)x1 * bpp;
+            
+            if (off00 + bpp > frame_data.size() || 
+                off10 + bpp > frame_data.size() ||
+                off01 + bpp > frame_data.size() || 
+                off11 + bpp > frame_data.size()) {
+                size_t dst_off = (size_t)dy * dst_stride + (size_t)dx * bpp;
+                if (dst_off + bpp <= scaled.size()) {
+                    memset(&scaled[dst_off], 0, bpp);
+                }
+                continue;
+            }
+            
+            const uint8_t* p00 = frame_data.data() + off00;
+            const uint8_t* p10 = frame_data.data() + off10;
+            const uint8_t* p01 = frame_data.data() + off01;
+            const uint8_t* p11 = frame_data.data() + off11;
+            
+            size_t dst_off = (size_t)dy * dst_stride + (size_t)dx * bpp;
+            if (dst_off + bpp > scaled.size()) continue;
+            
+            uint8_t* dst = scaled.data() + dst_off;
             for (int c = 0; c < bpp; c++) {
-                double v = (1-fx)*(1-fy)*p00[c] + fx*(1-fy)*p10[c] + 
-                          (1-fx)*fy*p01[c] + fx*fy*p11[c];
-                dst[c] = (uint8_t)std::clamp(v, 0.0, 255.0);
+                double top = p00[c] * (1.0 - fx) + p10[c] * fx;
+                double bot = p01[c] * (1.0 - fx) + p11[c] * fx;
+                double val = top * (1.0 - fy) + bot * fy;
+                dst[c] = (uint8_t)std::clamp(val, 0.0, 255.0);
             }
         }
     }
+    
     frame_data = std::move(scaled);
     width = client_width;
     height = client_height;
-    stride = client_width * bpp;
+    stride = dst_stride;
 }
 
 static void capture_thread(int output_index, int fps) {
@@ -5055,6 +5189,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                     height = cap.height;
                     stride = cap.stride;
                     raw_format = cap.format;
+
                     
                     // Validate dimensions are sane
                     if (!validate_frame_dimensions(width, height, stride)) {
@@ -5092,7 +5227,18 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                 PixelFormat pixel_fmt = (capture_backend == PIPEWIRE) 
                     ? spa_to_pixelfmt(raw_format) 
                     : wl_shm_to_pixelfmt(raw_format);
-                
+               
+                if (config.requested_capture_width > 0 && config.requested_capture_height > 0) {
+                    apply_client_resolution(
+                        frame_to_render, 
+                        render_width, 
+                        render_height, 
+                        render_stride,
+                        pixel_fmt,
+                        config.requested_capture_width, 
+                        config.requested_capture_height);
+                }
+
                 std::vector<uint8_t> rendered_buf;
                 std::string rendered;
                 switch (config.renderer) {
@@ -5189,11 +5335,6 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                     std::cerr << "[RENDER] Warning: Empty rendered frame\n";
                     continue;
                 }
-
-                // Scale down/up
-                apply_client_resolution(
-                    rendered_buf, width, height, stride, pixel_fmt,
-                    config.requested_capture_width, config.requested_capture_height);
                 
                 // Build complete message with screen info
                 std::vector<uint8_t> info_msg;
