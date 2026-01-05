@@ -3514,13 +3514,13 @@ static void apply_capture_resolution(
         return;
     }
     
-    // Validate source buffer size
+    // Validate source buffer size - USE CURRENT STRIDE
     int bpp = bpp_for_fmt(pixel_format);
-    size_t expected_buffer = (size_t)height * (size_t)width * bpp;
+    size_t expected_buffer = (size_t)height * (size_t)stride;  // Use stride, not width*bpp
     if (frame_data.size() < expected_buffer) {
         std::cerr << "[CLIENT SCALE ERROR] Source buffer too small: " 
                 << frame_data.size() << " < " << expected_buffer 
-                << " (w=" << width << " h=" << height << " bpp=" << bpp << ")\n";
+                << " (w=" << width << " h=" << height << " stride=" << stride << " bpp=" << bpp << ")\n";
         return;
     }
     
@@ -3537,7 +3537,7 @@ static void apply_capture_resolution(
     size_t dst_size = dst_height * dst_stride;
     
     // Validate destination buffer won't overflow
-    if (dst_size > 512 * 1024 * 1024) { // 512MB sanity check
+    if (dst_size > 512 * 1024 * 1024) {
         std::cerr << "[SCALE ERROR] Destination buffer too large\n";
         return;
     }
@@ -3569,7 +3569,7 @@ static void apply_capture_resolution(
             x1 = std::clamp(x1, 0, (int)width - 1);
             y1 = std::clamp(y1, 0, (int)height - 1);
             
-            // Calculate offsets with overflow protection
+            // Calculate offsets with overflow protection - USE STRIDE NOT width*bpp
             size_t off00 = (size_t)y0 * stride + (size_t)x0 * bpp;
             size_t off10 = (size_t)y0 * stride + (size_t)x1 * bpp;
             size_t off01 = (size_t)y1 * stride + (size_t)x0 * bpp;
@@ -3615,7 +3615,7 @@ static void apply_capture_resolution(
     frame_data = std::move(scaled);
     width = dst_width;
     height = dst_height;
-    stride = dst_stride;
+    stride = dst_stride;  // CRITICAL: Update stride to match new dimensions
 }
 
 template <typename TW, typename TH, typename TS>
@@ -3642,7 +3642,8 @@ static void apply_client_resolution(
         return;
     }
     
-    size_t expected_size = (size_t)height * (size_t)width * bpp;
+    // CRITICAL FIX: Use stride for actual buffer size, not width
+    size_t expected_size = (size_t)height * (size_t)stride;
     if (frame_data.size() < expected_size) {
         std::cerr << "[CLIENT SCALE ERROR] Source buffer too small: " << frame_data.size() 
                   << " < " << expected_size << " (w=" << width << " h=" << height 
@@ -3650,7 +3651,12 @@ static void apply_client_resolution(
         return;
     }
     
-    stride = width * bpp;
+    // Ensure stride matches width if not already set correctly
+    if (stride != (TS)(width * bpp)) {
+        std::cerr << "[CLIENT SCALE] Warning: stride mismatch, correcting: " 
+                  << stride << " -> " << (width * bpp) << "\n";
+        stride = width * bpp;
+    }
     
     client_width = std::clamp(client_width, 1, 8192);
     client_height = std::clamp(client_height, 1, 8192);
@@ -3659,17 +3665,20 @@ static void apply_client_resolution(
     size_t dst_size = (size_t)client_height * dst_stride;
     
     if (dst_size > 512 * 1024 * 1024) {
-        std::cerr << "[CLIENT SCALE ERROR] Destination buffer too large\n";
+        std::cerr << "[SCALE ERROR] Destination buffer too large\n";
         return;
     }
     
     std::vector<uint8_t> scaled(dst_size);
     
-    for (int dy = 0; dy < client_height; dy++) {
-        for (int dx = 0; dx < client_width; dx++) {
+    // Bilinear interpolation with proper bounds checking
+    for (uint32_t dy = 0; dy < (uint32_t)client_height; dy++) {
+        for (uint32_t dx = 0; dx < (uint32_t)client_width; dx++) {
+            // Map destination pixel to source coordinates
             double sx = ((double)dx + 0.5) * width / client_width - 0.5;
             double sy = ((double)dy + 0.5) * height / client_height - 0.5;
             
+            // Clamp to valid range BEFORE converting to int
             sx = std::clamp(sx, 0.0, (double)(width - 1));
             sy = std::clamp(sy, 0.0, (double)(height - 1));
             
@@ -3681,16 +3690,19 @@ static void apply_client_resolution(
             double fx = sx - x0;
             double fy = sy - y0;
             
+            // Additional safety clamps
             x0 = std::clamp(x0, 0, (int)width - 1);
             y0 = std::clamp(y0, 0, (int)height - 1);
             x1 = std::clamp(x1, 0, (int)width - 1);
             y1 = std::clamp(y1, 0, (int)height - 1);
             
+            // Calculate offsets with overflow protection - USE STRIDE
             size_t off00 = (size_t)y0 * stride + (size_t)x0 * bpp;
             size_t off10 = (size_t)y0 * stride + (size_t)x1 * bpp;
             size_t off01 = (size_t)y1 * stride + (size_t)x0 * bpp;
             size_t off11 = (size_t)y1 * stride + (size_t)x1 * bpp;
             
+            // Validate ALL offsets are in bounds (need bpp bytes)
             if (off00 + bpp > frame_data.size() || 
                 off10 + bpp > frame_data.size() ||
                 off01 + bpp > frame_data.size() || 
@@ -3702,11 +3714,13 @@ static void apply_client_resolution(
                 continue;
             }
             
+            // Sample 4 pixels - now safe
             const uint8_t* p00 = frame_data.data() + off00;
             const uint8_t* p10 = frame_data.data() + off10;
             const uint8_t* p01 = frame_data.data() + off01;
             const uint8_t* p11 = frame_data.data() + off11;
             
+            // Interpolate each channel
             size_t dst_off = (size_t)dy * dst_stride + (size_t)dx * bpp;
             if (dst_off + bpp > scaled.size()) continue;
             
@@ -5237,7 +5251,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                         pixel_fmt,
                         config.requested_capture_width, 
                         config.requested_capture_height);
-                }
+                    }
 
                 std::vector<uint8_t> rendered_buf;
                 std::string rendered;
@@ -5600,11 +5614,10 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                         // Apply client's requested capture resolution
                         if (new_config.requested_capture_width > 0 && 
                             new_config.requested_capture_height > 0) {
-                            capture_width = new_config.requested_capture_width;
-                            capture_height = new_config.requested_capture_height;
                             std::cerr << "[CONFIG] Client " << session_id 
                                     << " requested capture resolution: "
-                                    << capture_width << "x" << capture_height << "\n";
+                                    << new_config.requested_capture_width << "x"
+                                    << new_config.requested_capture_height << "\n";
                         }
                                                 
                         // Check if audio opus config changed
