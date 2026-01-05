@@ -1,6 +1,6 @@
 # Waytermirror
 
-Real-time Wayland screen mirroring to a terminal using Unicode braille characters, half‑blocks, ASCII, sixels, or hybrid rendering. Includes bidirectional input forwarding, audio streaming (PipeWire), zooming, focus-follow, and optional NVIDIA CUDA acceleration (server-side).
+Real-time Wayland screen mirroring to a terminal using Unicode braille characters, half‑blocks, ASCII, sixels, kitty graphics, framebuffer, or hybrid rendering. Includes bidirectional input forwarding, audio streaming (PipeWire), zooming, focus-follow, and optional NVIDIA CUDA acceleration (server-side).
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
@@ -34,7 +34,7 @@ Real-time Wayland screen mirroring to a terminal using Unicode braille character
 - A client/server application:
   - Server runs on the Wayland host (captures screen & audio, performs rendering, injects input).
   - Client runs in a terminal (receives ANSI/Sixel frames, displays them, captures local input, sends it to server).
-- Rendering modes: braille, half-blocks, ASCII, sixels, and hybrid (auto-select per cell).
+- Rendering modes: braille, half-blocks, ASCII, sixels, kitty graphics, framebuffer (/dev/fb0), and hybrid (auto-select per cell).
 - Color modes: 16, 256, truecolor (24‑bit).
 - Optional CUDA acceleration for server-side rendering (NVIDIA only).
 - Sixel graphics support for direct pixel rendering on compatible terminals.
@@ -176,7 +176,7 @@ Video & rendering
 | -o <n\|follow> | --output <n\|follow> | Output index or `follow` to track focused window | 0 |
 | -F <n> | --fps <n> | Target client FPS / playback framerate | 30 |
 | -M <16\|256\|true> | --mode <16\|256\|true> | Color mode (16, 256, truecolor) | 256 |
-| -R <type> | --renderer <braille\|blocks\|ascii\|sixel\|hybrid> | Rendering method | braille |
+| -R <type> | --renderer <braille\|blocks\|ascii\|sixel\|kitty\|framebuffer\|hybrid> | Rendering method | braille |
 | -r <cpu\|cuda> | --render-device <cpu\|cuda> | Prefer server-side renderer | cpu |
 | -d <0-100> | --detail-level <0-100> | Visual detail (0: fast/smooth, 100: sharp) | 50 |
 | -Q <0-100> | --quality <0-100> | Pattern search precision | 50 |
@@ -282,6 +282,7 @@ All client shortcuts use the **Ctrl+Alt+Shift** modifier prefix, so normal keys 
 | Shortcut | Action | Notes |
 |---------:|--------|-------|
 | Ctrl+Alt+Shift+R | Cycle renderer | braille → blocks → ascii → hybrid → sixel |
+| Ctrl+Alt+Shift+R | Cycle renderer | braille → blocks → ascii → hybrid → sixel → kitty → framebuffer |
 | Ctrl+Alt+Shift+C | Cycle color mode | 16 → 256 → truecolor |
 | Ctrl+Alt+Shift+D | Increase detail | +10 detail level |
 | Ctrl+Alt+Shift+S | Decrease detail | −10 detail level |
@@ -312,8 +313,10 @@ All client shortcuts use the **Ctrl+Alt+Shift** modifier prefix, so normal keys 
 Quick usage tips
 - Zoom panning: when zoomed (Ctrl+Alt+Shift+Z), use arrow keys to pan the viewport. Hold PageUp/PageDown for faster vertical movement.
 - Rotation: use **[** and **]** to rotate in 15° steps, **T**/**Y** for 90° jumps, **\\** to reset. Rotation is handled natively by CUDA when available.
-- Renderer cycling: use **R** to cycle through all renderers (braille → blocks → ascii → hybrid → sixel) in sequence.
+- Renderer cycling: use **R** to cycle through all renderers (braille → blocks → ascii → hybrid → sixel → kitty → framebuffer) in sequence.
 - Sixel rendering: press **R** repeatedly to cycle to the sixel renderer for native pixel graphics display on compatible terminals (xterm, mlterm, foot, etc.). Sixels provide significantly higher visual fidelity than Unicode modes.
+- Kitty graphics: cycle to the kitty renderer for terminals that support kitty graphics protocol (e.g., WezTerm/foot/kitty) for faster pixel pushes than sixel on many terminals.
+- Framebuffer mode: cycle to framebuffer to write directly to /dev/fb0 on the client (TTY/console), bypassing terminal emulators entirely.
 - FPS adjustment: use **J** to increase and **K** to decrease FPS by 5 (range: 1-120).
 - Output cycling: press **`** (backtick) to cycle through outputs or toggle follow-focus mode.
 - Compression toggle: use **U** to quickly enable/disable LZ4 compression for video frames.
@@ -336,8 +339,17 @@ Default base port is 9999 (see -P / --port).
   - Best visual quality on compatible terminals
   - Terminal example: `-R sixel` (use Ctrl+Alt+Shift+R to cycle)
   - Requires terminal sixel support (xterm, mlterm, foot, konsole, etc.)
-  - No compression benefit (already optimized)
   - Highest visual fidelity with direct pixel rendering
+
+- **Kitty graphics mode** (kitty graphics protocol):
+  - Fast pixel pushes on terminals with kitty graphics (kitty, WezTerm, foot)
+  - Terminal example: `-R kitty` (use Ctrl+Alt+Shift+R to cycle)
+  - Often faster than sixel at similar quality; still full-color RGBA
+
+- **Framebuffer mode** (client-side /dev/fb0):
+  - Writes frames directly to the client framebuffer (TTY/console)
+  - Use when no terminal emulator is available; run client as root or with fb permissions
+  - Example: `-R framebuffer`
 
 - Maximum quality:
   - Server: render_device=cuda, renderer=braille, detail=100, quality=100, color=true

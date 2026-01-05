@@ -1636,7 +1636,7 @@ static void set_rotation(double angle)
 static void adjust_fps(int delta)
 {
     std::lock_guard<std::mutex> lock(config_mutex);
-    current_config.fps = std::clamp((int)current_config.fps + delta, 0, 120);
+    current_config.fps = std::max((int)current_config.fps + delta, 0);
     std::cerr << "[FPS] Target: " << current_config.fps << "\n";
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
     send_client_config(current_config);

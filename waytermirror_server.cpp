@@ -3409,9 +3409,6 @@ static std::vector<uint8_t> render_framebuffer(
         img_width = (int)(target_width * scale_factor);
         img_height = (int)(target_height * scale_factor);
     }
-    
-    img_width = std::clamp(img_width, 32, 3840);
-    img_height = std::clamp(img_height, 32, 2160);
 
     // Create RGB24 buffer (3 bytes per pixel)
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
