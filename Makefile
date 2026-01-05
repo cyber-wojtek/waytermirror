@@ -9,6 +9,7 @@ INCLUDES = -I. \
            -I/usr/include/spa-0.2 \
 		   -I/usr/include/glib-2.0 \
            $(shell pkg-config --cflags gio-2.0)
+		   $(shell pkg-config --cflags libsixel)
 
 # Base libraries
 LIBS_BASE = -lwayland-client -lm -llz4 -lpthread -linput -ludev -lopus -lopusfile -lsixel -lpng $(shell pkg-config --libs gio-2.0)
