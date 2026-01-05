@@ -3119,23 +3119,9 @@ static std::vector<uint8_t> render_sixel(
         return {};
     }
 
-    // Configure output options based on quality setting
-    // quality: 0-100 where 100 is best quality (slower), 0 is fastest
-    if (quality >= 80)
-    {
-        sixel_output_set_encode_policy(output, SIXEL_ENCODEPOLICY_SIZE);
-    }
-    else if (quality >= 50)
-    {
-        sixel_output_set_encode_policy(output, SIXEL_ENCODEPOLICY_AUTO);
-    }
-    else
-    {
-        sixel_output_set_encode_policy(output, SIXEL_ENCODEPOLICY_FAST);
-    }
+    sixel_output_set_encode_policy(output, SIXEL_ENCODEPOLICY_FAST);
     
-    // Create dither
-    int palette_size = 256;
+    int palette_size = (quality >= 70) ? 256 : (quality >= 40) ? 128 : 64;
     
     status = sixel_dither_new(&dither, palette_size, nullptr);
     if (SIXEL_FAILED(status))
@@ -3145,42 +3131,30 @@ static std::vector<uint8_t> render_sixel(
         return {};
     }
     
-    // Configure dithering based on detail level
-    // detail_level: 0-100 where 100 is maximum detail
     int diffusion_type = SIXEL_DIFFUSE_NONE;
     int sixel_quality = SIXEL_QUALITY_HIGH;
     
-    if (detail_level >= 80)
+    if (detail_level >= 90 && quality >= 85)
     {
-        diffusion_type = SIXEL_DIFFUSE_ATKINSON;  // High quality dithering
-        sixel_quality = SIXEL_QUALITY_FULL;       // Full quality palette
-    }
-    else if (detail_level >= 60)
-    {
-        diffusion_type = SIXEL_DIFFUSE_FS;        // Floyd-Steinberg dithering
-        sixel_quality = SIXEL_QUALITY_HIGH;
+        diffusion_type = SIXEL_DIFFUSE_ATKINSON;
+        sixel_quality = SIXEL_QUALITY_FULL;
     }
     else if (detail_level >= 40)
     {
-        diffusion_type = SIXEL_DIFFUSE_NONE;      // No dithering for speed
         sixel_quality = SIXEL_QUALITY_HIGH;
     }
     else
     {
-        diffusion_type = SIXEL_DIFFUSE_NONE;      // No dithering for speed
         sixel_quality = SIXEL_QUALITY_LOW;
     }
     
     sixel_dither_set_diffusion_type(dither, diffusion_type);
     
-    // Initialize with RGB888 format (3 bytes per pixel, no stride)
     sixel_dither_initialize(dither, rgb_data.data(), sixel_width, sixel_height,
                            SIXEL_PIXELFORMAT_RGB888,
                            SIXEL_LARGE_AUTO, SIXEL_REP_AUTO, sixel_quality);
 
-    // Encode to sixel
-    status = sixel_encode(rgb_data.data(), sixel_width, sixel_height,
-                         0, // depth (unused with RGB888)
+    status = sixel_encode(rgb_data.data(), sixel_width, sixel_height, 0,
                          dither, output);
     
     sixel_dither_unref(dither);
@@ -3221,9 +3195,6 @@ static std::vector<uint8_t> render_kitty(
     int terminal_pixel_width = (term_pixel_width > 0) ? term_pixel_width : (term_width * 10);
     int terminal_pixel_height = (term_pixel_height > 0) ? term_pixel_height : (term_height * 20);
     
-    terminal_pixel_width = terminal_pixel_width;
-    terminal_pixel_height = terminal_pixel_height;
-    
     int img_width, img_height;
     
     if (keep_aspect_ratio)
@@ -3248,8 +3219,8 @@ static std::vector<uint8_t> render_kitty(
         img_height = (int)(terminal_pixel_height * scale_factor);
     }
     
-    img_width = std::clamp(img_width, 32, 2048);
-    img_height = std::clamp(img_height, 32, 2048);
+    img_width = std::max(img_width, 32);
+    img_height = std::max(img_height, 32);
     
     /*std::cerr << "[KITTY] Encoding " << img_width << "x" << img_height 
               << " from " << rot_width << "x" << rot_height 
@@ -3310,12 +3281,9 @@ static std::vector<uint8_t> render_kitty(
     
     png_set_write_fn(png_ptr, &png_data, MemoryWriter::write_fn, nullptr);
     
-    // Use faster compression levels - high compression is VERY slow
-    // Level 1-3 is much faster with minimal size difference for video streams
-    int compression = 1 + (quality / 33); // 1-4 based on quality
+    int compression = 1 + (quality / 33);
     png_set_compression_level(png_ptr, compression);
     
-    // Use simpler filter for speed (NONE or SUB are fastest)
     int filter = (quality >= 70) ? PNG_FILTER_NONE : PNG_FILTER_SUB;
     
     png_set_IHDR(png_ptr, info_ptr, img_width, img_height, 8,
