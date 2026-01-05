@@ -35,12 +35,13 @@
 #include <sys/mman.h>
 #include <emmintrin.h>  // SSE2
 #include <immintrin.h>  // AVX2
+#include <cpuid.h>
 
-// Opus encoders/decoders - separate for mic (client->server) and audio (server->client)
-static OpusEncoder *mic_opus_encoder = nullptr;   // For encoding microphone data to send
+// Opus encoders/decoders
+static OpusEncoder *microphone_opus_encoder = nullptr;   // For encoding microphone data to send
 static OpusDecoder *audio_opus_decoder = nullptr; // For decoding received audio data
-static int mic_opus_sample_rate = 48000;
-static int mic_opus_channels = 2;
+static int microphone_opus_sample_rate = 48000;
+static int microphone_opus_channels = 2;
 static int audio_opus_sample_rate = 48000;
 static int audio_opus_channels = 2;
 
@@ -261,11 +262,11 @@ struct ClientConfig
     int audio_bitrate = 64000; // in bps
     int audio_opus_application = OPUS_APPLICATION_AUDIO;
     // Microphone opus settings (client->server)
-    int mic_sample_rate = 48000;
-    int mic_channels = 2;
-    int mic_opus_complexity = 5;
-    int mic_bitrate = 64000; // in bps
-    int mic_opus_application = OPUS_APPLICATION_VOIP;
+    int microphone_sample_rate = 48000;
+    int microphone_channels = 2;
+    int microphone_opus_complexity = 5;
+    int microphone_bitrate = 64000; // in bps
+    int microphone_opus_application = OPUS_APPLICATION_VOIP;
     uint32_t requested_capture_width;   // 0 = native
     uint32_t requested_capture_height;  // 0 = native
 };
@@ -815,13 +816,13 @@ static void microphone_send_thread()
     
     // Opus frame size (20ms - must match server)
     const int OPUS_FRAME_MS = 20;
-    int opus_frame_size = (mic_opus_sample_rate * OPUS_FRAME_MS) / 1000;
+    int opus_frame_size = (microphone_opus_sample_rate * OPUS_FRAME_MS) / 1000;
     int bytes_per_sample = sizeof(float); // F32LE from PipeWire
-    int frame_bytes = opus_frame_size * mic_opus_channels * bytes_per_sample;
+    int frame_bytes = opus_frame_size * microphone_opus_channels * bytes_per_sample;
     
     std::vector<uint8_t> accumulator;  // Accumulate data until we have full opus frame
-    std::vector<float> float_buffer(opus_frame_size * mic_opus_channels);  // For opus encoding
-    std::vector<int16_t> int16_buffer(opus_frame_size * mic_opus_channels); // Convert F32 to S16 for opus
+    std::vector<float> float_buffer(opus_frame_size * microphone_opus_channels);  // For opus encoding
+    std::vector<int16_t> int16_buffer(opus_frame_size * microphone_opus_channels); // Convert F32 to S16 for opus
 
     while (running && microphone_capture.running)
     {
@@ -860,11 +861,11 @@ static void microphone_send_thread()
                 std::vector<uint8_t> opus_input(accumulator.begin(), accumulator.begin() + frame_bytes);
                 accumulator.erase(accumulator.begin(), accumulator.begin() + frame_bytes);
 
-                if (config_copy.microphone_compress && mic_opus_encoder)
+                if (config_copy.microphone_compress && microphone_opus_encoder)
                 {
                     // Convert F32LE to S16LE for Opus encoding
                     const float *float_samples = reinterpret_cast<const float *>(opus_input.data());
-                    for (int i = 0; i < opus_frame_size * mic_opus_channels; i++)
+                    for (int i = 0; i < opus_frame_size * microphone_opus_channels; i++)
                     {
                         float sample = std::clamp(float_samples[i], -1.0f, 1.0f);
                         int16_buffer[i] = static_cast<int16_t>(sample * 32767.0f);
@@ -873,7 +874,7 @@ static void microphone_send_thread()
                     // Opus encode
                     std::vector<uint8_t> compressed(4000); // Max opus packet size
                     int compressed_size = opus_encode(
-                        mic_opus_encoder,
+                        microphone_opus_encoder,
                         int16_buffer.data(),
                         opus_frame_size,
                         compressed.data(),
@@ -885,7 +886,7 @@ static void microphone_send_thread()
                         CompressedAudioHeader header;
                         header.compressed_size = compressed_size;
                         // Uncompressed size is the S16 size (for decoder on other end)
-                        header.uncompressed_size = opus_frame_size * mic_opus_channels * sizeof(int16_t);
+                        header.uncompressed_size = opus_frame_size * microphone_opus_channels * sizeof(int16_t);
                         header.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
                                                   std::chrono::steady_clock::now().time_since_epoch())
                                                   .count();
@@ -1688,28 +1689,28 @@ static void cycle_microphone_compression()
     {
         current_config.microphone_compress = 1;
         std::cerr << "[MICROPHONE] Opus compression: ON ("
-                  << current_config.mic_sample_rate << "Hz "
-                  << current_config.mic_channels << "ch "
-                  << current_config.mic_bitrate/1000 << "kbps)\n";
+                  << current_config.microphone_sample_rate << "Hz "
+                  << current_config.microphone_channels << "ch "
+                  << current_config.microphone_bitrate/1000 << "kbps)\n";
 
         // Reinitialize mic encoder if needed
-        if (!mic_opus_encoder)
+        if (!microphone_opus_encoder)
         {
             int error;
-            mic_opus_encoder = opus_encoder_create(
-                mic_opus_sample_rate,
-                mic_opus_channels,
-                current_config.mic_opus_application,
+            microphone_opus_encoder = opus_encoder_create(
+                microphone_opus_sample_rate,
+                microphone_opus_channels,
+                current_config.microphone_opus_application,
                 &error);
             if (error != OPUS_OK)
             {
                 std::cerr << "[OPUS] Failed to create mic encoder: " << opus_strerror(error) << "\n";
-                mic_opus_encoder = nullptr;
+                microphone_opus_encoder = nullptr;
             }
             else
             {
-                opus_encoder_ctl(mic_opus_encoder, OPUS_SET_BITRATE(current_config.mic_bitrate));
-                opus_encoder_ctl(mic_opus_encoder, OPUS_SET_COMPLEXITY(current_config.mic_opus_complexity));
+                opus_encoder_ctl(microphone_opus_encoder, OPUS_SET_BITRATE(current_config.microphone_bitrate));
+                opus_encoder_ctl(microphone_opus_encoder, OPUS_SET_COMPLEXITY(current_config.microphone_opus_complexity));
             }
         }
     }
@@ -2579,15 +2580,33 @@ static void input_thread()
     std::cerr << "[INPUT] Thread stopped\n";
 }
 
-// Framebuffer rendering - persistent state to avoid open/mmap every frame
+static bool cpu_has_avx2 = false;
+static bool cpu_has_sse2 = false;
+
+static void detect_cpu_features()
+{
+    unsigned int eax, ebx, ecx, edx;
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+        cpu_has_sse2 = (edx & bit_SSE2) != 0;
+    }
+    if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
+        cpu_has_avx2 = (ebx & bit_AVX2) != 0;
+    }
+}
+
 static int fb_fd = -1;
-static uint8_t *fb_mem = nullptr;
+static uint8_t *fb_mmap = nullptr;
 static size_t fb_size = 0;
 static uint32_t fb_width = 0, fb_height = 0, fb_bpp = 0, fb_line_length = 0;
+static uint32_t fb_offset = 0;  // For double buffering support
 
 static void init_framebuffer()
 {
-    if (fb_fd >= 0) return;  // Already initialized
+    if (fb_fd >= 0) return;
+    
+    detect_cpu_features();
+    std::cerr << "[FRAMEBUFFER] CPU features: SSE2=" << cpu_has_sse2 
+              << " AVX2=" << cpu_has_avx2 << "\n";
     
     fb_fd = open("/dev/fb0", O_RDWR);
     if (fb_fd < 0) {
@@ -2617,25 +2636,25 @@ static void init_framebuffer()
     fb_bpp = vinfo.bits_per_pixel / 8;
     fb_line_length = finfo.line_length;
     fb_size = fb_line_length * fb_height;
-
-    fb_mem = (uint8_t *)mmap(nullptr, fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, fb_fd, 0);
-    if (fb_mem == MAP_FAILED) {
-        std::cerr << "[FRAMEBUFFER] Failed to mmap framebuffer\n";
+    
+    fb_mmap = (uint8_t*)mmap(NULL, fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, fb_fd, 0);
+    if (fb_mmap == MAP_FAILED) {
+        std::cerr << "[FRAMEBUFFER] Failed to mmap: " << strerror(errno) << "\n";
+        fb_mmap = nullptr;
         close(fb_fd);
         fb_fd = -1;
-        fb_mem = nullptr;
         return;
     }
     
-    std::cerr << "[FRAMEBUFFER] Initialized: " << fb_width << "x" << fb_height 
-              << " " << (fb_bpp * 8) << "bpp\n";
+    std::cerr << "[FRAMEBUFFER] Initialized (mmap): " << fb_width << "x" << fb_height 
+              << " " << (fb_bpp * 8) << "bpp, line_length=" << fb_line_length << "\n";
 }
 
 static void cleanup_framebuffer()
 {
-    if (fb_mem && fb_mem != MAP_FAILED) {
-        munmap(fb_mem, fb_size);
-        fb_mem = nullptr;
+    if (fb_mmap) {
+        munmap(fb_mmap, fb_size);
+        fb_mmap = nullptr;
     }
     if (fb_fd >= 0) {
         close(fb_fd);
@@ -2643,84 +2662,92 @@ static void cleanup_framebuffer()
     }
 }
 
-static void convert_rgb24_to_bgra32_simd(const uint8_t* src, uint32_t* dst, size_t pixel_count)
+static inline void convert_rgb_to_bgra_avx2(const uint8_t* __restrict__ rgb, 
+                                            uint8_t* __restrict__ bgra, 
+                                            size_t pixel_count)
 {
-#ifdef __AVX2__
-    // AVX2 path - process 8 pixels at once
     size_t i = 0;
+    
     for (; i + 8 <= pixel_count; i += 8) {
-        // Load 24 bytes (8 RGB pixels)
-        // RGB layout: R0 G0 B0 R1 G1 B1 R2 G2 B2 R3 G3 B3 R4 G4 B4 R5 G5 B5 R6 G6 B6 R7 G7 B7
-        __m256i rgb = _mm256_loadu_si256((__m256i*)(src + i * 3));
+        __m128i rgb_low = _mm_loadu_si128((__m128i*)(rgb + i * 3));
+        __m128i rgb_high = _mm_loadl_epi64((__m128i*)(rgb + i * 3 + 16));
+    }
+    
+    for (i = 0; i + 4 <= pixel_count; i += 4) {
+        const uint8_t* p = rgb + i * 3;
+        uint8_t* dst = bgra + i * 4;
         
-        // Shuffle to BGRA format (this is complex, use lookup tables or scalar for simplicity)
-        // For now, fall back to SSE2 or scalar for the shuffle
-        // This is a placeholder - proper AVX2 RGB->BGRA is complex
-        
-        // Fallback to scalar for these 8 pixels
-        for (size_t j = 0; j < 8 && (i + j) < pixel_count; j++) {
-            const uint8_t* p = src + (i + j) * 3;
-            dst[i + j] = ((uint32_t)p[2]) |       // B
-                        ((uint32_t)p[1] << 8) |   // G
-                        ((uint32_t)p[0] << 16) |  // R
-                        0xFF000000;               // A
+        dst[0] = p[2];   dst[1] = p[1];   dst[2] = p[0];   dst[3] = 0xFF;
+        dst[4] = p[5];   dst[5] = p[4];   dst[6] = p[3];   dst[7] = 0xFF;
+        dst[8] = p[8];   dst[9] = p[7];   dst[10] = p[6];  dst[11] = 0xFF;
+        dst[12] = p[11]; dst[13] = p[10]; dst[14] = p[9];  dst[15] = 0xFF;
+    }
+    
+    for (; i < pixel_count; ++i) {
+        const uint8_t* p = rgb + i * 3;
+        uint8_t* dst = bgra + i * 4;
+        dst[0] = p[2];
+        dst[1] = p[1];
+        dst[2] = p[0];
+        dst[3] = 0xFF;
+    }
+}
+
+static inline void convert_rgb_to_rgb565_simd(const uint8_t* __restrict__ rgb, 
+                                              uint8_t* __restrict__ rgb565, 
+                                              size_t pixel_count)
+{
+    size_t i = 0;
+    uint16_t* dst16 = (uint16_t*)rgb565;
+    
+    for (; i + 4 <= pixel_count; i += 4) {
+        const uint8_t* p = rgb + i * 3;
+        dst16[i + 0] = ((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3);
+        dst16[i + 1] = ((p[3] >> 3) << 11) | ((p[4] >> 2) << 5) | (p[5] >> 3);
+        dst16[i + 2] = ((p[6] >> 3) << 11) | ((p[7] >> 2) << 5) | (p[8] >> 3);
+        dst16[i + 3] = ((p[9] >> 3) << 11) | ((p[10] >> 2) << 5) | (p[11] >> 3);
+    }
+    
+    for (; i < pixel_count; ++i) {
+        const uint8_t* p = rgb + i * 3;
+        dst16[i] = ((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3);
+    }
+}
+
+static inline void fast_memcpy_simd(void* __restrict__ dst, 
+                                   const void* __restrict__ src, 
+                                   size_t size)
+{
+    uint8_t* d = (uint8_t*)dst;
+    const uint8_t* s = (const uint8_t*)src;
+    size_t i = 0;
+    
+#ifdef __AVX2__
+    if (cpu_has_avx2 && ((uintptr_t)d & 31) == 0 && ((uintptr_t)s & 31) == 0) {
+        for (; i + 32 <= size; i += 32) {
+            __m256i chunk = _mm256_load_si256((__m256i*)(s + i));
+            _mm256_stream_si256((__m256i*)(d + i), chunk);
         }
     }
+#endif
     
-    // Handle remaining pixels
-    for (; i < pixel_count; i++) {
-        const uint8_t* p = src + i * 3;
-        dst[i] = ((uint32_t)p[2]) |
-                ((uint32_t)p[1] << 8) |
-                ((uint32_t)p[0] << 16) |
-                0xFF000000;
-    }
-    
-#elif defined(__SSE2__)
-    // SSE2 path - process 4 pixels at once
-    size_t i = 0;
-    for (; i + 4 <= pixel_count; i += 4) {
-        // Load 12 bytes and convert to 4 BGRA pixels
-        const uint8_t* p0 = src + i * 3;
-        const uint8_t* p1 = p0 + 3;
-        const uint8_t* p2 = p1 + 3;
-        const uint8_t* p3 = p2 + 3;
-        
-        uint32_t bgra[4] = {
-            ((uint32_t)p0[2]) | ((uint32_t)p0[1] << 8) | ((uint32_t)p0[0] << 16) | 0xFF000000,
-            ((uint32_t)p1[2]) | ((uint32_t)p1[1] << 8) | ((uint32_t)p1[0] << 16) | 0xFF000000,
-            ((uint32_t)p2[2]) | ((uint32_t)p2[1] << 8) | ((uint32_t)p2[0] << 16) | 0xFF000000,
-            ((uint32_t)p3[2]) | ((uint32_t)p3[1] << 8) | ((uint32_t)p3[0] << 16) | 0xFF000000
-        };
-        
-        __m128i pixels = _mm_loadu_si128((__m128i*)bgra);
-        _mm_storeu_si128((__m128i*)(dst + i), pixels);
-    }
-    
-    // Handle remaining pixels
-    for (; i < pixel_count; i++) {
-        const uint8_t* p = src + i * 3;
-        dst[i] = ((uint32_t)p[2]) |
-                ((uint32_t)p[1] << 8) |
-                ((uint32_t)p[0] << 16) |
-                0xFF000000;
-    }
-    
-#else
-    // Scalar fallback - but optimized with single 32-bit writes
-    for (size_t i = 0; i < pixel_count; i++) {
-        const uint8_t* p = src + i * 3;
-        dst[i] = ((uint32_t)p[2]) |       // B
-                ((uint32_t)p[1] << 8) |   // G
-                ((uint32_t)p[0] << 16) |  // R
-                0xFF000000;               // A
+#ifdef __SSE2__
+    if (cpu_has_sse2) {
+        for (; i + 16 <= size; i += 16) {
+            __m128i chunk = _mm_loadu_si128((__m128i*)(s + i));
+            _mm_storeu_si128((__m128i*)(d + i), chunk);
+        }
     }
 #endif
+    
+    for (; i < size; ++i) {
+        d[i] = s[i];
+    }
 }
 
 static void render_to_framebuffer(const std::vector<uint8_t>& data)
 {
-    if (data.size() < 8) return;
+    if (data.size() < 8 || !fb_mmap) return;
 
     const uint32_t img_width  = *reinterpret_cast<const uint32_t*>(&data[0]);
     const uint32_t img_height = *reinterpret_cast<const uint32_t*>(&data[4]);
@@ -2728,44 +2755,57 @@ static void render_to_framebuffer(const std::vector<uint8_t>& data)
 
     if (data.size() != expected_size) return;
 
-    if (fb_fd < 0 || !fb_mem) {
-        init_framebuffer();
-        if (fb_fd < 0 || !fb_mem) return;
-    }
-
     const uint8_t* rgb = data.data() + 8;
 
     if (img_width == fb_width && img_height == fb_height) {
+        if (fb_bpp == 3 && fb_line_length == img_width * 3) {
+            fast_memcpy_simd(fb_mmap, rgb, img_width * img_height * 3);
+            return;
+        }
+        
         if (fb_bpp == 3) {
-            if (fb_line_length == img_width * 3) {
-                memcpy(fb_mem, rgb, img_width * img_height * 3);
-            } else {
-                for (uint32_t y = 0; y < img_height; ++y) {
-                    memcpy(fb_mem + y * fb_line_length,
-                           rgb + y * img_width * 3,
-                           img_width * 3);
-                }
+            for (uint32_t y = 0; y < img_height; ++y) {
+                fast_memcpy_simd(
+                    fb_mmap + y * fb_line_length,
+                    rgb + y * img_width * 3,
+                    img_width * 3
+                );
             }
             return;
         }
 
         if (fb_bpp == 4) {
-            convert_rgb24_to_bgra32_simd(
-                rgb,
-                reinterpret_cast<uint32_t*>(fb_mem),
-                img_width * img_height
-            );
+            std::vector<uint8_t> row_buffer(img_width * 4);
+            
+            for (uint32_t y = 0; y < img_height; ++y) {
+                convert_rgb_to_bgra_avx2(
+                    rgb + y * img_width * 3,
+                    row_buffer.data(),
+                    img_width
+                );
+                fast_memcpy_simd(
+                    fb_mmap + y * fb_line_length,
+                    row_buffer.data(),
+                    img_width * 4
+                );
+            }
             return;
         }
 
         if (fb_bpp == 2) {
-            uint16_t* dst = reinterpret_cast<uint16_t*>(fb_mem);
-            const size_t n = img_width * img_height;
-            for (size_t i = 0; i < n; ++i) {
-                const uint8_t* p = rgb + i * 3;
-                dst[i] = ((p[0] >> 3) << 11) |
-                         ((p[1] >> 2) << 5)  |
-                         (p[2] >> 3);
+            std::vector<uint8_t> row_buffer(img_width * 2);
+            
+            for (uint32_t y = 0; y < img_height; ++y) {
+                convert_rgb_to_rgb565_simd(
+                    rgb + y * img_width * 3,
+                    row_buffer.data(),
+                    img_width
+                );
+                fast_memcpy_simd(
+                    fb_mmap + y * fb_line_length,
+                    row_buffer.data(),
+                    img_width * 2
+                );
             }
             return;
         }
@@ -2776,64 +2816,93 @@ static void render_to_framebuffer(const std::vector<uint8_t>& data)
     const int off_x = ((int)fb_width  - (int)target_w) / 2;
     const int off_y = ((int)fb_height - (int)target_h) / 2;
 
-    if (fb_bpp == 4) {
-        std::vector<uint8_t> row(target_w * 3);
+    std::vector<uint32_t> y_lookup(target_h);
+    for (uint32_t y = 0; y < target_h; ++y) {
+        y_lookup[y] = ((uint64_t)y * img_height / target_h) * img_width * 3;
+    }
 
+    if (fb_bpp == 4) {
+        std::vector<uint8_t> row_rgb(target_w * 3);
+        std::vector<uint8_t> row_bgra(target_w * 4);
+        
         for (uint32_t y = 0; y < target_h; ++y) {
-            const uint32_t src_y = (uint64_t)y * img_height / target_h;
             const int fb_y = off_y + y;
             if ((unsigned)fb_y >= fb_height) continue;
-
-            const uint8_t* src_row = rgb + src_y * img_width * 3;
-
+            
+            const uint8_t* src_row = rgb + y_lookup[y];
+            
             for (uint32_t x = 0; x < target_w; ++x) {
                 const uint32_t src_x = (uint64_t)x * img_width / target_w;
                 const uint8_t* p = src_row + src_x * 3;
-                row[x*3+0] = p[0];
-                row[x*3+1] = p[1];
-                row[x*3+2] = p[2];
+                row_rgb[x * 3 + 0] = p[0];
+                row_rgb[x * 3 + 1] = p[1];
+                row_rgb[x * 3 + 2] = p[2];
             }
-
-            uint32_t* dst = reinterpret_cast<uint32_t*>(
-                fb_mem + fb_y * fb_line_length
-            );
-
-            convert_rgb24_to_bgra32_simd(
-                row.data(),
-                dst + off_x,
-                target_w
+            
+            convert_rgb_to_bgra_avx2(row_rgb.data(), row_bgra.data(), target_w);
+            
+            fast_memcpy_simd(
+                fb_mmap + fb_y * fb_line_length + off_x * 4,
+                row_bgra.data(),
+                target_w * 4
             );
         }
         return;
     }
 
-    for (uint32_t y = 0; y < target_h; ++y) {
-        const uint32_t src_y = (uint64_t)y * img_height / target_h;
-        const int fb_y = off_y + y;
-        if ((unsigned)fb_y >= fb_height) continue;
-
-        const uint8_t* src_row = rgb + src_y * img_width * 3;
-
-        for (uint32_t x = 0; x < target_w; ++x) {
-            const uint32_t src_x = (uint64_t)x * img_width / target_w;
-            const int fb_x = off_x + x;
-            if ((unsigned)fb_x >= fb_width) continue;
-
-            const uint8_t* p = src_row + src_x * 3;
-
-            if (fb_bpp == 3) {
-                uint8_t* dst = fb_mem + fb_y * fb_line_length + fb_x * 3;
-                dst[0] = p[2];
-                dst[1] = p[1];
-                dst[2] = p[0];
-            } else if (fb_bpp == 2) {
-                uint16_t* dst = (uint16_t*)
-                    (fb_mem + fb_y * fb_line_length) + fb_x;
-                *dst = ((p[0] >> 3) << 11) |
-                       ((p[1] >> 2) << 5)  |
-                       (p[2] >> 3);
+    if (fb_bpp == 3) {
+        std::vector<uint8_t> row_buffer(target_w * 3);
+        
+        for (uint32_t y = 0; y < target_h; ++y) {
+            const int fb_y = off_y + y;
+            if ((unsigned)fb_y >= fb_height) continue;
+            
+            const uint8_t* src_row = rgb + y_lookup[y];
+            
+            for (uint32_t x = 0; x < target_w; ++x) {
+                const uint32_t src_x = (uint64_t)x * img_width / target_w;
+                const uint8_t* p = src_row + src_x * 3;
+                row_buffer[x * 3 + 0] = p[0];
+                row_buffer[x * 3 + 1] = p[1];
+                row_buffer[x * 3 + 2] = p[2];
             }
+            
+            fast_memcpy_simd(
+                fb_mmap + fb_y * fb_line_length + off_x * 3,
+                row_buffer.data(),
+                target_w * 3
+            );
         }
+        return;
+    }
+
+    if (fb_bpp == 2) {
+        std::vector<uint8_t> row_rgb(target_w * 3);
+        std::vector<uint8_t> row_565(target_w * 2);
+        
+        for (uint32_t y = 0; y < target_h; ++y) {
+            const int fb_y = off_y + y;
+            if ((unsigned)fb_y >= fb_height) continue;
+            
+            const uint8_t* src_row = rgb + y_lookup[y];
+            
+            for (uint32_t x = 0; x < target_w; ++x) {
+                const uint32_t src_x = (uint64_t)x * img_width / target_w;
+                const uint8_t* p = src_row + src_x * 3;
+                row_rgb[x * 3 + 0] = p[0];
+                row_rgb[x * 3 + 1] = p[1];
+                row_rgb[x * 3 + 2] = p[2];
+            }
+            
+            convert_rgb_to_rgb565_simd(row_rgb.data(), row_565.data(), target_w);
+            
+            fast_memcpy_simd(
+                fb_mmap + fb_y * fb_line_length + off_x * 2,
+                row_565.data(),
+                target_w * 2
+            );
+        }
+        return;
     }
 }
 
@@ -3430,15 +3499,15 @@ int main(int argc, char **argv)
 
         // Microphone compress settings
         current_config.microphone_compress = program.get<bool>("--microphone-compress") ? 1 : 0;
-        current_config.mic_sample_rate = program.get<int>("--microphone-sample-rate");
-        current_config.mic_channels = program.get<int>("--microphone-channels");
-        current_config.mic_bitrate = program.get<int>("--microphone-bitrate") * 1000; // kbps to bps
-        current_config.mic_opus_complexity = std::clamp(program.get<int>("--microphone-complexity"), 0, 10);
-        current_config.mic_opus_application = parse_opus_app(program.get<std::string>("--microphone-application"));
+        current_config.microphone_sample_rate = program.get<int>("--microphone-sample-rate");
+        current_config.microphone_channels = program.get<int>("--microphone-channels");
+        current_config.microphone_bitrate = program.get<int>("--microphone-bitrate") * 1000; // kbps to bps
+        current_config.microphone_opus_complexity = std::clamp(program.get<int>("--microphone-complexity"), 0, 10);
+        current_config.microphone_opus_application = parse_opus_app(program.get<std::string>("--microphone-application"));
 
         // Update global opus settings for encoding/decoding
-        mic_opus_sample_rate = current_config.mic_sample_rate;
-        mic_opus_channels = current_config.mic_channels;
+        microphone_opus_sample_rate = current_config.microphone_sample_rate;
+        microphone_opus_channels = current_config.microphone_channels;
         audio_opus_sample_rate = current_config.audio_sample_rate;
         audio_opus_channels = current_config.audio_channels;
     }
@@ -3447,22 +3516,22 @@ int main(int argc, char **argv)
     if (feature_microphone && current_config.microphone_compress)
     {
         int error;
-        mic_opus_encoder = opus_encoder_create(
-            mic_opus_sample_rate,
-            mic_opus_channels,
-            current_config.mic_opus_application,
+        microphone_opus_encoder = opus_encoder_create(
+            microphone_opus_sample_rate,
+            microphone_opus_channels,
+            current_config.microphone_opus_application,
             &error);
         if (error != OPUS_OK)
         {
             std::cerr << "[OPUS] Failed to create mic encoder: " << opus_strerror(error) << "\n";
-            mic_opus_encoder = nullptr;
+            microphone_opus_encoder = nullptr;
         }
         else
         {
-            opus_encoder_ctl(mic_opus_encoder, OPUS_SET_BITRATE(current_config.mic_bitrate));
-            opus_encoder_ctl(mic_opus_encoder, OPUS_SET_COMPLEXITY(current_config.mic_opus_complexity));
-            std::cerr << "[OPUS] Microphone encoder: " << mic_opus_sample_rate << "Hz "
-                      << mic_opus_channels << "ch " << current_config.mic_bitrate/1000 << "kbps\n";
+            opus_encoder_ctl(microphone_opus_encoder, OPUS_SET_BITRATE(current_config.microphone_bitrate));
+            opus_encoder_ctl(microphone_opus_encoder, OPUS_SET_COMPLEXITY(current_config.microphone_opus_complexity));
+            std::cerr << "[OPUS] Microphone encoder: " << microphone_opus_sample_rate << "Hz "
+                      << microphone_opus_channels << "ch " << current_config.microphone_bitrate/1000 << "kbps\n";
         }
     }
 
@@ -3785,10 +3854,10 @@ int main(int argc, char **argv)
     }
 
     // Cleanup opus encoders/decoders
-    if (mic_opus_encoder)
+    if (microphone_opus_encoder)
     {
-        opus_encoder_destroy(mic_opus_encoder);
-        mic_opus_encoder = nullptr;
+        opus_encoder_destroy(microphone_opus_encoder);
+        microphone_opus_encoder = nullptr;
     }
     if (audio_opus_decoder)
     {
