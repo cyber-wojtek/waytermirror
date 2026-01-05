@@ -65,12 +65,12 @@ Then log out and back in.
 [HOTPLUG]   - Keyboard capability
 [HOTPLUG] Device added: JBL Flip 7 (Wojt (AVRCP)
 [HOTPLUG]   - Keyboard capability
-[INIT] Session ID: eb74c2ce-4c79-4f9b-819e-899f78d36798
+[INIT] Session ID: add5ce72-f31c-4581-9f60-e369cf921475
 [CONFIG] Connected to 0.0.0.0:10002
 [VIDEO] Connected to 0.0.0.0:9999
 [AUDIO IN] Connected to 0.0.0.0:10001
-[CLIENT] Got geometry from ioctl: 1899x960 (reserved 1 top, 1 bottom)
-[KITTY] Initial geometry: 1899x960 pixels
+[CLIENT] Got geometry from ioctl: 945x960 (reserved 1 top, 1 bottom)
+[KITTY] Initial geometry: 945x960 pixels
 === Zoom Configuration ===
 Enabled: NO
 Level: 2x
@@ -85,108 +85,29 @@ Quality: 100 (0=fast, 100=best)
 Render Device: CPU
 ===========================
 
-[CONFIG] Sent: 211x50 fps=60 renderer=5 detail=100 follow_focus=0
+[CONFIG] Sent: 105x50 fps=60 renderer=5 detail=100 follow_focus=0
 [INIT] Waiting for screen info from server...
 [INIT] Received screen info: 2560x1440 offset: 1920,0
 
 === Waytermirror Client Started ===
-Session: eb74c2ce-4c79-4f9b-819e-899f78d36798
-Output: 1 | Resolution: 2560x1440
+Session: add5ce72-f31c-4581-9f60-e369cf921475
+Output: [AUDIO] Receive thread started
+1 | Resolution: [AUDIO] Received format: 48000Hz 2ch format=1
+2560x1440
 Renderer: kitty | Color mode: true
-FPS: 60 | Scale: [AUDIO] Receive thread started
-1
+FPS: 60 | Scale: 1
 Compression: OFF
 
 === Keyboard Shortcuts (Ctrl+Alt+Shift+Key) ===
   Q=Quit  H=Help  I=Toggle Input  G=Toggle Grab
   Z=Zoom  +/-=Zoom In/Out  0=Reset Zoom  Arrows=Pan
   R=Renderer  C=Color  D/S=Detail  W/E=Quality
+[INPUT] Thread started with libinput and hotplug monitoring
   P=Pause  A=Audio Mute  M=Mic Mute  F=Focus-Follow
 Input forwarding: DISABLED (local shortcuts only)
 Press Ctrl+Alt+Shift+H for full shortcut list
 Audio playback enabled (system audio from server)
 ================================================
 
-[AUDIO] Received format: 48000Hz 2ch format=1
-[INPUT] Thread started with libinput and hotplug monitoring
 [AUDIO] Playback initialized (48000Hz 2ch, format=1)
 [AUDIO] Starting receive loop...
-[AUDIO] Received 252 packets, queue size: 11
-[AUDIO] Received 235 packets, queue size: 6
-[AUDIO] Received 235 packets, queue size: 13
-[AUDIO] Received 235 packets, queue size: 8
-[CLIENT] Got geometry from ioctl: 945x960 (reserved 1 top, 1 bottom)
-[RESIZE] Terminal resized to 105x50 cells (945x960 pixels via KITTY)
-[CONFIG] Sent: 105x50 fps=60 renderer=5 detail=100 follow_focus=0
-[AUDIO] Received 134 packets, queue size: 0
-[AUDIO] Received 158 packets, queue size: 7
-[AUDIO] Received 130 packets, queue size: 1
-[AUDIO] Received 139 packets, queue size: 8
-[AUDIO] Received 166 packets, queue size: 5
-[AUDIO] Received 111 packets, queue size: 0
-[AUDIO] Received 115 packets, queue size: 2
-[AUDIO] Received 62 packets, queue size: 2
-[AUDIO] Received 129 packets, queue size: 0
-[AUDIO] Received 100 packets, queue size: 3
-[AUDIO] Received 143 packets, queue size: 4
-[AUDIO] Received 141 packets, queue size: 0
-[AUDIO] Received 108 packets, queue size: 3
-[AUDIO] Received 58 packets, queue size: 0
-[AUDIO] Received 72 packets, queue size: 4
-[AUDIO] Received 119 packets, queue size: 3
-[AUDIO] Received 67 packets, queue size: 1
-[AUDIO] Received 97 packets, queue size: 7
-[AUDIO] Received 94 packets, queue size: 1
-[AUDIO] Received 126 packets, queue size: 0
-[AUDIO] Received 72 packets, queue size: 4
-[AUDIO] Received 101 packets, queue size: 2
-[AUDIO] Received 137 packets, queue size: 6
-[AUDIO] Received 143 packets, queue size: 5
-[AUDIO] Received 120 packets, queue size: 0
-[AUDIO] Received 83 packets, queue size: 0
-[AUDIO] Received 146 packets, queue size: 4
-[AUDIO] Received 125 packets, queue size: 0
-[AUDIO] Received 92 packets, queue size: 0
-[AUDIO] Received 90 packets, queue size: 4
-[AUDIO] Received 90 packets, queue size: 0
-[AUDIO] Received 119 packets, queue size: 0
-[AUDIO] Received 129 packets, queue size: 0
-[AUDIO] Received 77 packets, queue size: 5
-[AUDIO] Received 98 packets, queue size: 1
-[AUDIO] Received 114 packets, queue size: 1
-[AUDIO] Received 72 packets, queue size: 0
-[AUDIO] Received 101 packets, queue size: 3
-[AUDIO] Received 137 packets, queue size: 3
-[AUDIO] Received 119 packets, queue size: 3
-[AUDIO] Received 114 packets, queue size: 0
-[AUDIO] Received 85 packets, queue size: 5
-[AUDIO] Received 98 packets, queue size: 3
-[AUDIO] Received 126 packets, queue size: 0
-[AUDIO] Received 100 packets, queue size: 5
-[AUDIO] Received 115 packets, queue size: 0
-[AUDIO] Received 146 packets, queue size: 0
-[AUDIO] Received 137 packets, queue size: 4
-[AUDIO] Received 104 packets, queue size: 4
-[AUDIO] Received 68 packets, queue size: 0
-[AUDIO] Received 52 packets, queue size: 5
-[AUDIO] Received 116 packets, queue size: 1
-[AUDIO] Received 126 packets, queue size: 2
-[AUDIO] Received 81 packets, queue size: 4
-[AUDIO] Received 70 packets, queue size: 0
-[AUDIO] Received 109 packets, queue size: 5
-[AUDIO] Received 105 packets, queue size: 0
-[AUDIO] Received 141 packets, queue size: 6
-[AUDIO] Received 107 packets, queue size: 3
-[AUDIO] Received 107 packets, queue size: 0
-[AUDIO] Received 116 packets, queue size: 0
-[AUDIO] Received 77 packets, queue size: 2
-[AUDIO] Received 85 packets, queue size: 4
-[AUDIO] Received 95 packets, queue size: 0
-[AUDIO] Received 85 packets, queue size: 2
-[AUDIO] Received 93 packets, queue size: 0
-[AUDIO] Received 76 packets, queue size: 4
-[AUDIO] Received 100 packets, queue size: 1
-[AUDIO] Received 88 packets, queue size: 2
-[AUDIO] Received 73 packets, queue size: 5
-[AUDIO] Received 73 packets, queue size: 0
-[AUDIO] Received 64 packets, queue size: 5

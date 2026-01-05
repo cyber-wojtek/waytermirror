@@ -32,7 +32,9 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
+#include <linux/fb.h>
 #include <png.h>
+#include <sys/mman.h>
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
@@ -3382,6 +3384,91 @@ static std::vector<uint8_t> render_kitty(
     return result;
 }
 
+// Framebuffer renderer - sends compressed RGB24 data for client-side /dev/fb0 rendering
+static std::vector<uint8_t> render_framebuffer(
+    const uint8_t *frame_data,
+    uint32_t frame_width,
+    uint32_t frame_height,
+    uint32_t frame_stride,
+    int term_width,
+    int term_height,
+    int term_pixel_width,
+    int term_pixel_height,
+    ColorMode mode,
+    bool keep_aspect_ratio,
+    double scale_factor,
+    uint8_t detail_level,
+    uint8_t quality,
+    double rotation_angle,
+    PixelFormat pixel_format)
+{
+    if (!frame_data || frame_width == 0 || frame_height == 0)
+        return {};
+
+    uint32_t rot_width, rot_height;
+    get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
+
+    // Use terminal pixel dimensions if available, otherwise use reasonable defaults
+    int target_width = (term_pixel_width > 0) ? term_pixel_width : 1920;
+    int target_height = (term_pixel_height > 0) ? term_pixel_height : 1080;
+    
+    int img_width, img_height;
+    
+    if (keep_aspect_ratio) {
+        double src_aspect = (double)rot_width / rot_height;
+        double target_aspect = (double)target_width / target_height;
+        
+        if (src_aspect > target_aspect) {
+            img_width = target_width;
+            img_height = (int)(img_width / src_aspect);
+        } else {
+            img_height = target_height;
+            img_width = (int)(img_height * src_aspect);
+        }
+        
+        img_width = (int)(img_width * scale_factor);
+        img_height = (int)(img_height * scale_factor);
+    } else {
+        img_width = (int)(target_width * scale_factor);
+        img_height = (int)(target_height * scale_factor);
+    }
+    
+    img_width = std::clamp(img_width, 32, 3840);
+    img_height = std::clamp(img_height, 32, 2160);
+
+    // Create RGB24 buffer (3 bytes per pixel)
+    std::vector<uint8_t> rgb_data(img_width * img_height * 3);
+    
+    for (int y = 0; y < img_height; y++) {
+        for (int x = 0; x < img_width; x++) {
+            double rot_x = (double)x * rot_width / img_width;
+            double rot_y = (double)y * rot_height / img_height;
+            
+            uint8_t r, g, b;
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               (int)rot_x, (int)rot_y, rot_width, rot_height, 
+                               rotation_angle, r, g, b, pixel_format);
+            
+            int idx = (y * img_width + x) * 3;
+            rgb_data[idx + 0] = r;
+            rgb_data[idx + 1] = g;
+            rgb_data[idx + 2] = b;
+        }
+    }
+
+    // Prepare header: width (4 bytes) + height (4 bytes) + RGB data
+    std::vector<uint8_t> result;
+    result.resize(8);
+    *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
+    *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
+    result.insert(result.end(), rgb_data.begin(), rgb_data.end());
+
+    std::cerr << "[FRAMEBUFFER] Prepared " << img_width << "x" << img_height 
+              << " RGB24 (" << result.size() << " bytes) for client\n";
+    
+    return result;
+}
+
 static void capture_thread(int output_index, int fps) {
     if (output_index >= (int)outputs.size())
         return;
@@ -4890,16 +4977,20 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                                 mode, keep_aspect_ratio, config.scale_factor, 
                                 config.detail_level, config.quality, config.rotation_angle,
                                 pixel_fmt));
-                            
-                            // also write to /tmp/sixel_debug.bin for debugging
-                            std::ofstream debug_file("/tmp/sixel_debug.bin", std::ios::binary);
-                            debug_file.write(reinterpret_cast<const char *>(rendered_buf.data()), rendered_buf.size());
-                            debug_file.close();
- 
                         }
                         break;
                     case 5: {
                             rendered_buf = std::move(render_kitty(
+                                frame_to_render.data(), render_width, render_height, render_stride,
+                                config.term_width, config.term_height,
+                                config.term_pixel_width, config.term_pixel_height,
+                                mode, keep_aspect_ratio, config.scale_factor, 
+                                config.detail_level, config.quality, config.rotation_angle,
+                                pixel_fmt));
+                        }
+                        break;
+                    case 6: {
+                            rendered_buf = std::move(render_framebuffer(
                                 frame_to_render.data(), render_width, render_height, render_stride,
                                 config.term_width, config.term_height,
                                 config.term_pixel_width, config.term_pixel_height,

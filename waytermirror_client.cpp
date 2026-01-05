@@ -31,6 +31,8 @@
 #include <opus/opus.h>
 #include <termios.h>
 #include <sys/select.h>
+#include <linux/fb.h>
+#include <sys/mman.h>
 
 // Opus encoders/decoders - separate for mic (client->server) and audio (server->client)
 static OpusEncoder *mic_opus_encoder = nullptr;   // For encoding microphone data to send
@@ -1547,10 +1549,10 @@ static void toggle_exclusive_grab()
 static void cycle_renderer()
 {
     std::lock_guard<std::mutex> lock(config_mutex);
-    // Cycle through all 6 renderers: 0=braille, 1=blocks, 2=ascii, 3=hybrid, 4=sixel, 5=kitty
-    current_config.renderer = (current_config.renderer + 1) % 6;
+    // Cycle through all 7 renderers: 0=braille, 1=blocks, 2=ascii, 3=hybrid, 4=sixel, 5=kitty, 6=framebuffer
+    current_config.renderer = (current_config.renderer + 1) % 7;
 
-    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty"};
+    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty", "framebuffer"};
     std::cerr << "[RENDERER] Switched to: " << names[current_config.renderer] << "\n";
 
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
@@ -1785,7 +1787,7 @@ static void print_shortcuts_help()
     std::cout << "║   Home/End     Fast horizontal pan (100px per press)                   ║\n";
     std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
     std::cout << "║ RENDERING                                                              ║\n";
-    std::cout << "║   R            Cycle renderer (braille→blocks→ascii→hybrid→sixel→kitty) ║\n";
+    std::cout << "║   R            Cycle renderer (braille→blocks→ascii→hybrid→sixel→kitty→fb) ║\n";
     std::cout << "║   C            Cycle color mode (16→256→truecolor)                     ║\n";
     std::cout << "║   D / S        Increase / Decrease detail level (±10)                  ║\n";
     std::cout << "║   W / E        Increase / Decrease quality (±10)                       ║\n";
@@ -1814,8 +1816,8 @@ static void print_shortcuts_help()
     std::cout << "║   6            Cycle microphone compression (off→Opus)                 ║\n";
     std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
     std::cout << "║ CURRENT STATE                                                          ║\n";
-    const char *renderer_names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty"};
-    int renderer_idx = std::min((int)current_config.renderer, 4);
+    const char *renderer_names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty", "framebuffer"};
+    int renderer_idx = std::min((int)current_config.renderer, 6);
     std::cout << "║   Renderer:       " << std::setw(8) << std::left << renderer_names[renderer_idx] << "  Color: " << std::setw(9) << (const char*[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
     std::cout << "║   Detail: " << std::setw(3) << (int)current_config.detail_level << "       Quality: " << std::setw(3) << (int)current_config.quality << "       FPS: " << std::setw(3) << current_config.fps << "             ║\n";
     std::cout << "║   Rotation: " << std::setw(5) << std::fixed << std::setprecision(0) << current_config.rotation_angle << "°   Aspect: " << (current_config.keep_aspect_ratio ? "ON " : "OFF") << "        Compress: " << (current_config.compress ? "ON " : "OFF") << "           ║\n";
@@ -2575,6 +2577,103 @@ static void input_thread()
     std::cerr << "[INPUT] Thread stopped\n";
 }
 
+// Framebuffer rendering function for client-side /dev/fb0 display
+static void render_to_framebuffer(const std::vector<uint8_t> &data)
+{
+    if (data.size() < 8) {
+        std::cerr << "[FRAMEBUFFER] Invalid data size\n";
+        return;
+    }
+
+    // Parse header: width (4 bytes) + height (4 bytes) + RGB24 data
+    uint32_t img_width = *reinterpret_cast<const uint32_t*>(&data[0]);
+    uint32_t img_height = *reinterpret_cast<const uint32_t*>(&data[4]);
+    
+    size_t expected_size = 8 + (img_width * img_height * 3);
+    if (data.size() != expected_size) {
+        std::cerr << "[FRAMEBUFFER] Data size mismatch: got " << data.size() 
+                  << " expected " << expected_size << "\n";
+        return;
+    }
+
+    // Open framebuffer device
+    int fb_fd = open("/dev/fb0", O_RDWR);
+    if (fb_fd < 0) {
+        std::cerr << "[FRAMEBUFFER] Failed to open /dev/fb0: " << strerror(errno) << "\n";
+        return;
+    }
+
+    // Get framebuffer info
+    struct fb_var_screeninfo vinfo;
+    struct fb_fix_screeninfo finfo;
+    
+    if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) < 0) {
+        std::cerr << "[FRAMEBUFFER] Failed to get variable screen info\n";
+        close(fb_fd);
+        return;
+    }
+    
+    if (ioctl(fb_fd, FBIOGET_FSCREENINFO, &finfo) < 0) {
+        std::cerr << "[FRAMEBUFFER] Failed to get fixed screen info\n";
+        close(fb_fd);
+        return;
+    }
+
+    uint32_t fb_width = vinfo.xres;
+    uint32_t fb_height = vinfo.yres;
+    uint32_t fb_bpp = vinfo.bits_per_pixel / 8;
+    uint32_t fb_line_length = finfo.line_length;
+    size_t fb_size = fb_line_length * fb_height;
+
+    // Map framebuffer to memory
+    uint8_t *fb_mem = (uint8_t *)mmap(nullptr, fb_size, PROT_READ | PROT_WRITE, 
+                                       MAP_SHARED, fb_fd, 0);
+    if (fb_mem == MAP_FAILED) {
+        std::cerr << "[FRAMEBUFFER] Failed to mmap framebuffer\n";
+        close(fb_fd);
+        return;
+    }
+
+    // Calculate centering offset
+    int offset_x = (fb_width - img_width) / 2;
+    int offset_y = (fb_height - img_height) / 2;
+
+    // Clear framebuffer (black background)
+    memset(fb_mem, 0, fb_size);
+
+    // Copy RGB24 data to framebuffer
+    const uint8_t *rgb_data = data.data() + 8;
+    
+    for (uint32_t y = 0; y < img_height && (offset_y + (int)y) < fb_height; y++) {
+        for (uint32_t x = 0; x < img_width && (offset_x + (int)x) < fb_width; x++) {
+            int fb_x = offset_x + x;
+            int fb_y = offset_y + y;
+            
+            if (fb_x >= 0 && fb_y >= 0) {
+                const uint8_t *src_pixel = &rgb_data[(y * img_width + x) * 3];
+                uint8_t *dst_pixel = fb_mem + fb_y * fb_line_length + fb_x * fb_bpp;
+                
+                // Write pixel (BGR format for most framebuffers, check vinfo for actual format)
+                if (fb_bpp >= 3) {
+                    // Most framebuffers use BGR ordering
+                    dst_pixel[0] = src_pixel[2];  // B
+                    dst_pixel[1] = src_pixel[1];  // G
+                    dst_pixel[2] = src_pixel[0];  // R
+                    if (fb_bpp == 4)
+                        dst_pixel[3] = 255;  // Alpha
+                }
+            }
+        }
+    }
+
+    // Unmap and close
+    munmap(fb_mem, fb_size);
+    close(fb_fd);
+    
+    std::cerr << "[FRAMEBUFFER] Rendered " << img_width << "x" << img_height 
+              << " to /dev/fb0 (" << fb_width << "x" << fb_height << ")\n";
+}
+
 int main(int argc, char **argv)
 {
     argparse::ArgumentParser program("waytermirror_client");
@@ -3089,6 +3188,7 @@ int main(int argc, char **argv)
                                                             : (renderer == "ascii")    ? 2
                                                             : (renderer == "sixel")    ? 4
                                                             : (renderer == "kitty")    ? 5
+                                                            : (renderer == "framebuffer") ? 6
                                                                                        : 3;
         
         // Query actual pixel dimensions if using sixel or kitty
@@ -3392,8 +3492,13 @@ int main(int argc, char **argv)
             }
             else if (!video_paused.load() && receive_newest_frame(rendered))
             {
-                std::cout << "\033[H" << std::flush;
-                write(STDOUT_FILENO, rendered.data(), rendered.size());
+                // Renderer 6 = framebuffer - write to /dev/fb0 instead of terminal
+                if (current_config.renderer == 6) {
+                    render_to_framebuffer(rendered);
+                } else {
+                    std::cout << "\033[H" << std::flush;
+                    write(STDOUT_FILENO, rendered.data(), rendered.size());
+                }
             }
             else if (video_paused.load())
             {
