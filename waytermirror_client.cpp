@@ -2755,6 +2755,9 @@ static void render_to_framebuffer(const std::vector<uint8_t>& data)
 
     if (data.size() != expected_size) return;
 
+    std::cerr << "[FRAMEBUFFER] Rendering image " << img_width << "x" << img_height << " to framebuffer "
+              << fb_width << "x" << fb_height << " " << (fb_bpp * 8) << "bpp\n";
+
     const uint8_t* rgb = data.data() + 8;
 
     if (img_width == fb_width && img_height == fb_height) {
