@@ -2634,34 +2634,51 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
         return;
     }
 
+    // Determine target size: downscale to fit framebuffer if needed
+    uint32_t target_width = std::min(img_width, fb_width);
+    uint32_t target_height = std::min(img_height, fb_height);
+
     // Calculate centering offset
-    int offset_x = (fb_width - img_width) / 2;
-    int offset_y = (fb_height - img_height) / 2;
+    int offset_x = (int)((int)fb_width - (int)target_width) / 2;
+    int offset_y = (int)((int)fb_height - (int)target_height) / 2;
 
     // Clear framebuffer (black background)
     memset(fb_mem, 0, fb_size);
 
-    // Copy RGB24 data to framebuffer
+    // Copy (with optional downscale) RGB24 data to framebuffer
     const uint8_t *rgb_data = data.data() + 8;
-    
-    for (uint32_t y = 0; y < img_height && (offset_y + (int)y) < fb_height; y++) {
-        for (uint32_t x = 0; x < img_width && (offset_x + (int)x) < fb_width; x++) {
-            int fb_x = offset_x + x;
-            int fb_y = offset_y + y;
-            
-            if (fb_x >= 0 && fb_y >= 0) {
-                const uint8_t *src_pixel = &rgb_data[(y * img_width + x) * 3];
-                uint8_t *dst_pixel = fb_mem + fb_y * fb_line_length + fb_x * fb_bpp;
-                
-                // Write pixel (BGR format for most framebuffers, check vinfo for actual format)
-                if (fb_bpp >= 3) {
-                    // Most framebuffers use BGR ordering
-                    dst_pixel[0] = src_pixel[2];  // B
-                    dst_pixel[1] = src_pixel[1];  // G
-                    dst_pixel[2] = src_pixel[0];  // R
-                    if (fb_bpp == 4)
-                        dst_pixel[3] = 255;  // Alpha
-                }
+
+    for (uint32_t y = 0; y < target_height; y++) {
+        // Map framebuffer row to source row (nearest-neighbor)
+        uint32_t src_y = (uint64_t)y * img_height / target_height;
+        for (uint32_t x = 0; x < target_width; x++) {
+            uint32_t src_x = (uint64_t)x * img_width / target_width;
+
+            int fb_x = offset_x + (int)x;
+            int fb_y = offset_y + (int)y;
+            if (fb_x < 0 || fb_y < 0 || fb_x >= (int)fb_width || fb_y >= (int)fb_height)
+                continue;
+
+            const uint8_t *src_pixel = &rgb_data[(src_y * img_width + src_x) * 3];
+            uint8_t *dst_pixel = fb_mem + fb_y * fb_line_length + fb_x * fb_bpp;
+
+            if (fb_bpp == 4) {
+                // Assume BGRA/XBGR layout in framebuffer
+                dst_pixel[0] = src_pixel[2];  // B
+                dst_pixel[1] = src_pixel[1];  // G
+                dst_pixel[2] = src_pixel[0];  // R
+                dst_pixel[3] = 255;           // A
+            } else if (fb_bpp == 3) {
+                dst_pixel[0] = src_pixel[2];
+                dst_pixel[1] = src_pixel[1];
+                dst_pixel[2] = src_pixel[0];
+            } else if (fb_bpp == 2) {
+                // RGB565 fallback
+                uint16_t r = src_pixel[0] >> 3;
+                uint16_t g = src_pixel[1] >> 2;
+                uint16_t b = src_pixel[2] >> 3;
+                uint16_t pixel = (r << 11) | (g << 5) | b;
+                *reinterpret_cast<uint16_t*>(dst_pixel) = pixel;
             }
         }
     }
