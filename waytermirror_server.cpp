@@ -3221,8 +3221,8 @@ static std::vector<uint8_t> render_kitty(
     int terminal_pixel_width = (term_pixel_width > 0) ? term_pixel_width : (term_width * 10);
     int terminal_pixel_height = (term_pixel_height > 0) ? term_pixel_height : (term_height * 20);
     
-    terminal_pixel_width = std::max(terminal_pixel_width, 320);
-    terminal_pixel_height = std::max(terminal_pixel_height, 240);
+    terminal_pixel_width = terminal_pixel_width;
+    terminal_pixel_height = terminal_pixel_height;
     
     int img_width, img_height;
     
@@ -3309,11 +3309,20 @@ static std::vector<uint8_t> render_kitty(
     }
     
     png_set_write_fn(png_ptr, &png_data, MemoryWriter::write_fn, nullptr);
-    png_set_compression_level(png_ptr, std::clamp(quality / 20, 0, 9));
+    
+    // Use faster compression levels - high compression is VERY slow
+    // Level 1-3 is much faster with minimal size difference for video streams
+    int compression = 1 + (quality / 33); // 1-4 based on quality
+    png_set_compression_level(png_ptr, compression);
+    
+    // Use simpler filter for speed (NONE or SUB are fastest)
+    int filter = (quality >= 70) ? PNG_FILTER_NONE : PNG_FILTER_SUB;
     
     png_set_IHDR(png_ptr, info_ptr, img_width, img_height, 8,
                  PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+    
+    png_set_filter(png_ptr, 0, filter);
     
     png_write_info(png_ptr, info_ptr);
     
