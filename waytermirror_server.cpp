@@ -3740,9 +3740,6 @@ static void apply_client_resolution(
         stride = width * bpp;
     }
     
-    client_width = std::clamp(client_width, 1, 8192);
-    client_height = std::clamp(client_height, 1, 8192);
-    
     size_t dst_stride = (size_t)client_width * bpp;
     size_t dst_size = (size_t)client_height * dst_stride;
     
