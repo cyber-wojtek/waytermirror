@@ -31,8 +31,7 @@ jobs:
           opus \
           opusfile \
           libsixel \
-          libpng \
-          libdrm mesa
+          libdrm mesa ffmpeg 
 
     - uses: actions/checkout@v4
 
@@ -41,7 +40,7 @@ jobs:
 
     - name: Verify binaries
       run: |
-        ls -lah waytermirror_server waytermirror_client
+        ls -lah waytermirror_server waytermirror_client 
 
   build-debian:
     runs-on: ubuntu-latest
@@ -67,7 +66,7 @@ jobs:
           pkg-config \
           libargparse-dev \
           libopus-dev \
-          libopusfile-dev libsixel-dev libpng-dev libdrm-dev libgbm-dev
+          libopusfile-dev libsixel-dev ffmpeg libdrm-dev libgbm-dev libavcodec-dev libavutil-dev libswscale-dev
 
     - uses: actions/checkout@v4
 
