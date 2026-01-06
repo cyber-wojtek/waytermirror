@@ -3451,10 +3451,10 @@ static std::vector<uint8_t> render_kitty(
         double term_aspect = (double)terminal_pixel_width / terminal_pixel_height;
         
         if (src_aspect > term_aspect) {
-            img_width = std::min(terminal_pixel_width, terminal_pixel_width);
+            img_width = terminal_pixel_width;
             img_height = (int)(img_width / src_aspect);
         } else {
-            img_height = std::min(terminal_pixel_height, terminal_pixel_height);
+            img_height = terminal_pixel_height;
             img_width = (int)(img_height * src_aspect);
         }
         
@@ -3467,6 +3467,7 @@ static std::vector<uint8_t> render_kitty(
         img_height = (int)(terminal_pixel_height * scale_factor);
     }
     
+    // Build RGB24 data
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
     
     for (int y = 0; y < img_height; y++)
@@ -3488,29 +3489,20 @@ static std::vector<uint8_t> render_kitty(
         }
     }
 
-    // make sure img_width is divisible by 2 for H.264 encoder
-    img_width -= img_width & 1;
-
-    std::vector<uint8_t> h264_data = encode_h264_frame(
-            *h264_enc, rgb_data.data(), img_width, img_height, quality);
-    
-    if (h264_data.empty()) {
-        return {};
-    }
-    // Base64 encode H.264 data
+    // Base64 encode RGBA data
     static const char base64_chars[] = 
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     
-    size_t b64_size = ((h264_data.size() + 2) / 3) * 4;
+    size_t b64_size = ((rgba_data.size() + 2) / 3) * 4;
     std::string base64_encoded;
     base64_encoded.reserve(b64_size);
     
-    for (size_t i = 0; i < h264_data.size(); i += 3) {
-        size_t remaining = h264_data.size() - i;
+    for (size_t i = 0; i < rgba_data.size(); i += 3) {
+        size_t remaining = rgba_data.size() - i;
         
-        uint32_t b = (static_cast<uint32_t>(h264_data[i]) << 16);
-        if (remaining > 1) b |= (static_cast<uint32_t>(h264_data[i + 1]) << 8);
-        if (remaining > 2) b |= static_cast<uint32_t>(h264_data[i + 2]);
+        uint32_t b = (static_cast<uint32_t>(rgba_data[i]) << 16);
+        if (remaining > 1) b |= (static_cast<uint32_t>(rgba_data[i + 1]) << 8);
+        if (remaining > 2) b |= static_cast<uint32_t>(rgba_data[i + 2]);
         
         base64_encoded += base64_chars[(b >> 18) & 0x3F];
         base64_encoded += base64_chars[(b >> 12) & 0x3F];
@@ -3518,12 +3510,12 @@ static std::vector<uint8_t> render_kitty(
         base64_encoded += (remaining > 2) ? base64_chars[b & 0x3F] : '=';
     }
     
-    // Send as Kitty format
+    // Kitty graphics protocol: RGB (f=24), direct transmission (t=d), display (a=T)
     std::vector<uint8_t> result;
-    std::string msg = "\033_Gf=100,a=T,t=d,c=1," // direct, single frame, color
-                      "w=" + std::to_string(img_width) + // image width
-                      ",h=" + std::to_string(img_height) + // image height
-                      "," + "m=1;" + base64_encoded + "\033\\"; // end of transmission
+    std::string msg = "\033_Gf=24,a=T,t=d," // RGBA format, transmit and display, direct
+                      "s=" + std::to_string(img_width) +   // source width
+                      ",v=" + std::to_string(img_height) + // source height
+                      ";" + base64_encoded + "\033\\";
     result.assign(msg.begin(), msg.end());
     return result;
 }

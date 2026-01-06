@@ -56,10 +56,14 @@ Then log out and back in.
 [HOTPLUG]   - Pointer capability
 [HOTPLUG] Device added: DELL Wireless hotkeys
 [HOTPLUG]   - Keyboard capability
-[INIT] Session ID: 9fd62dc9-774d-41e7-abee-17370cc3418b
+[INIT] Session ID: a94db541-3189-475b-bc54-db995e6807c2
 [CONFIG] Connected to 100.81.126.88:10002
 [VIDEO] Connected to 100.81.126.88:9999
 [AUDIO IN] Connected to 100.81.126.88:10001
+[CONFIG] Querying KMS terminal geometry...
+[KMS] Opened DRM device: /dev/dri/card0
+[KMS] Display mode: 1920x1080 @ 60Hz
+[KMS] Initialized successfully
 === Zoom Configuration ===
 Enabled: NO
 Level: 2x
@@ -74,16 +78,15 @@ Quality: 100 (0=fast, 100=best)
 Render Device: CPU
 ===========================
 
-[CONFIG] Sent: 103x27 fps=60 renderer=3 detail=100 follow_focus=0
+[CONFIG] Sent: 240x67 fps=60 renderer=7 detail=100 follow_focus=0
 [INIT] Waiting for screen info from server...
 [INIT] Received screen info: 1920x1080 offset: 0,0
 [INIT] Screen info received: 1920x1080
 
 === Waytermirror Client Started ===
-Session: 9fd62dc9-774d-41e7-abee-17370cc3418b
+Session: a94db541-3189-475b-bc54-db995e6807c2
 Output: 0 | Resolution: 1920x1080
-Renderer: hybrid | Color mode: hread started with libinput and hotplug monitoring
- | Color mode: true
+Renderer: kms | Color mode: true
 FPS: 60 | Scale: 1
 Compression: ON
 
@@ -99,16 +102,2124 @@ Audio playback enabled (system audio from server)
 
 [AUDIO] Receive thread started
 [AUDIO] Received format: 48000Hz 2ch format=1
+[INPUT] Thread started with libinput and hotplug monitoring
 [AUDIO] Playback initialized (48000Hz 2ch, format=1)
 [AUDIO] Starting receive loop...
-[AUDIO] Received 252 packets, queue size: 11
-[AUDIO] Received 235 packets, queue size: 18
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] non-existing PPS 0 referenced
+[h264 @ 0x557fa773ad40] decode_slice_header error
+[h264 @ 0x557fa773ad40] no frame!
+[H264] Error sending packet: Invalid data found when processing input
+[H264] Failed to decode frame, skipping
 
 [EXIT] Quit shortcut detected!
 [INPUT] Thread stopped
-[AUDIO] Receive thread stopped
 
 [EXIT] Shutting down...
+[AUDIO] Receive thread stopped
 *** pw_stream_destroy called from wrong context, check thread and locking: Operation not permitted
 *** impl_ext_end_proxy called from wrong context, check thread and locking: Operation not permitted
 *** impl_ext_end_proxy called from wrong context, check thread and locking: Operation not permitted
