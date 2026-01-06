@@ -360,7 +360,8 @@ struct KMSDisplay
 {
     int drm_fd = -1;
     struct gbm_device *gbm_device = nullptr;
-    struct gbm_surface *gbm_surface = nullptr;
+    struct gbm_bo *current_bo = nullptr;
+    struct gbm_bo *next_bo = nullptr;
 
     uint32_t connector_id = 0;
     uint32_t crtc_id = 0;
@@ -369,15 +370,23 @@ struct KMSDisplay
     uint32_t width = 0;
     uint32_t height = 0;
 
-    struct gbm_bo *current_bo = nullptr;
     uint32_t current_fb_id = 0;
+    uint32_t next_fb_id = 0;  // Add this
 
     bool mode_set = false;
 };
 
-static KMSDisplay kms_display;
+struct ScalingLUT {
+    std::vector<uint32_t> x_map;  // Source X for each dest X
+    std::vector<uint32_t> y_map;  // Source Y for each dest Y
+    uint32_t src_w, src_h;
+    uint32_t dst_w, dst_h;
+    bool valid = false;
+};
 
-// Add to client code - replace existing KMS functions
+static ScalingLUT scaling_lut;
+
+static KMSDisplay kms_display;
 
 // Global mutex for KMS operations
 static std::mutex kms_mutex;
@@ -391,17 +400,20 @@ static void cleanup_kms_display()
         drmModeRmFB(kms_display.drm_fd, kms_display.current_fb_id);
         kms_display.current_fb_id = 0;
     }
-
+    if (kms_display.next_fb_id)
+    {
+        drmModeRmFB(kms_display.drm_fd, kms_display.next_fb_id);
+        kms_display.next_fb_id = 0;
+    }
     if (kms_display.current_bo)
     {
-        gbm_surface_release_buffer(kms_display.gbm_surface, kms_display.current_bo);
+        gbm_bo_destroy(kms_display.current_bo);
         kms_display.current_bo = nullptr;
     }
-
-    if (kms_display.gbm_surface)
+    if (kms_display.next_bo)
     {
-        gbm_surface_destroy(kms_display.gbm_surface);
-        kms_display.gbm_surface = nullptr;
+        gbm_bo_destroy(kms_display.next_bo);
+        kms_display.next_bo = nullptr;
     }
 
     if (kms_display.gbm_device)
@@ -425,6 +437,7 @@ static bool init_kms_display()
     
     // Already initialized
     if (kms_display.drm_fd >= 0) {
+        std::cerr << "[KMS] Already initialized\n";
         return true;
     }
     
@@ -435,15 +448,23 @@ static bool init_kms_display()
         "/dev/dri/card2",
         "/dev/dri/card3",
         nullptr};
-
+    
+    bool found = false;
     for (int i = 0; drm_devices[i]; i++)
     {
         kms_display.drm_fd = open(drm_devices[i], O_RDWR | O_CLOEXEC);
-        if (kms_display.drm_fd >= 0)
+        if (kms_display.drm_fd >= 0 && drmModeGetResources(kms_display.drm_fd))
         {
             std::cerr << "[KMS] Opened DRM device: " << drm_devices[i] << "\n";
+            found = true;   
             break;
         }
+    }
+
+    if (!found)
+    {
+        kms_display.drm_fd = -1;
+        std::cerr << "[KMS] No valid DRM device found\n";
     }
 
     if (kms_display.drm_fd < 0)
@@ -550,32 +571,12 @@ static bool init_kms_display()
         return false;
     }
 
-    // Create GBM surface
-    kms_display.gbm_surface = gbm_surface_create(
-        kms_display.gbm_device,
-        kms_display.width,
-        kms_display.height,
-        GBM_FORMAT_XRGB8888,
-        GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
-
-    if (!kms_display.gbm_surface)
-    {
-        std::cerr << "[KMS] Failed to create GBM surface\n";
-        gbm_device_destroy(kms_display.gbm_device);
-        kms_display.gbm_device = nullptr;
-        close(kms_display.drm_fd);
-        kms_display.drm_fd = -1;
-        return false;
-    }
-
     std::cerr << "[KMS] Initialized successfully\n";
     return true;
 }
 
 static void query_kms_geometry(int &width, int &height)
-{
-    std::lock_guard<std::mutex> lock(kms_mutex);
-    
+{    
     if (kms_display.drm_fd < 0)
     {
         if (!init_kms_display())
@@ -586,6 +587,8 @@ static void query_kms_geometry(int &width, int &height)
             return;
         }
     }
+
+    std::lock_guard<std::mutex> lock(kms_mutex);
 
     width = kms_display.width;
     height = kms_display.height;
@@ -625,163 +628,252 @@ static uint32_t get_fb_for_bo(struct gbm_bo *bo)
     return fb_id;
 }
 
+// SIMD-optimized RGB888 to XRGB8888 conversion
+static inline void convert_rgb_to_xrgb_simd(
+    const uint8_t* __restrict__ src_rgb,
+    uint8_t* __restrict__ dst_xrgb,
+    size_t pixel_count)
+{
+    size_t i = 0;
+    
+#ifdef __SSSE3__
+    // Process 4 pixels at a time with SSSE3
+    const __m128i shuffle = _mm_setr_epi8(
+        2, 1, 0, -1,   // Pixel 0: B, G, R, X
+        5, 4, 3, -1,   // Pixel 1: B, G, R, X
+        8, 7, 6, -1,   // Pixel 2: B, G, R, X
+        11, 10, 9, -1  // Pixel 3: B, G, R, X
+    );
+    const __m128i alpha = _mm_set1_epi32(0xFF000000);
+    
+    for (; i + 4 <= pixel_count; i += 4) {
+        __m128i src = _mm_loadu_si128((const __m128i*)(src_rgb + i * 3));
+        __m128i pix = _mm_shuffle_epi8(src, shuffle);
+        pix = _mm_or_si128(pix, alpha);
+        _mm_storeu_si128((__m128i*)(dst_xrgb + i * 4), pix);
+    }
+#endif
+    
+    // Scalar fallback for remaining pixels
+    for (; i < pixel_count; ++i) {
+        dst_xrgb[i * 4 + 0] = src_rgb[i * 3 + 2];  // B
+        dst_xrgb[i * 4 + 1] = src_rgb[i * 3 + 1];  // G
+        dst_xrgb[i * 4 + 2] = src_rgb[i * 3 + 0];  // R
+        dst_xrgb[i * 4 + 3] = 0xFF;                // X
+    }
+}
+
+// Build lookup tables for scaling (only once when dimensions change)
+static void build_scaling_lut(uint32_t src_w, uint32_t src_h, 
+                              uint32_t dst_w, uint32_t dst_h)
+{
+    if (scaling_lut.valid && 
+        scaling_lut.src_w == src_w && scaling_lut.src_h == src_h &&
+        scaling_lut.dst_w == dst_w && scaling_lut.dst_h == dst_h) {
+        return;  // Already built
+    }
+    
+    scaling_lut.x_map.resize(dst_w);
+    scaling_lut.y_map.resize(dst_h);
+    
+    for (uint32_t x = 0; x < dst_w; ++x) {
+        scaling_lut.x_map[x] = std::min(
+            (uint32_t)(((uint64_t)x * src_w) / dst_w), 
+            src_w - 1
+        );
+    }
+    
+    for (uint32_t y = 0; y < dst_h; ++y) {
+        scaling_lut.y_map[y] = std::min(
+            (uint32_t)(((uint64_t)y * src_h) / dst_h),
+            src_h - 1
+        );
+    }
+    
+    scaling_lut.src_w = src_w;
+    scaling_lut.src_h = src_h;
+    scaling_lut.dst_w = dst_w;
+    scaling_lut.dst_h = dst_h;
+    scaling_lut.valid = true;
+}
+
 static void render_to_kms(const std::vector<uint8_t> &data)
 {
     std::lock_guard<std::mutex> lock(kms_mutex);
     
     // Validate input
-    if (data.size() < 8)
-    {
+    if (data.size() < 8) {
         std::cerr << "[KMS] Invalid data size: " << data.size() << "\n";
         return;
     }
 
-    // Initialize if needed
-    if (kms_display.drm_fd < 0)
-    {
-        if (!init_kms_display())
-        {
-            std::cerr << "[KMS] Cannot render: display not initialized\n";
-            return;
-        }
-    }
-
-    // Parse image header
-    const uint32_t img_width = *reinterpret_cast<const uint32_t *>(&data[0]);
-    const uint32_t img_height = *reinterpret_cast<const uint32_t *>(&data[4]);
+    const uint32_t img_width = *(uint32_t *)&data[0];
+    const uint32_t img_height = *(uint32_t *)&data[4];
     
-    // Validate dimensions
-    if (img_width == 0 || img_height == 0 || img_width > 8192 || img_height > 8192)
-    {
+    if (img_width == 0 || img_height == 0 || img_width > 65536 || img_height > 65536) {
         std::cerr << "[KMS] Invalid image dimensions: " << img_width << "x" << img_height << "\n";
         return;
     }
     
     const size_t expected_size = 8ull + (size_t)img_width * img_height * 3;
-    if (data.size() != expected_size)
-    {
-        std::cerr << "[KMS] Data size mismatch: expected " << expected_size 
-                  << " got " << data.size() << "\n";
+    if (data.size() != expected_size) {
+        std::cerr << "[KMS] Data size mismatch\n";
         return;
+    }
+
+    if (kms_display.drm_fd < 0) {
+        if (!init_kms_display()) {
+            std::cerr << "[KMS] Cannot render: display not initialized\n";
+            return;
+        }
     }
 
     const uint8_t *rgb = data.data() + 8;
 
-    // Lock front buffer
-    struct gbm_bo *bo = gbm_surface_lock_front_buffer(kms_display.gbm_surface);
-    if (!bo)
-    {
-        std::cerr << "[KMS] Failed to lock front buffer\n";
-        return;
+    // Create or reuse next_bo (double buffering)
+    if (!kms_display.next_bo) {
+        kms_display.next_bo = gbm_bo_create(
+            kms_display.gbm_device,
+            kms_display.width,
+            kms_display.height,
+            GBM_FORMAT_XRGB8888,
+            GBM_BO_USE_SCANOUT | GBM_BO_USE_WRITE);
+        
+        if (!kms_display.next_bo) {
+            std::cerr << "[KMS] Failed to create BO\n";
+            return;
+        }
     }
 
-    // Map buffer with error checking
+    // Map the buffer
     uint32_t map_stride = 0;
     void *map_data = nullptr;
-    void *bo_map = gbm_bo_map(bo, 0, 0, kms_display.width, kms_display.height,
+    void *bo_map = gbm_bo_map(kms_display.next_bo, 0, 0, 
+                              kms_display.width, kms_display.height,
                               GBM_BO_TRANSFER_WRITE, &map_stride, &map_data);
 
-    if (!bo_map)
-    {
-        std::cerr << "[KMS] Failed to map buffer\n";
-        gbm_surface_release_buffer(kms_display.gbm_surface, bo);
+    if (!bo_map || map_stride == 0) {
+        std::cerr << "[KMS] Failed to map BO\n";
         return;
     }
 
     uint8_t *fb_data = static_cast<uint8_t *>(bo_map);
+    
+    // Get keep_aspect_ratio from client config
+    bool keep_aspect_ratio = (current_config.keep_aspect_ratio != 0);
 
-    // Calculate scaling
-    uint32_t target_w = std::min(img_width, kms_display.width);
-    uint32_t target_h = std::min(img_height, kms_display.height);
+    uint32_t target_w, target_h;
+    int off_x, off_y;
+    
+    // Calculate target dimensions with aspect ratio handling
+    if (keep_aspect_ratio) {
+        double img_aspect = (double)img_width / img_height;
+        double display_aspect = (double)kms_display.width / kms_display.height;
+        
+        if (img_aspect > display_aspect) {
+            target_w = kms_display.width;
+            target_h = (uint32_t)(kms_display.width / img_aspect);
+            off_x = 0;
+            off_y = (kms_display.height - target_h) / 2;
+        } else {
+            target_h = kms_display.height;
+            target_w = (uint32_t)(kms_display.height * img_aspect);
+            off_x = (kms_display.width - target_w) / 2;
+            off_y = 0;
+        }
+    } else {
+        target_w = kms_display.width;
+        target_h = kms_display.height;
+        off_x = 0;
+        off_y = 0;
+    }
+    
+    // Clear letterbox areas to black if needed
+    if (keep_aspect_ratio && (off_x > 0 || off_y > 0)) {
+        memset(fb_data, 0, (size_t)map_stride * kms_display.height);
+    }
 
-    int off_x = (kms_display.width - target_w) / 2;
-    int off_y = (kms_display.height - target_h) / 2;
-
-    // Clear screen (black borders)
-    memset(fb_data, 0, map_stride * kms_display.height);
-
-    // Render with bounds checking
-    for (uint32_t y = 0; y < target_h; y++)
-    {
-        for (uint32_t x = 0; x < target_w; x++)
-        {
-            // Map with overflow protection
-            uint32_t src_x = ((uint64_t)x * img_width) / target_w;
-            uint32_t src_y = ((uint64_t)y * img_height) / target_h;
-
-            src_x = std::min(src_x, img_width - 1);
-            src_y = std::min(src_y, img_height - 1);
-
-            // Validate source offset
-            size_t src_offset = (size_t)src_y * img_width + src_x;
-            if (src_offset * 3 + 2 >= (size_t)img_width * img_height * 3) {
-                continue;
-            }
-
-            const uint8_t *src_pixel = rgb + src_offset * 3;
+    // Fast path: No scaling needed (1:1 copy)
+    if (img_width == target_w && img_height == target_h) {
+        for (uint32_t y = 0; y < target_h; ++y) {
+            uint32_t fb_y = off_y + y;
+            if (fb_y >= kms_display.height) continue;
             
-            // Validate destination offset
-            size_t dst_offset = (size_t)(off_y + y) * map_stride + (size_t)(off_x + x) * 4;
-            if (dst_offset + 3 >= (size_t)map_stride * kms_display.height) {
-                continue;
+            const uint8_t *src_row = rgb + (size_t)y * img_width * 3;
+            uint8_t *dst_row = fb_data + (size_t)fb_y * map_stride + (size_t)off_x * 4;
+            
+            // Convert entire row at once with SIMD
+            convert_rgb_to_xrgb_simd(src_row, dst_row, img_width);
+        }
+    } 
+    // Scaled rendering with lookup table
+    else {
+        // Build scaling lookup tables (cached if dimensions unchanged)
+        build_scaling_lut(img_width, img_height, target_w, target_h);
+        
+        // Temporary row buffer for converted pixels
+        static thread_local std::vector<uint8_t> row_buffer;
+        row_buffer.resize(target_w * 4);
+        
+        for (uint32_t dst_y = 0; dst_y < target_h; ++dst_y) {
+            uint32_t fb_y = off_y + dst_y;
+            if (fb_y >= kms_display.height) continue;
+            
+            uint32_t src_y = scaling_lut.y_map[dst_y];
+            const uint8_t *src_row = rgb + (size_t)src_y * img_width * 3;
+            uint8_t *dst_row = fb_data + (size_t)fb_y * map_stride + (size_t)off_x * 4;
+            
+            // Sample pixels according to lookup table
+            for (uint32_t dst_x = 0; dst_x < target_w; ++dst_x) {
+                uint32_t src_x = scaling_lut.x_map[dst_x];
+                const uint8_t *src_pixel = src_row + src_x * 3;
+                uint8_t *tmp_pixel = row_buffer.data() + dst_x * 4;
+                
+                tmp_pixel[0] = src_pixel[2];  // B
+                tmp_pixel[1] = src_pixel[1];  // G
+                tmp_pixel[2] = src_pixel[0];  // R
+                tmp_pixel[3] = 0xFF;          // X
             }
             
-            uint8_t *dst_pixel = fb_data + dst_offset;
-
-            // Convert RGB24 to XRGB32
-            dst_pixel[0] = src_pixel[2]; // B
-            dst_pixel[1] = src_pixel[1]; // G
-            dst_pixel[2] = src_pixel[0]; // R
-            dst_pixel[3] = 0xFF;         // X
+            // Copy converted row to framebuffer
+            memcpy(dst_row, row_buffer.data(), target_w * 4);
         }
     }
 
-    gbm_bo_unmap(bo, map_data);
+    gbm_bo_unmap(kms_display.next_bo, map_data);
 
-    // Get framebuffer ID
-    uint32_t fb_id = get_fb_for_bo(bo);
-    if (!fb_id)
-    {
+    // Get framebuffer ID (cached in gbm_bo user data)
+    uint32_t fb_id = get_fb_for_bo(kms_display.next_bo);
+    if (!fb_id) {
         std::cerr << "[KMS] Failed to get framebuffer ID\n";
-        gbm_surface_release_buffer(kms_display.gbm_surface, bo);
         return;
     }
 
-    // Set CRTC or page flip
-    if (!kms_display.mode_set)
-    {
+    // First frame: Set CRTC mode
+    if (!kms_display.mode_set) {
         int ret = drmModeSetCrtc(kms_display.drm_fd, kms_display.crtc_id,
                                  fb_id, 0, 0, &kms_display.connector_id, 1,
                                  &kms_display.mode);
-        if (ret)
-        {
+        if (ret) {
             std::cerr << "[KMS] Failed to set CRTC: " << strerror(errno) << "\n";
-            gbm_surface_release_buffer(kms_display.gbm_surface, bo);
             return;
         }
         kms_display.mode_set = true;
-    }
-    else
-    {
+    } 
+    // Subsequent frames: Page flip
+    else {
         int ret = drmModePageFlip(kms_display.drm_fd, kms_display.crtc_id,
                                   fb_id, DRM_MODE_PAGE_FLIP_EVENT, nullptr);
-        if (ret)
-        {
+        if (ret) {
             std::cerr << "[KMS] Page flip failed: " << strerror(errno) << "\n";
-            gbm_surface_release_buffer(kms_display.gbm_surface, bo);
             return;
         }
     }
 
-    // Release previous buffer
-    if (kms_display.current_bo)
-    {
-        gbm_surface_release_buffer(kms_display.gbm_surface, kms_display.current_bo);
-    }
-
-    kms_display.current_bo = bo;
-    kms_display.current_fb_id = fb_id;
+    // Swap buffers for double buffering
+    std::swap(kms_display.current_bo, kms_display.next_bo);
 }
+
 
 // Session ID generation
 static std::string generate_uuid()
@@ -2013,6 +2105,13 @@ static void cycle_renderer()
         std::cerr << "[" << proto << "] Detected geometry: " << current_config.term_pixel_width << "x"
                   << current_config.term_pixel_height << " pixels\n";
     }
+    else if (current_config.renderer == 7) // 7 = kms
+    {
+        query_kms_geometry((int &)current_config.term_pixel_width,
+                           (int &)current_config.term_pixel_height);
+        std::cerr << "[KMS] Detected geometry: " << current_config.term_pixel_width << "x"
+                  << current_config.term_pixel_height << " pixels\n";
+    }
     else
     {
         current_config.term_pixel_width = current_config.term_width * 10; // Fallback estimates
@@ -3215,6 +3314,12 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
     const uint32_t ih = *(uint32_t *)&data[4];
     const uint8_t *rgb = data.data() + 8;
 
+    if (iw == 0 || ih == 0 || iw > 65'535 || ih > 65'535)
+    {
+        std::cerr << "[FRAMEBUFFER] Invalid image dimensions: " << iw << "x" << ih << "\n";
+        return;
+    }
+
     if (iw == fb_width && ih == fb_height)
     {
 
@@ -3887,6 +3992,7 @@ int main(int argc, char **argv)
             else if (current_config.renderer == 7)
             {
                 // KMS
+                std::cerr << "[CONFIG] Querying KMS terminal geometry...\n";
                 query_kms_geometry((int &)current_config.term_pixel_width,
                                    (int &)current_config.term_pixel_height);
             }

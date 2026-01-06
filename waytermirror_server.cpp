@@ -3415,16 +3415,7 @@ static std::vector<uint8_t> render_framebuffer(
                   << " w=" << frame_width << " h=" << frame_height << "\n";
         return {};
     }
-    
-    // Debug: Check if frame data is mostly zeros (blank)
-    size_t frame_size = frame_stride * frame_height;
-    size_t non_zero = 0;
-    for (size_t i = 0; i < std::min(frame_size, (size_t)10000); i += 4) {
-        if (frame_data[i] != 0 || frame_data[i+1] != 0 || frame_data[i+2] != 0) {
-            non_zero++;
-        }
-    }
-    static int frame_count = 0;
+        static int frame_count = 0;
     frame_count++;
 
     uint32_t rot_width, rot_height;
@@ -3513,11 +3504,86 @@ static std::vector<uint8_t> render_kms(
     uint8_t detail_level,
     uint8_t quality,
     double rotation_angle,
-    PixelFormat pixel_format) {
-    return render_framebuffer(frame_data, frame_width, frame_height, frame_stride,
-                              term_width, term_height, term_pixel_width, term_pixel_height,
-                              mode, keep_aspect_ratio, scale_factor, detail_level,
-                              quality, rotation_angle, pixel_format);
+    PixelFormat pixel_format)
+{
+    if (!frame_data || frame_width == 0 || frame_height == 0) {
+        std::cerr << "[KMS] ERROR: Invalid input - frame_data=" << (void*)frame_data 
+                  << " w=" << frame_width << " h=" << frame_height << "\n";
+        return {};
+    }
+    
+    // Debug: Check if frame data is mostly zeros (blank)
+    static int frame_count = 0;
+    frame_count++;
+
+    uint32_t rot_width, rot_height;
+    get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
+
+    // Use terminal pixel dimensions if available, otherwise use reasonable defaults
+    int target_width = (term_pixel_width > 0) ? term_pixel_width : 1920;
+    int target_height = (term_pixel_height > 0) ? term_pixel_height : 1080;
+    
+    int img_width, img_height;
+    
+    if (keep_aspect_ratio) {
+        double src_aspect = (double)rot_width / rot_height;
+        double target_aspect = (double)target_width / target_height;
+        
+        if (src_aspect > target_aspect) {
+            img_width = target_width;
+            img_height = (int)(img_width / src_aspect);
+        } else {
+            img_height = target_height;
+            img_width = (int)(img_height * src_aspect);
+        }
+        
+        img_width = (int)(img_width * scale_factor);
+        img_height = (int)(img_height * scale_factor);
+    } else {
+        img_width = (int)(target_width * scale_factor);
+        img_height = (int)(target_height * scale_factor);
+    }
+
+    // Ensure valid dimensions
+    if (img_width <= 0) img_width = target_width;
+    if (img_height <= 0) img_height = target_height;
+    if (img_width <= 0) img_width = 1920;
+    if (img_height <= 0) img_height = 1080;
+
+    // Create RGB24 buffer (3 bytes per pixel)
+    std::vector<uint8_t> rgb_data(img_width * img_height * 3);
+    
+    size_t pixels_filled = 0;
+    size_t pixels_black = 0;
+    
+    for (int y = 0; y < img_height; y++) {
+        for (int x = 0; x < img_width; x++) {
+            double rot_x = (double)x * rot_width / img_width;
+            double rot_y = (double)y * rot_height / img_height;
+            
+            uint8_t r, g, b;
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                               (int)rot_x, (int)rot_y, rot_width, rot_height, 
+                               rotation_angle, r, g, b, pixel_format);
+            
+            int idx = (y * img_width + x) * 3;
+            rgb_data[idx + 0] = r;
+            rgb_data[idx + 1] = g;
+            rgb_data[idx + 2] = b;
+            
+            pixels_filled++;
+            if (r == 0 && g == 0 && b == 0) pixels_black++;
+        }
+    }
+    
+    // Prepare header: width (4 bytes) + height (4 bytes) + RGB data
+    std::vector<uint8_t> result;
+    result.resize(8);
+    *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
+    *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
+    result.insert(result.end(), rgb_data.begin(), rgb_data.end());
+    
+    return result;
 }
 
 template <typename TW, typename TH, typename TS>
