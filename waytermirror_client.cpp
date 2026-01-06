@@ -3049,7 +3049,12 @@ static FBTempBuffers fbtmp;
 
 static void render_to_framebuffer(const std::vector<uint8_t>& data)
 {
-    if (fb_fd < 0 || !fb_mmap || data.size() < 8) return;
+    if (fb_fd < 0 || !fb_mmap || data.size() < 8) {
+        init_framebuffer();
+        if (fb_fd < 0 || !fb_mmap || data.size() < 8) {
+            return;
+        }
+    }
 
     const uint32_t iw = *(uint32_t*)&data[0];
     const uint32_t ih = *(uint32_t*)&data[4];
