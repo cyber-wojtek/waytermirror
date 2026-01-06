@@ -3247,8 +3247,8 @@ static std::vector<uint8_t> render_kitty(
     }
     else
     {
-        img_width = std::min((int)(terminal_pixel_width * scale_factor), max_dimension);
-        img_height = std::min((int)(terminal_pixel_height * scale_factor), max_dimension);
+        img_width = (int)(terminal_pixel_width * scale_factor);
+        img_height = (int)(terminal_pixel_height * scale_factor);
     }
     
     // Clamp to reasonable bounds
