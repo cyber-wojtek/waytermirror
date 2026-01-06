@@ -3429,7 +3429,7 @@ static std::vector<uint8_t> render_kitty(
     bool keep_aspect_ratio,
     double scale_factor,
     uint8_t detail_level,
-    uint8_t quality,
+    uint8_t quality, 
     double rotation_angle,
     PixelFormat pixel_format,
     H264Encoder *h264_enc)
@@ -3451,10 +3451,10 @@ static std::vector<uint8_t> render_kitty(
         double term_aspect = (double)terminal_pixel_width / terminal_pixel_height;
         
         if (src_aspect > term_aspect) {
-            img_width = std::min(terminal_pixel_width, terminal_pixel_width);
+            img_width = terminal_pixel_width;
             img_height = (int)(img_width / src_aspect);
         } else {
-            img_height = std::min(terminal_pixel_height, terminal_pixel_height);
+            img_height = terminal_pixel_height;
             img_width = (int)(img_height * src_aspect);
         }
         
@@ -3467,6 +3467,7 @@ static std::vector<uint8_t> render_kitty(
         img_height = (int)(terminal_pixel_height * scale_factor);
     }
     
+    // Build RGB24 data
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
     
     for (int y = 0; y < img_height; y++)
@@ -3521,7 +3522,7 @@ static std::vector<uint8_t> render_framebuffer(
     uint8_t quality,
     double rotation_angle,
     PixelFormat pixel_format,
-    H264Encoder *h264_enc)  // ADD ENCODER PARAMETER
+    H264Encoder *h264_enc)
 {
     if (!frame_data || frame_width == 0 || frame_height == 0) {
         std::cerr << "[FRAMEBUFFER] ERROR: Invalid input\n";
@@ -3581,6 +3582,33 @@ static std::vector<uint8_t> render_framebuffer(
     }
     
     // Use H.264 compression if encoder provided
+    if (h264_enc) {
+        img_width -= img_width & 1;  // ensure width is even
+
+        std::vector<uint8_t> h264_data = encode_h264_frame(
+            *h264_enc, rgb_data.data(), img_width, img_height, quality);
+        
+        if (!h264_data.empty()) {
+            // Build header: [width][height][compressed_size][H264_data]
+            std::vector<uint8_t> result;
+            result.resize(12);  // 4 + 4 + 4 bytes header
+            *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
+            *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
+            *reinterpret_cast<uint32_t*>(&result[8]) = h264_data.size();
+            result.insert(result.end(), h264_data.begin(), h264_data.end());
+            return result;
+        }
+        
+        std::cerr << "[H264] Encoding failed, falling back to raw\n";
+    }
+    
+    // Fallback: uncompressed RGB24
+    std::vector<uint8_t> result;
+    result.resize(8);
+    *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
+    *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
+    result.insert(result.end(), rgb_data.begin(), rgb_data.end());
+    
 
 
     std::vector<uint8_t> h264_data = encode_h264_frame(
@@ -3621,6 +3649,7 @@ static std::vector<uint8_t> render_framebuffer(
 {
     if (!frame_data || frame_width == 0 || frame_height == 0) {
         std::cerr << "[KMS] ERROR: Invalid input\n";
+        std::cerr << "[KMS] ERROR: Invalid input\n";
         return {};
     }
 
@@ -3656,6 +3685,7 @@ static std::vector<uint8_t> render_framebuffer(
     if (img_width <= 0) img_width = 1920;
     if (img_height <= 0) img_height = 1080;
 
+    // Create RGB24 buffer
     // Create RGB24 buffer
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
     

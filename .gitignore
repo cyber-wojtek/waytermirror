@@ -1,2 +1,10 @@
 build/
 .release/
+*.o
+waytermirror_client
+waytermirror_server
+*.log
+*.tmp
+*.swp
+*.bak
+.DS_Store

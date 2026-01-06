@@ -41,6 +41,12 @@
 #include <gbm.h>
 #include <sys/mman.h>
 #include <cstring>
+extern "C" {
+    #include <libavcodec/avcodec.h>
+    #include <libavutil/imgutils.h>
+    #include <libavutil/opt.h>
+    #include <libswscale/swscale.h>
+}
 
 // Opus encoders/decoders
 static OpusEncoder *microphone_opus_encoder = nullptr; // For encoding microphone data to send
@@ -145,6 +151,16 @@ static bool exclusive_mode = false;
 
 // Output management
 static uint32_t outputs = 1;
+
+// FFmpeg decoding context
+AVCodecContext* dec_ctx = nullptr;
+AVFrame* dec_frame = nullptr;
+AVFrame* rgba_frame = nullptr;
+AVPacket* pkt = nullptr;
+SwsContext* sws = nullptr;
+
+uint8_t* rgba_buf = nullptr;
+int rgba_stride = 0;
 
 // Protocol definitions
 enum class MessageType : uint8_t
@@ -695,6 +711,85 @@ static void build_scaling_lut(uint32_t src_w, uint32_t src_h,
     scaling_lut.dst_w = dst_w;
     scaling_lut.dst_h = dst_h;
     scaling_lut.valid = true;
+}
+
+void init_h264_decoder(int width, int height)
+{
+    const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    if (!codec) abort();
+
+    dec_ctx = avcodec_alloc_context3(codec);
+    dec_ctx->width = width;
+    dec_ctx->height = height;
+
+    if (avcodec_open2(dec_ctx, codec, nullptr) < 0)
+        abort();
+
+    dec_frame = av_frame_alloc();
+    rgba_frame = av_frame_alloc();
+    pkt = av_packet_alloc();
+
+    sws = sws_getContext(
+        width, height, AV_PIX_FMT_YUV420P,
+        width, height, AV_PIX_FMT_RGBA,
+        SWS_FAST_BILINEAR,
+        nullptr, nullptr, nullptr
+    );
+
+    rgba_stride = width * 4;
+    rgba_buf = (uint8_t*)av_malloc(rgba_stride * height);
+
+    av_image_fill_arrays(
+        rgba_frame->data,
+        rgba_frame->linesize,
+        rgba_buf,
+        AV_PIX_FMT_RGBA,
+        width,
+        height,
+        1
+    );
+}
+
+// H264 decode a frame and convert to RGBA
+bool decode_h264_frame(const std::vector<uint8_t>& h264_data, int width, int height, std::vector<uint8_t>& out_rgba)
+{
+    if (!dec_ctx || !dec_frame || !rgba_frame || !pkt || !sws) {
+        std::cerr << "[H264] Decoder not initialized!\n";
+        return false;
+    }
+
+    pkt->data = const_cast<uint8_t*>(h264_data.data());
+    pkt->size = h264_data.size();
+
+    int ret = avcodec_send_packet(dec_ctx, pkt);
+    if (ret < 0) {
+        std::cerr << "[H264] Error sending packet: " << av_err2str(ret) << "\n";
+        return false;
+    }
+
+    ret = avcodec_receive_frame(dec_ctx, dec_frame);
+    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+        return false;
+    } else if (ret < 0) {
+        std::cerr << "[H264] Error receiving frame: " << av_err2str(ret) << "\n";
+        return false;
+    }
+
+    // Convert to RGBA
+    sws_scale(
+        sws,
+        dec_frame->data,
+        dec_frame->linesize,
+        0,
+        height,
+        rgba_frame->data,
+        rgba_frame->linesize
+    );
+
+    // Copy RGBA data to output
+    out_rgba.resize(rgba_stride * height);
+    memcpy(out_rgba.data(), rgba_buf, rgba_stride * height);
+    return true;
 }
 
 static void render_to_kms(const std::vector<uint8_t> &data)
@@ -4311,24 +4406,59 @@ int main(int argc, char **argv)
             }
             else if (!video_paused.load() && receive_newest_frame(rendered))
             {
+<<<<<<< HEAD
                 // Renderer kitty(5) - render
                 if (current_config.renderer == 5)
                 {
                     render_to_kitty(rendered);
                 }
+=======
+                // Detect H264 frame: [width][height][compressed_size][H264_data...]
+                bool is_h264 = false;
+                int h264_width = 0, h264_height = 0, h264_size = 0;
+                if (rendered.size() > 12) {
+                    h264_width = *(uint32_t*)&rendered[0];
+                    h264_height = *(uint32_t*)&rendered[4];
+                    h264_size = *(uint32_t*)&rendered[8];
+                    if (h264_size > 0 && (size_t)(12 + h264_size) == rendered.size()) {
+                        is_h264 = true;
+                    }
+                }
+
+                std::vector<uint8_t> frame_data;
+                int frame_width = screen_width.load();
+                int frame_height = screen_height.load();
+                if (is_h264) {
+                    // Initialize decoder if needed
+                    if (!dec_ctx || dec_ctx->width != h264_width || dec_ctx->height != h264_height) {
+                        init_h264_decoder(h264_width, h264_height);
+                    }
+                    std::vector<uint8_t> h264_buf(rendered.begin() + 12, rendered.end());
+                    if (decode_h264_frame(h264_buf, h264_width, h264_height, frame_data)) {
+                        frame_width = h264_width;
+                        frame_height = h264_height;
+                    } else {
+                        std::cerr << "[H264] Failed to decode frame, skipping\n";
+                        continue;
+                    }
+                } else {
+                    frame_data = rendered;
+                }
+
+>>>>>>> 51578044db5a68fd8ee06cf6dc8579e9834a81e7
                 // Renderer 6 = framebuffer - write to /dev/fb0 instead of terminal
                 if (current_config.renderer == 6)
                 {
-                    render_to_framebuffer(rendered);
+                    render_to_framebuffer(frame_data);
                 }
                 else if (current_config.renderer == 7)
                 { // KMS direct rendering mode
-                    render_to_kms(rendered);
+                    render_to_kms(frame_data);
                 }
                 else
                 {
                     std::cout << "\033[H" << std::flush;
-                    write(STDOUT_FILENO, rendered.data(), rendered.size());
+                    write(STDOUT_FILENO, frame_data.data(), frame_data.size());
                 }
             }
             else if (video_paused.load())
