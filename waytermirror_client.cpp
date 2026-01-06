@@ -750,6 +750,48 @@ void init_h264_decoder(int width, int height)
     );
 }
 
+// H264 decode a frame and convert to RGBA
+bool decode_h264_frame(const std::vector<uint8_t>& h264_data, int width, int height, std::vector<uint8_t>& out_rgba)
+{
+    if (!dec_ctx || !dec_frame || !rgba_frame || !pkt || !sws) {
+        std::cerr << "[H264] Decoder not initialized!\n";
+        return false;
+    }
+
+    pkt->data = const_cast<uint8_t*>(h264_data.data());
+    pkt->size = h264_data.size();
+
+    int ret = avcodec_send_packet(dec_ctx, pkt);
+    if (ret < 0) {
+        std::cerr << "[H264] Error sending packet: " << av_err2str(ret) << "\n";
+        return false;
+    }
+
+    ret = avcodec_receive_frame(dec_ctx, dec_frame);
+    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+        return false;
+    } else if (ret < 0) {
+        std::cerr << "[H264] Error receiving frame: " << av_err2str(ret) << "\n";
+        return false;
+    }
+
+    // Convert to RGBA
+    sws_scale(
+        sws,
+        dec_frame->data,
+        dec_frame->linesize,
+        0,
+        height,
+        rgba_frame->data,
+        rgba_frame->linesize
+    );
+
+    // Copy RGBA data to output
+    out_rgba.resize(rgba_stride * height);
+    memcpy(out_rgba.data(), rgba_buf, rgba_stride * height);
+    return true;
+}
+
 static void render_to_kms(const std::vector<uint8_t> &data)
 {
     std::lock_guard<std::mutex> lock(kms_mutex);
@@ -4354,19 +4396,51 @@ int main(int argc, char **argv)
             }
             else if (!video_paused.load() && receive_newest_frame(rendered))
             {
+                // Detect H264 frame: [width][height][compressed_size][H264_data...]
+                bool is_h264 = false;
+                int h264_width = 0, h264_height = 0, h264_size = 0;
+                if (rendered.size() > 12) {
+                    h264_width = *(uint32_t*)&rendered[0];
+                    h264_height = *(uint32_t*)&rendered[4];
+                    h264_size = *(uint32_t*)&rendered[8];
+                    if (h264_size > 0 && (size_t)(12 + h264_size) == rendered.size()) {
+                        is_h264 = true;
+                    }
+                }
+
+                std::vector<uint8_t> frame_data;
+                int frame_width = screen_width.load();
+                int frame_height = screen_height.load();
+                if (is_h264) {
+                    // Initialize decoder if needed
+                    if (!dec_ctx || dec_ctx->width != h264_width || dec_ctx->height != h264_height) {
+                        init_h264_decoder(h264_width, h264_height);
+                    }
+                    std::vector<uint8_t> h264_buf(rendered.begin() + 12, rendered.end());
+                    if (decode_h264_frame(h264_buf, h264_width, h264_height, frame_data)) {
+                        frame_width = h264_width;
+                        frame_height = h264_height;
+                    } else {
+                        std::cerr << "[H264] Failed to decode frame, skipping\n";
+                        continue;
+                    }
+                } else {
+                    frame_data = rendered;
+                }
+
                 // Renderer 6 = framebuffer - write to /dev/fb0 instead of terminal
                 if (current_config.renderer == 6)
                 {
-                    render_to_framebuffer(rendered);
+                    render_to_framebuffer(frame_data);
                 }
                 else if (current_config.renderer == 7)
                 { // KMS direct rendering mode
-                    render_to_kms(rendered);
+                    render_to_kms(frame_data);
                 }
                 else
                 {
                     std::cout << "\033[H" << std::flush;
-                    write(STDOUT_FILENO, rendered.data(), rendered.size());
+                    write(STDOUT_FILENO, frame_data.data(), frame_data.size());
                 }
             }
             else if (video_paused.load())

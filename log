@@ -56,11 +56,10 @@ Then log out and back in.
 [HOTPLUG]   - Pointer capability
 [HOTPLUG] Device added: DELL Wireless hotkeys
 [HOTPLUG]   - Keyboard capability
-[INIT] Session ID: 8a197942-d176-45a8-b0ad-2acc342d608c
+[INIT] Session ID: 9fd62dc9-774d-41e7-abee-17370cc3418b
 [CONFIG] Connected to 100.81.126.88:10002
 [VIDEO] Connected to 100.81.126.88:9999
 [AUDIO IN] Connected to 100.81.126.88:10001
-[CLIENT] Got geometry from ioctl: 927x446 (reserved 1 top, 1 bottom)
 === Zoom Configuration ===
 Enabled: NO
 Level: 2x
@@ -75,15 +74,16 @@ Quality: 100 (0=fast, 100=best)
 Render Device: CPU
 ===========================
 
-[CONFIG] Sent: 103x27 fps=60 renderer=5 detail=100 follow_focus=0
+[CONFIG] Sent: 103x27 fps=60 renderer=3 detail=100 follow_focus=0
 [INIT] Waiting for screen info from server...
 [INIT] Received screen info: 1920x1080 offset: 0,0
 [INIT] Screen info received: 1920x1080
 
 === Waytermirror Client Started ===
-Session: 8a197942-d176-45a8-b0ad-2acc342d608c
+Session: 9fd62dc9-774d-41e7-abee-17370cc3418b
 Output: 0 | Resolution: 1920x1080
-Renderer: kitty | Color mode: true
+Renderer: hybrid | Color mode: hread started with libinput and hotplug monitoring
+ | Color mode: true
 FPS: 60 | Scale: 1
 Compression: ON
 
@@ -95,17 +95,23 @@ Compression: ON
 Input forwarding: DISABLED (local shortcuts only)
 Press Ctrl+Alt+Shift+H for full shortcut list
 Audio playback enabled (system audio from server)
-w
-started with libinput and hotplug monitoring
-Audio playback enabled (system audio from server)
 ================================================
 
 [AUDIO] Receive thread started
 [AUDIO] Received format: 48000Hz 2ch format=1
 [AUDIO] Playback initialized (48000Hz 2ch, format=1)
 [AUDIO] Starting receive loop...
-[AUDIO] Received 251 packets, queue size: 10
-[AUDIO] Received 233 packets, queue size: 15
-[AUDIO] Received 236 packets, queue size: 11
+[AUDIO] Received 252 packets, queue size: 11
 [AUDIO] Received 235 packets, queue size: 18
-[AUDIO] Received 235 packets, queue size: 13
+
+[EXIT] Quit shortcut detected!
+[INPUT] Thread stopped
+[AUDIO] Receive thread stopped
+
+[EXIT] Shutting down...
+*** pw_stream_destroy called from wrong context, check thread and locking: Operation not permitted
+*** impl_ext_end_proxy called from wrong context, check thread and locking: Operation not permitted
+*** impl_ext_end_proxy called from wrong context, check thread and locking: Operation not permitted
+[AUDIO] Playback cleaned up
+[KMS] Cleanup complete
+[EXIT] Shutdown complete.

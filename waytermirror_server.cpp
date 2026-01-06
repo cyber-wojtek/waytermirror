@@ -3518,9 +3518,12 @@ static std::vector<uint8_t> render_kitty(
         base64_encoded += (remaining > 2) ? base64_chars[b & 0x3F] : '=';
     }
     
-    // Send as Kitty format with H.264 marker
+    // Send as Kitty format
     std::vector<uint8_t> result;
-    std::string msg = "\033_Gf=100,a=T,t=d,q=2,o=h264;" + base64_encoded + "\033\\";
+    std::string msg = "\033_Gf=100,a=T,t=d,c=1," // direct, single frame, color
+                      "w=" + std::to_string(img_width) + // image width
+                      ",h=" + std::to_string(img_height) + // image height
+                      "," + "m=1;" + base64_encoded + "\033\\"; // end of transmission
     result.assign(msg.begin(), msg.end());
     return result;
 }
