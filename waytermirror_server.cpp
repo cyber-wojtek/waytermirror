@@ -397,6 +397,8 @@ static std::mutex clients_mutex;
 static std::vector<std::condition_variable> output_cvs;
 static std::atomic<int> frames_dropped{0};
 
+static std::mutex kms_mutex;
+
 struct BrailleCell
 {
     double lumas[8];
@@ -3309,7 +3311,7 @@ static std::vector<uint8_t> render_kitty(
     }
     
     png_set_write_fn(png_ptr, &png_data, write_fn, nullptr);
-    
+
     int compression = 1 + (quality / 33);
     png_set_compression_level(png_ptr, compression);
     
@@ -3493,6 +3495,29 @@ static std::vector<uint8_t> render_framebuffer(
     result.insert(result.end(), rgb_data.begin(), rgb_data.end());
     
     return result;
+}
+
+// KMS renderer - same as framebuffer here
+static std::vector<uint8_t> render_kms(
+    const uint8_t *frame_data,
+    uint32_t frame_width,
+    uint32_t frame_height,
+    uint32_t frame_stride,
+    int term_width,
+    int term_height,
+    int term_pixel_width,
+    int term_pixel_height,
+    ColorMode mode,
+    bool keep_aspect_ratio,
+    double scale_factor,
+    uint8_t detail_level,
+    uint8_t quality,
+    double rotation_angle,
+    PixelFormat pixel_format) {
+    return render_framebuffer(frame_data, frame_width, frame_height, frame_stride,
+                              term_width, term_height, term_pixel_width, term_pixel_height,
+                              mode, keep_aspect_ratio, scale_factor, detail_level,
+                              quality, rotation_angle, pixel_format);
 }
 
 template <typename TW, typename TH, typename TS>
@@ -5314,6 +5339,16 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                         break;
                     case 6: {
                             rendered_buf = std::move(render_framebuffer(
+                                frame_to_render.data(), render_width, render_height, render_stride,
+                                config.term_width, config.term_height,
+                                config.term_pixel_width, config.term_pixel_height,
+                                mode, keep_aspect_ratio, config.scale_factor, 
+                                config.detail_level, config.quality, config.rotation_angle,
+                                pixel_fmt));
+                        }
+                        break;
+                    case 7: {
+                            rendered_buf = std::move(render_kms(
                                 frame_to_render.data(), render_width, render_height, render_stride,
                                 config.term_width, config.term_height,
                                 config.term_pixel_width, config.term_pixel_height,

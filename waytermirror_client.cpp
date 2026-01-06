@@ -43,8 +43,8 @@
 #include <cstring>
 
 // Opus encoders/decoders
-static OpusEncoder *microphone_opus_encoder = nullptr;   // For encoding microphone data to send
-static OpusDecoder *audio_opus_decoder = nullptr; // For decoding received audio data
+static OpusEncoder *microphone_opus_encoder = nullptr; // For encoding microphone data to send
+static OpusDecoder *audio_opus_decoder = nullptr;      // For decoding received audio data
 static int microphone_opus_sample_rate = 48000;
 static int microphone_opus_channels = 2;
 static int audio_opus_sample_rate = 48000;
@@ -56,8 +56,8 @@ static std::atomic<int> current_mouse_x{0};
 static std::atomic<int> current_mouse_y{0};
 static std::atomic<int> screen_width{(int)-1};
 static std::atomic<int> screen_height{(int)-1};
-static std::atomic<int> output_offset_x{0};  // Current output X offset in virtual desktop
-static std::atomic<int> output_offset_y{0};  // Current output Y offset in virtual desktop
+static std::atomic<int> output_offset_x{0}; // Current output X offset in virtual desktop
+static std::atomic<int> output_offset_y{0}; // Current output Y offset in virtual desktop
 static std::atomic<uint32_t> current_output_index{0};
 
 // Modifier tracking for exit combo and sending to server
@@ -209,7 +209,7 @@ struct AudioPlayback
     pw_stream *stream = nullptr;
     std::mutex mutex;
     std::queue<std::vector<uint8_t>> audio_queue;
-    std::vector<uint8_t> residual;  // Leftover data from partial packet consumption
+    std::vector<uint8_t> residual; // Leftover data from partial packet consumption
     std::atomic<bool> running{true};
     AudioFormat format{48000, 2, 1};
 };
@@ -243,8 +243,8 @@ struct ClientConfig
     uint32_t fps;
     uint32_t term_width;
     uint32_t term_height;
-    uint32_t term_pixel_width;   // Actual terminal pixel dimensions (for sixel)
-    uint32_t term_pixel_height;  // Actual terminal pixel dimensions (for sixel)
+    uint32_t term_pixel_width;  // Actual terminal pixel dimensions (for sixel)
+    uint32_t term_pixel_height; // Actual terminal pixel dimensions (for sixel)
     uint8_t color_mode;
     uint8_t renderer;
     uint8_t keep_aspect_ratio;
@@ -272,8 +272,8 @@ struct ClientConfig
     int microphone_opus_complexity = 5;
     int microphone_bitrate = 64000; // in bps
     int microphone_opus_application = OPUS_APPLICATION_VOIP;
-    uint32_t requested_capture_width;   // 0 = native
-    uint32_t requested_capture_height;  // 0 = native
+    uint32_t requested_capture_width;  // 0 = native
+    uint32_t requested_capture_height; // 0 = native
 };
 
 struct ZoomState
@@ -356,301 +356,429 @@ struct MouseScroll
 static ClientConfig current_config;
 static std::mutex config_mutex;
 
-struct KMSDisplay {
+struct KMSDisplay
+{
     int drm_fd = -1;
     struct gbm_device *gbm_device = nullptr;
     struct gbm_surface *gbm_surface = nullptr;
-    
+
     uint32_t connector_id = 0;
     uint32_t crtc_id = 0;
     drmModeModeInfo mode = {};
-    
+
     uint32_t width = 0;
     uint32_t height = 0;
-    
+
     struct gbm_bo *current_bo = nullptr;
     uint32_t current_fb_id = 0;
-    
+
     bool mode_set = false;
 };
 
 static KMSDisplay kms_display;
 
-static bool init_kms_display() {
+// Add to client code - replace existing KMS functions
+
+// Global mutex for KMS operations
+static std::mutex kms_mutex;
+
+static void cleanup_kms_display()
+{
+    std::lock_guard<std::mutex> lock(kms_mutex);
+    
+    if (kms_display.current_fb_id)
+    {
+        drmModeRmFB(kms_display.drm_fd, kms_display.current_fb_id);
+        kms_display.current_fb_id = 0;
+    }
+
+    if (kms_display.current_bo)
+    {
+        gbm_surface_release_buffer(kms_display.gbm_surface, kms_display.current_bo);
+        kms_display.current_bo = nullptr;
+    }
+
+    if (kms_display.gbm_surface)
+    {
+        gbm_surface_destroy(kms_display.gbm_surface);
+        kms_display.gbm_surface = nullptr;
+    }
+
+    if (kms_display.gbm_device)
+    {
+        gbm_device_destroy(kms_display.gbm_device);
+        kms_display.gbm_device = nullptr;
+    }
+
+    if (kms_display.drm_fd >= 0)
+    {
+        close(kms_display.drm_fd);
+        kms_display.drm_fd = -1;
+    }
+
+    std::cerr << "[KMS] Cleanup complete\n";
+}
+
+static bool init_kms_display()
+{
+    std::lock_guard<std::mutex> lock(kms_mutex);
+    
+    // Already initialized
+    if (kms_display.drm_fd >= 0) {
+        return true;
+    }
+    
     // Try common DRM device paths
     const char *drm_devices[] = {
         "/dev/dri/card0",
         "/dev/dri/card1",
         "/dev/dri/card2",
         "/dev/dri/card3",
-        "/dev/dri/renderD128",
-        nullptr
-    };
-    
-    for (int i = 0; drm_devices[i]; i++) {
+        nullptr};
+
+    for (int i = 0; drm_devices[i]; i++)
+    {
         kms_display.drm_fd = open(drm_devices[i], O_RDWR | O_CLOEXEC);
-        if (kms_display.drm_fd >= 0) {
+        if (kms_display.drm_fd >= 0)
+        {
             std::cerr << "[KMS] Opened DRM device: " << drm_devices[i] << "\n";
             break;
         }
     }
-    
-    if (kms_display.drm_fd < 0) {
+
+    if (kms_display.drm_fd < 0)
+    {
         std::cerr << "[KMS] Failed to open any DRM device\n";
         return false;
     }
-    
-    // Initialize GBM (Generic Buffer Management)
+
+    // Initialize GBM
     kms_display.gbm_device = gbm_create_device(kms_display.drm_fd);
-    if (!kms_display.gbm_device) {
+    if (!kms_display.gbm_device)
+    {
         std::cerr << "[KMS] Failed to create GBM device\n";
         close(kms_display.drm_fd);
+        kms_display.drm_fd = -1;
         return false;
     }
-    
+
     // Get DRM resources
     drmModeRes *resources = drmModeGetResources(kms_display.drm_fd);
-    if (!resources) {
+    if (!resources)
+    {
         std::cerr << "[KMS] Failed to get DRM resources\n";
         gbm_device_destroy(kms_display.gbm_device);
+        kms_display.gbm_device = nullptr;
         close(kms_display.drm_fd);
+        kms_display.drm_fd = -1;
         return false;
     }
-    
+
     // Find first connected connector
     drmModeConnector *connector = nullptr;
-    for (int i = 0; i < resources->count_connectors; i++) {
+    for (int i = 0; i < resources->count_connectors; i++)
+    {
         connector = drmModeGetConnector(kms_display.drm_fd, resources->connectors[i]);
-        if (connector->connection == DRM_MODE_CONNECTED && connector->count_modes > 0) {
+        if (connector && connector->connection == DRM_MODE_CONNECTED && connector->count_modes > 0)
+        {
             kms_display.connector_id = connector->connector_id;
             break;
         }
-        drmModeFreeConnector(connector);
-        connector = nullptr;
+        if (connector) {
+            drmModeFreeConnector(connector);
+            connector = nullptr;
+        }
     }
-    
-    if (!connector) {
+
+    if (!connector)
+    {
         std::cerr << "[KMS] No connected display found\n";
         drmModeFreeResources(resources);
         gbm_device_destroy(kms_display.gbm_device);
+        kms_display.gbm_device = nullptr;
         close(kms_display.drm_fd);
+        kms_display.drm_fd = -1;
         return false;
     }
-    
-    // Use preferred mode (usually highest resolution)
+
+    // Use preferred mode
     kms_display.mode = connector->modes[0];
     kms_display.width = kms_display.mode.hdisplay;
     kms_display.height = kms_display.mode.vdisplay;
-    
-    std::cerr << "[KMS] Display mode: " << kms_display.width << "x" << kms_display.height 
+
+    std::cerr << "[KMS] Display mode: " << kms_display.width << "x" << kms_display.height
               << " @ " << kms_display.mode.vrefresh << "Hz\n";
-    
+
     // Find CRTC
-    drmModeEncoder *encoder = drmModeGetEncoder(kms_display.drm_fd, connector->encoder_id);
-    if (encoder) {
+    drmModeEncoder *encoder = nullptr;
+    if (connector->encoder_id) {
+        encoder = drmModeGetEncoder(kms_display.drm_fd, connector->encoder_id);
+    }
+    
+    if (encoder && encoder->crtc_id)
+    {
         kms_display.crtc_id = encoder->crtc_id;
         drmModeFreeEncoder(encoder);
-    } else {
+    }
+    else
+    {
+        if (encoder) {
+            drmModeFreeEncoder(encoder);
+        }
+        
         // Find suitable CRTC
-        for (int i = 0; i < resources->count_crtcs; i++) {
-            if (resources->crtcs[i]) {
+        for (int i = 0; i < resources->count_crtcs; i++)
+        {
+            if (resources->crtcs[i])
+            {
                 kms_display.crtc_id = resources->crtcs[i];
                 break;
             }
         }
     }
-    
+
     drmModeFreeConnector(connector);
     drmModeFreeResources(resources);
-    
-    if (!kms_display.crtc_id) {
+
+    if (!kms_display.crtc_id)
+    {
         std::cerr << "[KMS] Failed to find CRTC\n";
         gbm_device_destroy(kms_display.gbm_device);
+        kms_display.gbm_device = nullptr;
         close(kms_display.drm_fd);
+        kms_display.drm_fd = -1;
         return false;
     }
-    
-    // Create GBM surface for rendering
+
+    // Create GBM surface
     kms_display.gbm_surface = gbm_surface_create(
         kms_display.gbm_device,
         kms_display.width,
         kms_display.height,
         GBM_FORMAT_XRGB8888,
-        GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING
-    );
-    
-    if (!kms_display.gbm_surface) {
+        GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+
+    if (!kms_display.gbm_surface)
+    {
         std::cerr << "[KMS] Failed to create GBM surface\n";
         gbm_device_destroy(kms_display.gbm_device);
+        kms_display.gbm_device = nullptr;
         close(kms_display.drm_fd);
+        kms_display.drm_fd = -1;
         return false;
     }
-    
+
     std::cerr << "[KMS] Initialized successfully\n";
     return true;
 }
 
-static void cleanup_kms_display() {
-    if (kms_display.current_fb_id) {
-        drmModeRmFB(kms_display.drm_fd, kms_display.current_fb_id);
-    }
+static void query_kms_geometry(int &width, int &height)
+{
+    std::lock_guard<std::mutex> lock(kms_mutex);
     
-    if (kms_display.gbm_surface) {
-        gbm_surface_destroy(kms_display.gbm_surface);
+    if (kms_display.drm_fd < 0)
+    {
+        if (!init_kms_display())
+        {
+            std::cerr << "[KMS] Cannot query geometry: display not initialized\n";
+            width = 0;
+            height = 0;
+            return;
+        }
     }
-    
-    if (kms_display.gbm_device) {
-        gbm_device_destroy(kms_display.gbm_device);
-    }
-    
-    if (kms_display.drm_fd >= 0) {
-        close(kms_display.drm_fd);
-    }
-    
-    std::cerr << "[KMS] Cleanup complete\n";
+
+    width = kms_display.width;
+    height = kms_display.height;
 }
 
-static uint32_t get_fb_for_bo(struct gbm_bo *bo) {
+static uint32_t get_fb_for_bo(struct gbm_bo *bo)
+{
     uint32_t fb_id = (uint32_t)(uintptr_t)gbm_bo_get_user_data(bo);
-    if (fb_id) {
+    if (fb_id)
+    {
         return fb_id;
     }
-    
+
     uint32_t width = gbm_bo_get_width(bo);
     uint32_t height = gbm_bo_get_height(bo);
     uint32_t stride = gbm_bo_get_stride(bo);
     uint32_t handle = gbm_bo_get_handle(bo).u32;
-    
+
     int ret = drmModeAddFB(kms_display.drm_fd, width, height, 24, 32,
-                          stride, handle, &fb_id);
-    if (ret) {
+                           stride, handle, &fb_id);
+    if (ret)
+    {
         std::cerr << "[KMS] Failed to create framebuffer: " << strerror(errno) << "\n";
         return 0;
     }
-    
-    gbm_bo_set_user_data(bo, (void*)(uintptr_t)fb_id, 
-        [](struct gbm_bo *bo, void *data) {
-            uint32_t fb_id = (uint32_t)(uintptr_t)data;
-            if (fb_id) {
-                drmModeRmFB(kms_display.drm_fd, fb_id);
-            }
-        });
-    
+
+    gbm_bo_set_user_data(bo, (void *)(uintptr_t)fb_id,
+                         [](struct gbm_bo *bo, void *data)
+                         {
+                             uint32_t fb_id = (uint32_t)(uintptr_t)data;
+                             if (fb_id)
+                             {
+                                 drmModeRmFB(kms_display.drm_fd, fb_id);
+                             }
+                         });
+
     return fb_id;
 }
 
-static void render_to_kms(const std::vector<uint8_t>& data) {
-    if (kms_display.drm_fd < 0) {
-        if (!init_kms_display()) {
+static void render_to_kms(const std::vector<uint8_t> &data)
+{
+    std::lock_guard<std::mutex> lock(kms_mutex);
+    
+    // Validate input
+    if (data.size() < 8)
+    {
+        std::cerr << "[KMS] Invalid data size: " << data.size() << "\n";
+        return;
+    }
+
+    // Initialize if needed
+    if (kms_display.drm_fd < 0)
+    {
+        if (!init_kms_display())
+        {
             std::cerr << "[KMS] Cannot render: display not initialized\n";
             return;
         }
     }
+
+    // Parse image header
+    const uint32_t img_width = *reinterpret_cast<const uint32_t *>(&data[0]);
+    const uint32_t img_height = *reinterpret_cast<const uint32_t *>(&data[4]);
     
-    if (data.size() < 8) {
+    // Validate dimensions
+    if (img_width == 0 || img_height == 0 || img_width > 8192 || img_height > 8192)
+    {
+        std::cerr << "[KMS] Invalid image dimensions: " << img_width << "x" << img_height << "\n";
         return;
     }
     
-    // Parse image header (width, height, RGB data)
-    const uint32_t img_width = *reinterpret_cast<const uint32_t*>(&data[0]);
-    const uint32_t img_height = *reinterpret_cast<const uint32_t*>(&data[4]);
     const size_t expected_size = 8ull + (size_t)img_width * img_height * 3;
-    
-    if (data.size() != expected_size) {
-        std::cerr << "[KMS] Invalid data size\n";
+    if (data.size() != expected_size)
+    {
+        std::cerr << "[KMS] Data size mismatch: expected " << expected_size 
+                  << " got " << data.size() << "\n";
         return;
     }
-    
-    const uint8_t* rgb = data.data() + 8;
-    
-    // Lock front buffer for rendering
+
+    const uint8_t *rgb = data.data() + 8;
+
+    // Lock front buffer
     struct gbm_bo *bo = gbm_surface_lock_front_buffer(kms_display.gbm_surface);
-    if (!bo) {
+    if (!bo)
+    {
         std::cerr << "[KMS] Failed to lock front buffer\n";
         return;
     }
-    
-    // Get buffer for direct memory access
-    uint32_t stride = gbm_bo_get_stride(bo);
-    void *map_data = nullptr;
+
+    // Map buffer with error checking
     uint32_t map_stride = 0;
-    
+    void *map_data = nullptr;
     void *bo_map = gbm_bo_map(bo, 0, 0, kms_display.width, kms_display.height,
                               GBM_BO_TRANSFER_WRITE, &map_stride, &map_data);
-    
-    if (!bo_map) {
+
+    if (!bo_map)
+    {
         std::cerr << "[KMS] Failed to map buffer\n";
         gbm_surface_release_buffer(kms_display.gbm_surface, bo);
         return;
     }
-    
-    uint8_t *fb_data = static_cast<uint8_t*>(bo_map);
-    
-    // Calculate scaling to fit display
+
+    uint8_t *fb_data = static_cast<uint8_t *>(bo_map);
+
+    // Calculate scaling
     uint32_t target_w = std::min(img_width, kms_display.width);
     uint32_t target_h = std::min(img_height, kms_display.height);
-    
+
     int off_x = (kms_display.width - target_w) / 2;
     int off_y = (kms_display.height - target_h) / 2;
-    
+
     // Clear screen (black borders)
     memset(fb_data, 0, map_stride * kms_display.height);
-    
-    // Render image with bilinear scaling
-    for (uint32_t y = 0; y < target_h; y++) {
-        for (uint32_t x = 0; x < target_w; x++) {
-            // Map display coordinates to source image
+
+    // Render with bounds checking
+    for (uint32_t y = 0; y < target_h; y++)
+    {
+        for (uint32_t x = 0; x < target_w; x++)
+        {
+            // Map with overflow protection
             uint32_t src_x = ((uint64_t)x * img_width) / target_w;
             uint32_t src_y = ((uint64_t)y * img_height) / target_h;
-            
+
             src_x = std::min(src_x, img_width - 1);
             src_y = std::min(src_y, img_height - 1);
+
+            // Validate source offset
+            size_t src_offset = (size_t)src_y * img_width + src_x;
+            if (src_offset * 3 + 2 >= (size_t)img_width * img_height * 3) {
+                continue;
+            }
+
+            const uint8_t *src_pixel = rgb + src_offset * 3;
             
-            const uint8_t *src_pixel = rgb + (src_y * img_width + src_x) * 3;
-            uint8_t *dst_pixel = fb_data + ((off_y + y) * map_stride) + ((off_x + x) * 4);
+            // Validate destination offset
+            size_t dst_offset = (size_t)(off_y + y) * map_stride + (size_t)(off_x + x) * 4;
+            if (dst_offset + 3 >= (size_t)map_stride * kms_display.height) {
+                continue;
+            }
             
+            uint8_t *dst_pixel = fb_data + dst_offset;
+
             // Convert RGB24 to XRGB32
             dst_pixel[0] = src_pixel[2]; // B
             dst_pixel[1] = src_pixel[1]; // G
             dst_pixel[2] = src_pixel[0]; // R
-            dst_pixel[3] = 0xFF;         // X (padding)
+            dst_pixel[3] = 0xFF;         // X
         }
     }
-    
+
     gbm_bo_unmap(bo, map_data);
-    
-    // Get framebuffer ID for this buffer
+
+    // Get framebuffer ID
     uint32_t fb_id = get_fb_for_bo(bo);
-    if (!fb_id) {
+    if (!fb_id)
+    {
+        std::cerr << "[KMS] Failed to get framebuffer ID\n";
         gbm_surface_release_buffer(kms_display.gbm_surface, bo);
         return;
     }
-    
-    // Set CRTC to display this framebuffer
-    if (!kms_display.mode_set) {
+
+    // Set CRTC or page flip
+    if (!kms_display.mode_set)
+    {
         int ret = drmModeSetCrtc(kms_display.drm_fd, kms_display.crtc_id,
                                  fb_id, 0, 0, &kms_display.connector_id, 1,
                                  &kms_display.mode);
-        if (ret) {
+        if (ret)
+        {
             std::cerr << "[KMS] Failed to set CRTC: " << strerror(errno) << "\n";
             gbm_surface_release_buffer(kms_display.gbm_surface, bo);
             return;
         }
         kms_display.mode_set = true;
-    } else {
-        // Page flip for smooth updates
+    }
+    else
+    {
         int ret = drmModePageFlip(kms_display.drm_fd, kms_display.crtc_id,
                                   fb_id, DRM_MODE_PAGE_FLIP_EVENT, nullptr);
-        if (ret) {
+        if (ret)
+        {
             std::cerr << "[KMS] Page flip failed: " << strerror(errno) << "\n";
+            gbm_surface_release_buffer(kms_display.gbm_surface, bo);
+            return;
         }
     }
-    
+
     // Release previous buffer
-    if (kms_display.current_bo) {
+    if (kms_display.current_bo)
+    {
         gbm_surface_release_buffer(kms_display.gbm_surface, kms_display.current_bo);
     }
-    
+
     kms_display.current_bo = bo;
     kms_display.current_fb_id = fb_id;
 }
@@ -758,7 +886,7 @@ static bool send_client_config(const ClientConfig &config)
 
     std::cerr << "[CONFIG] Sent: " << config.term_width << "x" << config.term_height
               << " fps=" << config.fps << " renderer=" << (int)config.renderer
-              << " detail=" << (int)config.detail_level 
+              << " detail=" << (int)config.detail_level
               << " follow_focus=" << (int)config.follow_focus << "\n";
     return true;
 }
@@ -830,7 +958,7 @@ static void on_process_playback(void *userdata)
     {
         // Consume from residual buffer first, then queued packets
         uint32_t offset = 0;
-        
+
         // First, use any residual data from previous callback
         if (!pb->residual.empty())
         {
@@ -847,7 +975,7 @@ static void on_process_playback(void *userdata)
                 pb->residual.clear();
             }
         }
-        
+
         // Then consume from queue
         while (!pb->audio_queue.empty() && offset < max_size)
         {
@@ -856,7 +984,7 @@ static void on_process_playback(void *userdata)
             uint32_t copy_size = std::min((uint32_t)audio_data.size(), available);
             memcpy(dst + offset, audio_data.data(), copy_size);
             offset += copy_size;
-            
+
             if (copy_size < audio_data.size())
             {
                 // Save remainder as residual for next callback
@@ -865,7 +993,7 @@ static void on_process_playback(void *userdata)
             pb->audio_queue.pop();
         }
         size = offset;
-        
+
         // Fill remainder with silence if data is smaller than buffer
         if (size < max_size)
         {
@@ -944,13 +1072,13 @@ static bool init_audio_playback(const AudioFormat &fmt)
                                            &spa_audio_info_raw);
 
     int res = pw_stream_connect(audio_playback.stream,
-                      PW_DIRECTION_OUTPUT,
-                      PW_ID_ANY,
-                      static_cast<pw_stream_flags>(
-                          PW_STREAM_FLAG_AUTOCONNECT |
-                          PW_STREAM_FLAG_MAP_BUFFERS |
-                          PW_STREAM_FLAG_RT_PROCESS),
-                      params, 1);
+                                PW_DIRECTION_OUTPUT,
+                                PW_ID_ANY,
+                                static_cast<pw_stream_flags>(
+                                    PW_STREAM_FLAG_AUTOCONNECT |
+                                    PW_STREAM_FLAG_MAP_BUFFERS |
+                                    PW_STREAM_FLAG_RT_PROCESS),
+                                params, 1);
 
     if (res < 0)
     {
@@ -1117,15 +1245,15 @@ static void microphone_send_thread()
         send(microphone_socket, &type, sizeof(type), MSG_NOSIGNAL);
         send(microphone_socket, &microphone_capture.format, sizeof(microphone_capture.format), MSG_NOSIGNAL);
     }
-    
+
     // Opus frame size (20ms - must match server)
     const int OPUS_FRAME_MS = 20;
     int opus_frame_size = (microphone_opus_sample_rate * OPUS_FRAME_MS) / 1000;
     int bytes_per_sample = sizeof(float); // F32LE from PipeWire
     int frame_bytes = opus_frame_size * microphone_opus_channels * bytes_per_sample;
-    
-    std::vector<uint8_t> accumulator;  // Accumulate data until we have full opus frame
-    std::vector<float> float_buffer(opus_frame_size * microphone_opus_channels);  // For opus encoding
+
+    std::vector<uint8_t> accumulator;                                              // Accumulate data until we have full opus frame
+    std::vector<float> float_buffer(opus_frame_size * microphone_opus_channels);   // For opus encoding
     std::vector<int16_t> int16_buffer(opus_frame_size * microphone_opus_channels); // Convert F32 to S16 for opus
 
     while (running && microphone_capture.running)
@@ -1151,13 +1279,13 @@ static void microphone_send_thread()
 
             // Accumulate data
             accumulator.insert(accumulator.end(), microphone_data.begin(), microphone_data.end());
-            
+
             ClientConfig config_copy;
             {
                 std::lock_guard<std::mutex> lock(config_mutex);
                 config_copy = current_config;
             }
-            
+
             // Process full opus frames
             while (accumulator.size() >= (size_t)frame_bytes)
             {
@@ -1437,7 +1565,7 @@ static void audio_receive_thread()
             audio_playback.audio_queue.push(std::move(audio_data));
         }
     }
-    
+
     {
         std::lock_guard<std::mutex> lock(terminal_query_mutex);
         std::cerr << "[AUDIO] Receive thread stopped\n";
@@ -1446,117 +1574,129 @@ static void audio_receive_thread()
 }
 
 // Query actual sixel/terminal geometry from terminal
-static void query_terminal_geometry(bool sixel, int& width, int& height)
+static void query_terminal_geometry(bool sixel, int &width, int &height)
 {
     std::lock_guard<std::mutex> lock(terminal_query_mutex);
-    
+
     struct winsize term;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &term);
-    
+
     // Get cell-based dimensions first
     int cols = term.ws_col;
     int rows = term.ws_row;
-    
+
     // Reserve lines at top and bottom (typically 1 line each for UI)
     // This prevents cutting off the top and the bottom status line
     int reserved_top = 1;
     int reserved_bottom = 1;
     int usable_rows = std::max(1, rows - reserved_top - reserved_bottom);
-    
+
     struct termios old_tio, new_tio;
     tcgetattr(STDIN_FILENO, &old_tio);
     new_tio = old_tio;
     new_tio.c_lflag &= ~(ICANON | ECHO);
     tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
-    
+
     // Flush any pending output before querying
     fflush(stdout);
     fflush(stderr);
-    
+
     bool got_response = false;
     char response[128] = {0};
     fd_set fds;
     struct timeval tv;
-    
+
     // Method 1: Try Sixel geometry query (works on mlterm, xterm)
-    if (sixel) {
+    if (sixel)
+    {
         printf("\033[?2;1;0S");
         fflush(stdout);
-        
+
         FD_ZERO(&fds);
         FD_SET(STDIN_FILENO, &fds);
         tv.tv_sec = 0;
         tv.tv_usec = 100000;
-        
-        if (select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0) {
+
+        if (select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0)
+        {
             ssize_t n = read(STDIN_FILENO, response, sizeof(response) - 1);
-            if (n > 0 && sscanf(response, "\033[?2;0;%d;%dS", &width, &height) == 2) {
-                if (width > 0 && height > 0) {
+            if (n > 0 && sscanf(response, "\033[?2;0;%d;%dS", &width, &height) == 2)
+            {
+                if (width > 0 && height > 0)
+                {
                     // Account for reserved lines
-                    height -= (reserved_top + reserved_bottom) * 20;  // ~20px per line
+                    height -= (reserved_top + reserved_bottom) * 20; // ~20px per line
                     height = std::max(height, 240);
                     got_response = true;
-                    std::cerr << "[CLIENT] Got geometry from sixel query: " << width << "x" << height 
-                            << " (reserved " << reserved_top << " top, " << reserved_bottom << " bottom)\n";
+                    std::cerr << "[CLIENT] Got geometry from sixel query: " << width << "x" << height
+                              << " (reserved " << reserved_top << " top, " << reserved_bottom << " bottom)\n";
                 }
             }
         }
-        
+
         // Method 2: Try XTerm window size query
-        if (!got_response) {
+        if (!got_response)
+        {
             tcflush(STDIN_FILENO, TCIFLUSH);
             memset(response, 0, sizeof(response));
-            
+
             printf("\033[14t");
             fflush(stdout);
-            
+
             FD_ZERO(&fds);
             FD_SET(STDIN_FILENO, &fds);
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
-            
-            if (select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0) {
+
+            if (select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0)
+            {
                 ssize_t n = read(STDIN_FILENO, response, sizeof(response) - 1);
-                if (n > 0) {
+                if (n > 0)
+                {
                     int h = 0, w = 0;
-                    if (sscanf(response, "\033[4;%d;%dt", &h, &w) == 2) {
-                        if (w > 0 && h > 0) {
+                    if (sscanf(response, "\033[4;%d;%dt", &h, &w) == 2)
+                    {
+                        if (w > 0 && h > 0)
+                        {
                             width = w;
                             height = h - ((reserved_top + reserved_bottom) * 20);
                             height = std::max(height, 240);
                             got_response = true;
-                            std::cerr << "[CLIENT] Got geometry from XTerm query: " << width << "x" << height 
-                                    << " (reserved " << reserved_top << " top, " << reserved_bottom << " bottom)\n";
+                            std::cerr << "[CLIENT] Got geometry from XTerm query: " << width << "x" << height
+                                      << " (reserved " << reserved_top << " top, " << reserved_bottom << " bottom)\n";
                         }
                     }
                 }
             }
         }
     }
-    
+
     // Method 3: Try ioctl pixel dimensions
-    if (!got_response) {
-        if (term.ws_xpixel > 0 && term.ws_ypixel > 0) {
+    if (!got_response)
+    {
+        if (term.ws_xpixel > 0 && term.ws_ypixel > 0)
+        {
             width = term.ws_xpixel;
             height = term.ws_ypixel - ((reserved_top + reserved_bottom) * 20);
             height = std::max(height, 240);
             got_response = true;
-            std::cerr << "[CLIENT] Got geometry from ioctl: " << width << "x" << height 
+            std::cerr << "[CLIENT] Got geometry from ioctl: " << width << "x" << height
                       << " (reserved " << reserved_top << " top, " << reserved_bottom << " bottom)\n";
         }
     }
-    
+
     tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
     tcflush(STDIN_FILENO, TCIFLUSH);
-    
+
     // Flush stderr to prevent mixing with terminal escape sequences
     fflush(stderr);
-    
+
     // Fallback: Calculate from terminal cell dimensions
-    if (!got_response || width <= 0 || height <= 0) {
+    if (!got_response || width <= 0 || height <= 0)
+    {
         width = cols * 10;
         height = usable_rows * 20;
-        std::cerr << "[CLIENT] Using calculated geometry: " << width << "x" << height 
+        std::cerr << "[CLIENT] Using calculated geometry: " << width << "x" << height
                   << " (" << cols << "x" << usable_rows << " usable cells)\n";
     }
 }
@@ -1565,7 +1705,7 @@ static bool receive_newest_frame(std::vector<uint8_t> &rendered)
 {
     struct pollfd pfd = {frame_socket, POLLIN, 0};
 
-    int ret = poll(&pfd, 1, 0);  // Non-blocking check
+    int ret = poll(&pfd, 1, 0); // Non-blocking check
     if (ret <= 0)
         return false;
 
@@ -1863,22 +2003,22 @@ static void cycle_renderer()
     std::cerr << "[RENDERER] Switched to: " << names[current_config.renderer] << "\n";
 
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
-    
+
     // Query actual pixel dimensions if using sixel or kitty
-    if (current_config.renderer == 4 || current_config.renderer == 5)  // 4 = sixel, 5 = kitty
+    if (current_config.renderer == 4 || current_config.renderer == 5) // 4 = sixel, 5 = kitty
     {
-        query_terminal_geometry(current_config.renderer == 4, (int&)current_config.term_pixel_width, 
-                              (int&)current_config.term_pixel_height);
+        query_terminal_geometry(current_config.renderer == 4, (int &)current_config.term_pixel_width,
+                                (int &)current_config.term_pixel_height);
         const char *proto = (current_config.renderer == 4) ? "SIXEL" : "KITTY";
         std::cerr << "[" << proto << "] Detected geometry: " << current_config.term_pixel_width << "x"
                   << current_config.term_pixel_height << " pixels\n";
     }
     else
     {
-        current_config.term_pixel_width = current_config.term_width * 10;   // Fallback estimates
+        current_config.term_pixel_width = current_config.term_width * 10; // Fallback estimates
         current_config.term_pixel_height = current_config.term_height * 20;
     }
-    
+
     send_client_config(current_config);
 }
 
@@ -1959,7 +2099,7 @@ static void cycle_audio_compression()
         std::cerr << "[AUDIO] Opus compression: ON ("
                   << current_config.audio_sample_rate << "Hz "
                   << current_config.audio_channels << "ch "
-                  << current_config.audio_bitrate/1000 << "kbps)\n";
+                  << current_config.audio_bitrate / 1000 << "kbps)\n";
 
         // Reinitialize audio decoder if needed
         if (!audio_opus_decoder)
@@ -1995,7 +2135,7 @@ static void cycle_microphone_compression()
         std::cerr << "[MICROPHONE] Opus compression: ON ("
                   << current_config.microphone_sample_rate << "Hz "
                   << current_config.microphone_channels << "ch "
-                  << current_config.microphone_bitrate/1000 << "kbps)\n";
+                  << current_config.microphone_bitrate / 1000 << "kbps)\n";
 
         // Reinitialize mic encoder if needed
         if (!microphone_opus_encoder)
@@ -2123,9 +2263,9 @@ static void print_shortcuts_help()
     std::cout << "║   6            Cycle microphone compression (off→Opus)                 ║\n";
     std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
     std::cout << "║ CURRENT STATE                                                          ║\n";
-    const char *renderer_names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty", "framebuffer"};
-    int renderer_idx = std::min((int)current_config.renderer, 6);
-    std::cout << "║   Renderer:       " << std::setw(8) << std::left << renderer_names[renderer_idx] << "  Color: " << std::setw(9) << (const char*[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
+    const char *renderer_names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty", "framebuffer", "kms"};
+    int renderer_idx = std::min((int)current_config.renderer, 7);
+    std::cout << "║   Renderer:       " << std::setw(8) << std::left << renderer_names[renderer_idx] << "  Color: " << std::setw(9) << (const char *[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
     std::cout << "║   Detail: " << std::setw(3) << (int)current_config.detail_level << "       Quality: " << std::setw(3) << (int)current_config.quality << "       FPS: " << std::setw(3) << current_config.fps << "             ║\n";
     std::cout << "║   Rotation: " << std::setw(5) << std::fixed << std::setprecision(0) << current_config.rotation_angle << "°   Aspect: " << (current_config.keep_aspect_ratio ? "ON " : "OFF") << "        Compress: " << (current_config.compress ? "ON " : "OFF") << "           ║\n";
     std::cout << "║   Input Fwd: " << (input_forwarding_enabled.load() ? "ON " : "OFF") << "      Exclusive: " << (exclusive_grab_enabled.load() ? "ON " : "OFF") << "       Zoom: " << (zoom_state.enabled.load() ? "ON " : "OFF") << " (" << std::setprecision(1) << zoom_state.zoom_level.load() << "x)     ║\n";
@@ -2278,7 +2418,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
             {
                 std::lock_guard<std::mutex> lock2(clear_screen_mutex);
                 clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+                skip_frames_counter.store(5); // Skip 5 frames to allow server to process config
             }
             zoom_state.enabled = !zoom_state.enabled.load();
             std::cerr << "[ZOOM] " << (zoom_state.enabled.load() ? "ENABLED" : "DISABLED") << " (" << zoom_state.zoom_level.load() << "x)\n";
@@ -2428,7 +2568,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
             {
                 std::lock_guard<std::mutex> lock2(clear_screen_mutex);
                 clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+                skip_frames_counter.store(5); // Skip 5 frames to allow server to process config
             }
             get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
             send_client_config(current_config);
@@ -2445,7 +2585,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
             {
                 std::lock_guard<std::mutex> lock2(clear_screen_mutex);
                 clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+                skip_frames_counter.store(5); // Skip 5 frames to allow server to process config
             }
             get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
             send_client_config(current_config);
@@ -2531,7 +2671,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
             {
                 std::lock_guard<std::mutex> lock2(clear_screen_mutex);
                 clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+                skip_frames_counter.store(5); // Skip 5 frames to allow server to process config
             }
             adjust_rotation(-15.0);
             return;
@@ -2543,7 +2683,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
             {
                 std::lock_guard<std::mutex> lock2(clear_screen_mutex);
                 clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+                skip_frames_counter.store(5); // Skip 5 frames to allow server to process config
             }
             adjust_rotation(15.0);
             return;
@@ -2555,7 +2695,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
             {
                 std::lock_guard<std::mutex> lock2(clear_screen_mutex);
                 clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+                skip_frames_counter.store(5); // Skip 5 frames to allow server to process config
             }
             set_rotation(0.0);
             return;
@@ -2567,7 +2707,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
             {
                 std::lock_guard<std::mutex> lock2(clear_screen_mutex);
                 clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+                skip_frames_counter.store(5); // Skip 5 frames to allow server to process config
             }
             adjust_rotation(90.0);
             return;
@@ -2579,7 +2719,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
             {
                 std::lock_guard<std::mutex> lock2(clear_screen_mutex);
                 clear_screen_requested.store(true);
-                skip_frames_counter.store(5);  // Skip 5 frames to allow server to process config
+                skip_frames_counter.store(5); // Skip 5 frames to allow server to process config
             }
             adjust_rotation(-90.0);
             return;
@@ -2620,8 +2760,6 @@ static void send_key_event(uint32_t keycode, bool pressed)
         }
 
         // === QUICK RENDERER SELECTION ===
-
-
     }
 
     // Only forward to server if input forwarding is enabled
@@ -2645,11 +2783,11 @@ static void send_mouse_move(int x, int y)
 {
     int w = screen_width.load();
     int h = screen_height.load();
-    
+
     // Clamp to output bounds (should already be clamped, but be safe)
     int local_x = std::clamp(x, 0, w - 1);
     int local_y = std::clamp(y, 0, h - 1);
-    
+
     // Always update zoom center locally if enabled (use output-local coords)
     if (zoom_state.enabled.load() && zoom_state.follow_mouse.load())
     {
@@ -2890,10 +3028,12 @@ static bool cpu_has_sse2 = false;
 static void detect_cpu_features()
 {
     unsigned int eax, ebx, ecx, edx;
-    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx))
+    {
         cpu_has_sse2 = (edx & bit_SSE2) != 0;
     }
-    if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
+    if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx))
+    {
         cpu_has_avx2 = (ebx & bit_AVX2) != 0;
     }
 }
@@ -2902,26 +3042,29 @@ static int fb_fd = -1;
 static uint8_t *fb_mmap = nullptr;
 static size_t fb_size = 0;
 static uint32_t fb_width = 0, fb_height = 0, fb_bpp = 0, fb_line_length = 0;
-static uint32_t fb_offset = 0;  // For double buffering support
+static uint32_t fb_offset = 0; // For double buffering support
 
 static void init_framebuffer()
 {
-    if (fb_fd >= 0) return;
-    
+    if (fb_fd >= 0)
+        return;
+
     detect_cpu_features();
-    std::cerr << "[FRAMEBUFFER] CPU features: SSE2=" << cpu_has_sse2 
+    std::cerr << "[FRAMEBUFFER] CPU features: SSE2=" << cpu_has_sse2
               << " AVX2=" << cpu_has_avx2 << "\n";
-    
+
     fb_fd = open("/dev/fb0", O_RDWR);
-    if (fb_fd < 0) {
+    if (fb_fd < 0)
+    {
         std::cerr << "[FRAMEBUFFER] Failed to open /dev/fb0: " << strerror(errno) << "\n";
         return;
     }
 
     struct fb_var_screeninfo vinfo;
     struct fb_fix_screeninfo finfo;
-    
-    if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) < 0) {
+
+    if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) < 0)
+    {
         std::cerr << "[FRAMEBUFFER] Failed to get variable screen info\n";
         close(fb_fd);
         fb_fd = -1;
@@ -2931,21 +3074,24 @@ static void init_framebuffer()
     vinfo.grayscale = 0;
     vinfo.bits_per_pixel = 32;
 
-    if (ioctl(fb_fd, FBIOPUT_VSCREENINFO, &vinfo) < 0) {
+    if (ioctl(fb_fd, FBIOPUT_VSCREENINFO, &vinfo) < 0)
+    {
         std::cerr << "[FRAMEBUFFER] Failed to set variable screen info\n";
         close(fb_fd);
         fb_fd = -1;
         return;
     }
 
-    if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) < 0) {
+    if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) < 0)
+    {
         std::cerr << "[FRAMEBUFFER] Failed to re-get variable screen info\n";
         close(fb_fd);
         fb_fd = -1;
         return;
     }
-    
-    if (ioctl(fb_fd, FBIOGET_FSCREENINFO, &finfo) < 0) {
+
+    if (ioctl(fb_fd, FBIOGET_FSCREENINFO, &finfo) < 0)
+    {
         std::cerr << "[FRAMEBUFFER] Failed to get fixed screen info\n";
         close(fb_fd);
         fb_fd = -1;
@@ -2957,27 +3103,30 @@ static void init_framebuffer()
     fb_bpp = vinfo.bits_per_pixel / 8;
     fb_line_length = finfo.line_length;
     fb_size = fb_line_length * fb_height;
-    
-    fb_mmap = (uint8_t*)mmap(NULL, fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, fb_fd, 0);
-    if (fb_mmap == MAP_FAILED) {
+
+    fb_mmap = (uint8_t *)mmap(NULL, fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, fb_fd, 0);
+    if (fb_mmap == MAP_FAILED)
+    {
         std::cerr << "[FRAMEBUFFER] Failed to mmap: " << strerror(errno) << "\n";
         fb_mmap = nullptr;
         close(fb_fd);
         fb_fd = -1;
         return;
     }
-    
-    std::cerr << "[FRAMEBUFFER] Initialized (mmap): " << fb_width << "x" << fb_height 
+
+    std::cerr << "[FRAMEBUFFER] Initialized (mmap): " << fb_width << "x" << fb_height
               << " " << (fb_bpp * 8) << "bpp, line_length=" << fb_line_length << "\n";
 }
 
 static void cleanup_framebuffer()
 {
-    if (fb_mmap) {
+    if (fb_mmap)
+    {
         munmap(fb_mmap, fb_size);
         fb_mmap = nullptr;
     }
-    if (fb_fd >= 0) {
+    if (fb_fd >= 0)
+    {
         close(fb_fd);
         fb_fd = -1;
     }
@@ -2985,59 +3134,63 @@ static void cleanup_framebuffer()
 
 static inline void
 convert_rgb_to_bgra_ssse3(
-    const uint8_t* __restrict__ rgb,
-    uint8_t* __restrict__ bgra,
-    size_t pixel_count
-) {
+    const uint8_t *__restrict__ rgb,
+    uint8_t *__restrict__ bgra,
+    size_t pixel_count)
+{
     size_t i = 0;
 
 #ifdef __SSSE3__
     const __m128i shuffle = _mm_setr_epi8(
-        2,1,0, -1,
-        5,4,3, -1,
-        8,7,6, -1,
-        11,10,9, -1
-    );
+        2, 1, 0, -1,
+        5, 4, 3, -1,
+        8, 7, 6, -1,
+        11, 10, 9, -1);
     const __m128i alpha = _mm_set1_epi32(0xFF000000);
 
-    for (; i + 4 <= pixel_count; i += 4) {
-        __m128i src = _mm_loadu_si128((const __m128i*)(rgb + i * 3));
+    for (; i + 4 <= pixel_count; i += 4)
+    {
+        __m128i src = _mm_loadu_si128((const __m128i *)(rgb + i * 3));
         __m128i pix = _mm_shuffle_epi8(src, shuffle);
         pix = _mm_or_si128(pix, alpha);
-        _mm_storeu_si128((__m128i*)(bgra + i * 4), pix);
+        _mm_storeu_si128((__m128i *)(bgra + i * 4), pix);
     }
 #endif
 
-    for (; i < pixel_count; ++i) {
-        bgra[4*i+0] = rgb[3*i+2];
-        bgra[4*i+1] = rgb[3*i+1];
-        bgra[4*i+2] = rgb[3*i+0];
-        bgra[4*i+3] = 0xFF;
+    for (; i < pixel_count; ++i)
+    {
+        bgra[4 * i + 0] = rgb[3 * i + 2];
+        bgra[4 * i + 1] = rgb[3 * i + 1];
+        bgra[4 * i + 2] = rgb[3 * i + 0];
+        bgra[4 * i + 3] = 0xFF;
     }
 }
 
 static inline void
 convert_rgb_to_rgb565(
-    const uint8_t* __restrict__ rgb,
-    uint16_t* __restrict__ dst,
-    size_t n
-) {
+    const uint8_t *__restrict__ rgb,
+    uint16_t *__restrict__ dst,
+    size_t n)
+{
     size_t i = 0;
 
-    for (; i + 4 <= n; i += 4) {
-        dst[i+0] = ((rgb[ 0]>>3)<<11)|((rgb[ 1]>>2)<<5)|(rgb[ 2]>>3);
-        dst[i+1] = ((rgb[ 3]>>3)<<11)|((rgb[ 4]>>2)<<5)|(rgb[ 5]>>3);
-        dst[i+2] = ((rgb[ 6]>>3)<<11)|((rgb[ 7]>>2)<<5)|(rgb[ 8]>>3);
-        dst[i+3] = ((rgb[ 9]>>3)<<11)|((rgb[10]>>2)<<5)|(rgb[11]>>3);
+    for (; i + 4 <= n; i += 4)
+    {
+        dst[i + 0] = ((rgb[0] >> 3) << 11) | ((rgb[1] >> 2) << 5) | (rgb[2] >> 3);
+        dst[i + 1] = ((rgb[3] >> 3) << 11) | ((rgb[4] >> 2) << 5) | (rgb[5] >> 3);
+        dst[i + 2] = ((rgb[6] >> 3) << 11) | ((rgb[7] >> 2) << 5) | (rgb[8] >> 3);
+        dst[i + 3] = ((rgb[9] >> 3) << 11) | ((rgb[10] >> 2) << 5) | (rgb[11] >> 3);
         rgb += 12;
     }
 
-    for (; i < n; ++i, rgb += 3) {
-        dst[i] = ((rgb[0]>>3)<<11)|((rgb[1]>>2)<<5)|(rgb[2]>>3);
+    for (; i < n; ++i, rgb += 3)
+    {
+        dst[i] = ((rgb[0] >> 3) << 11) | ((rgb[1] >> 2) << 5) | (rgb[2] >> 3);
     }
 }
 
-struct FBTempBuffers {
+struct FBTempBuffers
+{
     std::vector<uint8_t> rgb_row;
     std::vector<uint8_t> bgra_row;
     std::vector<uint16_t> rgb565_row;
@@ -3047,34 +3200,41 @@ struct FBTempBuffers {
 
 static FBTempBuffers fbtmp;
 
-static void render_to_framebuffer(const std::vector<uint8_t>& data)
+static void render_to_framebuffer(const std::vector<uint8_t> &data)
 {
-    if (fb_fd < 0 || !fb_mmap || data.size() < 8) {
+    if (fb_fd < 0 || !fb_mmap || data.size() < 8)
+    {
         init_framebuffer();
-        if (fb_fd < 0 || !fb_mmap || data.size() < 8) {
+        if (fb_fd < 0 || !fb_mmap || data.size() < 8)
+        {
             return;
         }
     }
 
-    const uint32_t iw = *(uint32_t*)&data[0];
-    const uint32_t ih = *(uint32_t*)&data[4];
-    const uint8_t* rgb = data.data() + 8;
+    const uint32_t iw = *(uint32_t *)&data[0];
+    const uint32_t ih = *(uint32_t *)&data[4];
+    const uint8_t *rgb = data.data() + 8;
 
-    if (iw == fb_width && ih == fb_height) {
+    if (iw == fb_width && ih == fb_height)
+    {
 
-        for (uint32_t y = 0; y < ih; ++y) {
-            uint8_t* dst = fb_mmap + y * fb_line_length;
-            const uint8_t* src = rgb + y * iw * 3;
+        for (uint32_t y = 0; y < ih; ++y)
+        {
+            uint8_t *dst = fb_mmap + y * fb_line_length;
+            const uint8_t *src = rgb + y * iw * 3;
 
-            if (fb_bpp == 3) {
+            if (fb_bpp == 3)
+            {
                 memcpy(dst, src, iw * 3);
             }
-            else if (fb_bpp == 4) {
+            else if (fb_bpp == 4)
+            {
                 fbtmp.bgra_row.resize(iw * 4);
                 convert_rgb_to_bgra_ssse3(src, fbtmp.bgra_row.data(), iw);
                 memcpy(dst, fbtmp.bgra_row.data(), iw * 4);
             }
-            else if (fb_bpp == 2) {
+            else if (fb_bpp == 2)
+            {
                 fbtmp.rgb565_row.resize(iw);
                 convert_rgb_to_rgb565(src, fbtmp.rgb565_row.data(), iw);
                 memcpy(dst, fbtmp.rgb565_row.data(), iw * 2);
@@ -3097,44 +3257,55 @@ static void render_to_framebuffer(const std::vector<uint8_t>& data)
         for (uint32_t y = 0; y < fb_height; ++y)
             fbtmp.y_lookup[y] = (uint64_t)y * ih / fb_height;
 
-        last_iw = iw; last_ih = ih;
-        last_fw = fb_width; last_fh = fb_height;
+        last_iw = iw;
+        last_ih = ih;
+        last_fw = fb_width;
+        last_fh = fb_height;
     }
 
     fbtmp.rgb_row.resize(fb_width * 3);
-    if (fb_bpp == 4) fbtmp.bgra_row.resize(fb_width * 4);
-    if (fb_bpp == 2) fbtmp.rgb565_row.resize(fb_width);
+    if (fb_bpp == 4)
+        fbtmp.bgra_row.resize(fb_width * 4);
+    if (fb_bpp == 2)
+        fbtmp.rgb565_row.resize(fb_width);
 
-    for (uint32_t y = 0; y < fb_height; ++y) {
-        uint8_t* dst = fb_mmap + y * fb_line_length;
-        const uint8_t* src_row = rgb + fbtmp.y_lookup[y] * iw * 3;
+    for (uint32_t y = 0; y < fb_height; ++y)
+    {
+        uint8_t *dst = fb_mmap + y * fb_line_length;
+        const uint8_t *src_row = rgb + fbtmp.y_lookup[y] * iw * 3;
 
-        if (fb_bpp == 3) {
-            for (uint32_t x = 0; x < fb_width; ++x) {
-                const uint8_t* p = src_row + fbtmp.x_lookup[x] * 3;
-                dst[x*3+0] = p[0];
-                dst[x*3+1] = p[1];
-                dst[x*3+2] = p[2];
+        if (fb_bpp == 3)
+        {
+            for (uint32_t x = 0; x < fb_width; ++x)
+            {
+                const uint8_t *p = src_row + fbtmp.x_lookup[x] * 3;
+                dst[x * 3 + 0] = p[0];
+                dst[x * 3 + 1] = p[1];
+                dst[x * 3 + 2] = p[2];
             }
         }
-        else {
-            for (uint32_t x = 0; x < fb_width; ++x) {
-                const uint8_t* p = src_row + fbtmp.x_lookup[x] * 3;
-                fbtmp.rgb_row[x*3+0] = p[0];
-                fbtmp.rgb_row[x*3+1] = p[1];
-                fbtmp.rgb_row[x*3+2] = p[2];
+        else
+        {
+            for (uint32_t x = 0; x < fb_width; ++x)
+            {
+                const uint8_t *p = src_row + fbtmp.x_lookup[x] * 3;
+                fbtmp.rgb_row[x * 3 + 0] = p[0];
+                fbtmp.rgb_row[x * 3 + 1] = p[1];
+                fbtmp.rgb_row[x * 3 + 2] = p[2];
             }
 
-            if (fb_bpp == 4) {
+            if (fb_bpp == 4)
+            {
                 convert_rgb_to_bgra_ssse3(fbtmp.rgb_row.data(), fbtmp.bgra_row.data(), fb_width);
                 memcpy(dst, fbtmp.bgra_row.data(), fb_width * 4);
-            } else {
+            }
+            else
+            {
                 convert_rgb_to_rgb565(fbtmp.rgb_row.data(), fbtmp.rgb565_row.data(), fb_width);
                 memcpy(dst, fbtmp.rgb565_row.data(), fb_width * 2);
             }
         }
     }
-
 }
 
 int main(int argc, char **argv)
@@ -3204,7 +3375,7 @@ int main(int argc, char **argv)
         .default_value(false)
         .implicit_value(true)
         .help("Enable microphone compression");
-    
+
     program.add_argument("-C", "--center-mouse")
         .default_value(false)
         .implicit_value(true)
@@ -3299,7 +3470,7 @@ int main(int argc, char **argv)
         .default_value(2)
         .scan<'i', int>()
         .help("Audio opus channels");
-    
+
     program.add_argument("-b", "--audio-bitrate")
         .default_value(64)
         .scan<'i', int>()
@@ -3357,16 +3528,20 @@ int main(int argc, char **argv)
     exclusive_mode = program.get<bool>("--exclusive-input");
 
     std::string recv_res = program.get<std::string>("--receive-resolution");
-    if (recv_res != "native") {
+    if (recv_res != "native")
+    {
         size_t x_pos = recv_res.find('x');
-        if (x_pos != std::string::npos) {
+        if (x_pos != std::string::npos)
+        {
             current_config.requested_capture_width = std::stoul(recv_res.substr(0, x_pos));
             current_config.requested_capture_height = std::stoul(recv_res.substr(x_pos + 1));
-            std::cerr << "[CONFIG] Requesting receive resolution: " 
-                    << current_config.requested_capture_width << "x" 
-                    << current_config.requested_capture_height << "\n";
+            std::cerr << "[CONFIG] Requesting receive resolution: "
+                      << current_config.requested_capture_width << "x"
+                      << current_config.requested_capture_height << "\n";
         }
-    } else {
+    }
+    else
+    {
         current_config.requested_capture_width = 0;
         current_config.requested_capture_height = 0;
     }
@@ -3655,9 +3830,12 @@ int main(int argc, char **argv)
     std::string renderer = program.get<std::string>("--renderer");
 
     // Parse opus application type
-    auto parse_opus_app = [](const std::string &s) -> int {
-        if (s == "voip") return OPUS_APPLICATION_VOIP;
-        if (s == "lowdelay") return OPUS_APPLICATION_RESTRICTED_LOWDELAY;
+    auto parse_opus_app = [](const std::string &s) -> int
+    {
+        if (s == "voip")
+            return OPUS_APPLICATION_VOIP;
+        if (s == "lowdelay")
+            return OPUS_APPLICATION_RESTRICTED_LOWDELAY;
         return OPUS_APPLICATION_AUDIO;
     };
 
@@ -3670,27 +3848,34 @@ int main(int argc, char **argv)
         get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
         current_config.color_mode = (mode_str == "16") ? 0 : (mode_str == "256") ? 1
                                                                                  : 2;
-        current_config.renderer = (renderer == "braille") ? 0 : (renderer == "blocks") ? 1
-                                                            : (renderer == "ascii")    ? 2
-                                                            : (renderer == "sixel")    ? 4
-                                                            : (renderer == "kitty")    ? 5
+        current_config.renderer = (renderer == "braille") ? 0 : (renderer == "blocks")    ? 1
+                                                            : (renderer == "ascii")       ? 2
+                                                            : (renderer == "sixel")       ? 4
+                                                            : (renderer == "kitty")       ? 5
                                                             : (renderer == "framebuffer") ? 6
-                                                                                       : 3;
-        
+                                                            : (renderer == "kms")         ? 7
+                                                                                          : 3;
+
         // Query actual pixel dimensions if using sixel or kitty
-        if (current_config.renderer == 4 || current_config.renderer == 5 || current_config.renderer == 6)
+        if (current_config.renderer == 4 || current_config.renderer == 5 || current_config.renderer == 6 ||
+            current_config.renderer == 7)
         {
-            if (current_config.renderer == 6) {
+            if (current_config.renderer == 6)
+            {
                 // Framebuffer
                 int fb_fd = open("/dev/fb0", O_RDONLY);
-                if (fb_fd >= 0) {
+                if (fb_fd >= 0)
+                {
                     struct fb_var_screeninfo vinfo;
-                    if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) == 0) {
+                    if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) == 0)
+                    {
                         current_config.term_pixel_width = vinfo.xres;
                         current_config.term_pixel_height = vinfo.yres;
-                        std::cerr << "[CONFIG] Framebuffer dimensions: " 
-                                << vinfo.xres << "x" << vinfo.yres << "\n";
-                    } else {
+                        std::cerr << "[CONFIG] Framebuffer dimensions: "
+                                  << vinfo.xres << "x" << vinfo.yres << "\n";
+                    }
+                    else
+                    {
                         // Fallback
                         current_config.term_pixel_width = 1920;
                         current_config.term_pixel_height = 1080;
@@ -3698,19 +3883,27 @@ int main(int argc, char **argv)
                     }
                     close(fb_fd);
                 }
-            } else {
+            }
+            else if (current_config.renderer == 7)
+            {
+                // KMS
+                query_kms_geometry((int &)current_config.term_pixel_width,
+                                   (int &)current_config.term_pixel_height);
+            }
+            else
+            {
                 // Sixel or Kitty
-                query_terminal_geometry(current_config.renderer == 4, 
-                                    (int&)current_config.term_pixel_width, 
-                                    (int&)current_config.term_pixel_height);
+                query_terminal_geometry(current_config.renderer == 4,
+                                        (int &)current_config.term_pixel_width,
+                                        (int &)current_config.term_pixel_height);
             }
         }
         else
         {
-            current_config.term_pixel_width = current_config.term_width * 10;   // Fallback estimates
+            current_config.term_pixel_width = current_config.term_width * 10; // Fallback estimates
             current_config.term_pixel_height = current_config.term_height * 20;
         }
-        
+
         current_config.keep_aspect_ratio = program.get<bool>("--keep-aspect-ratio") ? 1 : 0;
         current_config.scale_factor = program.get<double>("--scale");
         current_config.compress = program.get<bool>("--compress") ? 1 : 0;
@@ -3766,7 +3959,7 @@ int main(int argc, char **argv)
             opus_encoder_ctl(microphone_opus_encoder, OPUS_SET_BITRATE(current_config.microphone_bitrate));
             opus_encoder_ctl(microphone_opus_encoder, OPUS_SET_COMPLEXITY(current_config.microphone_opus_complexity));
             std::cerr << "[OPUS] Microphone encoder: " << microphone_opus_sample_rate << "Hz "
-                      << microphone_opus_channels << "ch " << current_config.microphone_bitrate/1000 << "kbps\n";
+                      << microphone_opus_channels << "ch " << current_config.microphone_bitrate / 1000 << "kbps\n";
         }
     }
 
@@ -3845,7 +4038,7 @@ int main(int argc, char **argv)
                             output_offset_x = info.output_x;
                             output_offset_y = info.output_y;
                             current_output_index = info.output_index;
-                            std::cerr << "[INIT] Received screen info: " << info.width << "x" << info.height 
+                            std::cerr << "[INIT] Received screen info: " << info.width << "x" << info.height
                                       << " offset: " << info.output_x << "," << info.output_y << "\n";
                             outputs = info.output_count;
                             break;
@@ -3863,8 +4056,8 @@ int main(int argc, char **argv)
         }
         else
         {
-            std::cerr << "[INIT] Screen info received: " << screen_width.load() 
-                    << "x" << screen_height.load() << "\n";
+            std::cerr << "[INIT] Screen info received: " << screen_width.load()
+                      << "x" << screen_height.load() << "\n";
         }
     }
 
@@ -3956,12 +4149,12 @@ int main(int argc, char **argv)
                 std::lock_guard<std::mutex> lock(config_mutex);
                 current_config.term_width = new_term_width;
                 current_config.term_height = new_term_height;
-                
+
                 // Query actual pixel dimensions if using sixel or kitty
-                if (current_config.renderer == 4 || current_config.renderer == 5)  // 4 = sixel, 5 = kitty
+                if (current_config.renderer == 4 || current_config.renderer == 5) // 4 = sixel, 5 = kitty
                 {
-                    query_terminal_geometry(current_config.renderer == 4, (int&)current_config.term_pixel_width, 
-                                          (int&)current_config.term_pixel_height);
+                    query_terminal_geometry(current_config.renderer == 4, (int &)current_config.term_pixel_width,
+                                            (int &)current_config.term_pixel_height);
                     const char *proto = (current_config.renderer == 4) ? "SIXEL" : "KITTY";
                     std::cerr << "[RESIZE] Terminal resized to " << new_term_width << "x"
                               << new_term_height << " cells (" << current_config.term_pixel_width << "x"
@@ -3969,7 +4162,7 @@ int main(int argc, char **argv)
                 }
                 else
                 {
-                    current_config.term_pixel_width = new_term_width * 10;   // Fallback estimates
+                    current_config.term_pixel_width = new_term_width * 10; // Fallback estimates
                     current_config.term_pixel_height = new_term_height * 20;
                     std::cerr << "[RESIZE] Terminal resized to " << new_term_width << "x"
                               << new_term_height << "\n";
@@ -3982,7 +4175,7 @@ int main(int argc, char **argv)
             // Handle clear screen request
             {
                 std::lock_guard<std::mutex> lock(clear_screen_mutex);
-                if (clear_screen_requested.load()) 
+                if (clear_screen_requested.load())
                 {
                     clear_screen_requested.store(false);
                     std::cout << "\033[H\033[2J" << std::flush;
@@ -4003,12 +4196,16 @@ int main(int argc, char **argv)
             else if (!video_paused.load() && receive_newest_frame(rendered))
             {
                 // Renderer 6 = framebuffer - write to /dev/fb0 instead of terminal
-                if (current_config.renderer == 6) {
+                if (current_config.renderer == 6)
+                {
                     render_to_framebuffer(rendered);
-                } else if (current_config.renderer == 7) { // KMS direct rendering mode
+                }
+                else if (current_config.renderer == 7)
+                { // KMS direct rendering mode
                     render_to_kms(rendered);
                 }
-                else {
+                else
+                {
                     std::cout << "\033[H" << std::flush;
                     write(STDOUT_FILENO, rendered.data(), rendered.size());
                 }
