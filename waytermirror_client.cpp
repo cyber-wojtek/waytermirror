@@ -33,9 +33,14 @@
 #include <sys/select.h>
 #include <linux/fb.h>
 #include <sys/mman.h>
-#include <emmintrin.h>  // SSE2
-#include <immintrin.h>  // AVX2
+#include <tmmintrin.h> // SSSE3
 #include <cpuid.h>
+#include <xf86drm.h>
+#include <xf86drmMode.h>
+#include <drm_fourcc.h>
+#include <gbm.h>
+#include <sys/mman.h>
+#include <cstring>
 
 // Opus encoders/decoders
 static OpusEncoder *microphone_opus_encoder = nullptr;   // For encoding microphone data to send
@@ -350,6 +355,305 @@ struct MouseScroll
 
 static ClientConfig current_config;
 static std::mutex config_mutex;
+
+struct KMSDisplay {
+    int drm_fd = -1;
+    struct gbm_device *gbm_device = nullptr;
+    struct gbm_surface *gbm_surface = nullptr;
+    
+    uint32_t connector_id = 0;
+    uint32_t crtc_id = 0;
+    drmModeModeInfo mode = {};
+    
+    uint32_t width = 0;
+    uint32_t height = 0;
+    
+    struct gbm_bo *current_bo = nullptr;
+    uint32_t current_fb_id = 0;
+    
+    bool mode_set = false;
+};
+
+static KMSDisplay kms_display;
+
+static bool init_kms_display() {
+    // Try common DRM device paths
+    const char *drm_devices[] = {
+        "/dev/dri/card0",
+        "/dev/dri/card1",
+        "/dev/dri/card2",
+        "/dev/dri/card3",
+        "/dev/dri/renderD128",
+        nullptr
+    };
+    
+    for (int i = 0; drm_devices[i]; i++) {
+        kms_display.drm_fd = open(drm_devices[i], O_RDWR | O_CLOEXEC);
+        if (kms_display.drm_fd >= 0) {
+            std::cerr << "[KMS] Opened DRM device: " << drm_devices[i] << "\n";
+            break;
+        }
+    }
+    
+    if (kms_display.drm_fd < 0) {
+        std::cerr << "[KMS] Failed to open any DRM device\n";
+        return false;
+    }
+    
+    // Initialize GBM (Generic Buffer Management)
+    kms_display.gbm_device = gbm_create_device(kms_display.drm_fd);
+    if (!kms_display.gbm_device) {
+        std::cerr << "[KMS] Failed to create GBM device\n";
+        close(kms_display.drm_fd);
+        return false;
+    }
+    
+    // Get DRM resources
+    drmModeRes *resources = drmModeGetResources(kms_display.drm_fd);
+    if (!resources) {
+        std::cerr << "[KMS] Failed to get DRM resources\n";
+        gbm_device_destroy(kms_display.gbm_device);
+        close(kms_display.drm_fd);
+        return false;
+    }
+    
+    // Find first connected connector
+    drmModeConnector *connector = nullptr;
+    for (int i = 0; i < resources->count_connectors; i++) {
+        connector = drmModeGetConnector(kms_display.drm_fd, resources->connectors[i]);
+        if (connector->connection == DRM_MODE_CONNECTED && connector->count_modes > 0) {
+            kms_display.connector_id = connector->connector_id;
+            break;
+        }
+        drmModeFreeConnector(connector);
+        connector = nullptr;
+    }
+    
+    if (!connector) {
+        std::cerr << "[KMS] No connected display found\n";
+        drmModeFreeResources(resources);
+        gbm_device_destroy(kms_display.gbm_device);
+        close(kms_display.drm_fd);
+        return false;
+    }
+    
+    // Use preferred mode (usually highest resolution)
+    kms_display.mode = connector->modes[0];
+    kms_display.width = kms_display.mode.hdisplay;
+    kms_display.height = kms_display.mode.vdisplay;
+    
+    std::cerr << "[KMS] Display mode: " << kms_display.width << "x" << kms_display.height 
+              << " @ " << kms_display.mode.vrefresh << "Hz\n";
+    
+    // Find CRTC
+    drmModeEncoder *encoder = drmModeGetEncoder(kms_display.drm_fd, connector->encoder_id);
+    if (encoder) {
+        kms_display.crtc_id = encoder->crtc_id;
+        drmModeFreeEncoder(encoder);
+    } else {
+        // Find suitable CRTC
+        for (int i = 0; i < resources->count_crtcs; i++) {
+            if (resources->crtcs[i]) {
+                kms_display.crtc_id = resources->crtcs[i];
+                break;
+            }
+        }
+    }
+    
+    drmModeFreeConnector(connector);
+    drmModeFreeResources(resources);
+    
+    if (!kms_display.crtc_id) {
+        std::cerr << "[KMS] Failed to find CRTC\n";
+        gbm_device_destroy(kms_display.gbm_device);
+        close(kms_display.drm_fd);
+        return false;
+    }
+    
+    // Create GBM surface for rendering
+    kms_display.gbm_surface = gbm_surface_create(
+        kms_display.gbm_device,
+        kms_display.width,
+        kms_display.height,
+        GBM_FORMAT_XRGB8888,
+        GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING
+    );
+    
+    if (!kms_display.gbm_surface) {
+        std::cerr << "[KMS] Failed to create GBM surface\n";
+        gbm_device_destroy(kms_display.gbm_device);
+        close(kms_display.drm_fd);
+        return false;
+    }
+    
+    std::cerr << "[KMS] Initialized successfully\n";
+    return true;
+}
+
+static void cleanup_kms_display() {
+    if (kms_display.current_fb_id) {
+        drmModeRmFB(kms_display.drm_fd, kms_display.current_fb_id);
+    }
+    
+    if (kms_display.gbm_surface) {
+        gbm_surface_destroy(kms_display.gbm_surface);
+    }
+    
+    if (kms_display.gbm_device) {
+        gbm_device_destroy(kms_display.gbm_device);
+    }
+    
+    if (kms_display.drm_fd >= 0) {
+        close(kms_display.drm_fd);
+    }
+    
+    std::cerr << "[KMS] Cleanup complete\n";
+}
+
+static uint32_t get_fb_for_bo(struct gbm_bo *bo) {
+    uint32_t fb_id = (uint32_t)(uintptr_t)gbm_bo_get_user_data(bo);
+    if (fb_id) {
+        return fb_id;
+    }
+    
+    uint32_t width = gbm_bo_get_width(bo);
+    uint32_t height = gbm_bo_get_height(bo);
+    uint32_t stride = gbm_bo_get_stride(bo);
+    uint32_t handle = gbm_bo_get_handle(bo).u32;
+    
+    int ret = drmModeAddFB(kms_display.drm_fd, width, height, 24, 32,
+                          stride, handle, &fb_id);
+    if (ret) {
+        std::cerr << "[KMS] Failed to create framebuffer: " << strerror(errno) << "\n";
+        return 0;
+    }
+    
+    gbm_bo_set_user_data(bo, (void*)(uintptr_t)fb_id, 
+        [](struct gbm_bo *bo, void *data) {
+            uint32_t fb_id = (uint32_t)(uintptr_t)data;
+            if (fb_id) {
+                drmModeRmFB(kms_display.drm_fd, fb_id);
+            }
+        });
+    
+    return fb_id;
+}
+
+static void render_to_kms(const std::vector<uint8_t>& data) {
+    if (kms_display.drm_fd < 0) {
+        if (!init_kms_display()) {
+            std::cerr << "[KMS] Cannot render: display not initialized\n";
+            return;
+        }
+    }
+    
+    if (data.size() < 8) {
+        return;
+    }
+    
+    // Parse image header (width, height, RGB data)
+    const uint32_t img_width = *reinterpret_cast<const uint32_t*>(&data[0]);
+    const uint32_t img_height = *reinterpret_cast<const uint32_t*>(&data[4]);
+    const size_t expected_size = 8ull + (size_t)img_width * img_height * 3;
+    
+    if (data.size() != expected_size) {
+        std::cerr << "[KMS] Invalid data size\n";
+        return;
+    }
+    
+    const uint8_t* rgb = data.data() + 8;
+    
+    // Lock front buffer for rendering
+    struct gbm_bo *bo = gbm_surface_lock_front_buffer(kms_display.gbm_surface);
+    if (!bo) {
+        std::cerr << "[KMS] Failed to lock front buffer\n";
+        return;
+    }
+    
+    // Get buffer for direct memory access
+    uint32_t stride = gbm_bo_get_stride(bo);
+    void *map_data = nullptr;
+    uint32_t map_stride = 0;
+    
+    void *bo_map = gbm_bo_map(bo, 0, 0, kms_display.width, kms_display.height,
+                              GBM_BO_TRANSFER_WRITE, &map_stride, &map_data);
+    
+    if (!bo_map) {
+        std::cerr << "[KMS] Failed to map buffer\n";
+        gbm_surface_release_buffer(kms_display.gbm_surface, bo);
+        return;
+    }
+    
+    uint8_t *fb_data = static_cast<uint8_t*>(bo_map);
+    
+    // Calculate scaling to fit display
+    uint32_t target_w = std::min(img_width, kms_display.width);
+    uint32_t target_h = std::min(img_height, kms_display.height);
+    
+    int off_x = (kms_display.width - target_w) / 2;
+    int off_y = (kms_display.height - target_h) / 2;
+    
+    // Clear screen (black borders)
+    memset(fb_data, 0, map_stride * kms_display.height);
+    
+    // Render image with bilinear scaling
+    for (uint32_t y = 0; y < target_h; y++) {
+        for (uint32_t x = 0; x < target_w; x++) {
+            // Map display coordinates to source image
+            uint32_t src_x = ((uint64_t)x * img_width) / target_w;
+            uint32_t src_y = ((uint64_t)y * img_height) / target_h;
+            
+            src_x = std::min(src_x, img_width - 1);
+            src_y = std::min(src_y, img_height - 1);
+            
+            const uint8_t *src_pixel = rgb + (src_y * img_width + src_x) * 3;
+            uint8_t *dst_pixel = fb_data + ((off_y + y) * map_stride) + ((off_x + x) * 4);
+            
+            // Convert RGB24 to XRGB32
+            dst_pixel[0] = src_pixel[2]; // B
+            dst_pixel[1] = src_pixel[1]; // G
+            dst_pixel[2] = src_pixel[0]; // R
+            dst_pixel[3] = 0xFF;         // X (padding)
+        }
+    }
+    
+    gbm_bo_unmap(bo, map_data);
+    
+    // Get framebuffer ID for this buffer
+    uint32_t fb_id = get_fb_for_bo(bo);
+    if (!fb_id) {
+        gbm_surface_release_buffer(kms_display.gbm_surface, bo);
+        return;
+    }
+    
+    // Set CRTC to display this framebuffer
+    if (!kms_display.mode_set) {
+        int ret = drmModeSetCrtc(kms_display.drm_fd, kms_display.crtc_id,
+                                 fb_id, 0, 0, &kms_display.connector_id, 1,
+                                 &kms_display.mode);
+        if (ret) {
+            std::cerr << "[KMS] Failed to set CRTC: " << strerror(errno) << "\n";
+            gbm_surface_release_buffer(kms_display.gbm_surface, bo);
+            return;
+        }
+        kms_display.mode_set = true;
+    } else {
+        // Page flip for smooth updates
+        int ret = drmModePageFlip(kms_display.drm_fd, kms_display.crtc_id,
+                                  fb_id, DRM_MODE_PAGE_FLIP_EVENT, nullptr);
+        if (ret) {
+            std::cerr << "[KMS] Page flip failed: " << strerror(errno) << "\n";
+        }
+    }
+    
+    // Release previous buffer
+    if (kms_display.current_bo) {
+        gbm_surface_release_buffer(kms_display.gbm_surface, kms_display.current_bo);
+    }
+    
+    kms_display.current_bo = bo;
+    kms_display.current_fb_id = fb_id;
+}
 
 // Session ID generation
 static std::string generate_uuid()
@@ -1552,10 +1856,10 @@ static void toggle_exclusive_grab()
 static void cycle_renderer()
 {
     std::lock_guard<std::mutex> lock(config_mutex);
-    // Cycle through all 7 renderers: 0=braille, 1=blocks, 2=ascii, 3=hybrid, 4=sixel, 5=kitty, 6=framebuffer
-    current_config.renderer = (current_config.renderer + 1) % 7;
+    // Cycle through all 7 renderers: 0=braille, 1=blocks, 2=ascii, 3=hybrid, 4=sixel, 5=kitty, 6=framebuffer, 7=kms
+    current_config.renderer = (current_config.renderer + 1) % 8;
 
-    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty", "framebuffer"};
+    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty", "framebuffer", "kms"};
     std::cerr << "[RENDERER] Switched to: " << names[current_config.renderer] << "\n";
 
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
@@ -2679,254 +2983,153 @@ static void cleanup_framebuffer()
     }
 }
 
-static inline void convert_rgb_to_bgra_avx2(const uint8_t* __restrict__ rgb, 
-                                            uint8_t* __restrict__ bgra, 
-                                            size_t pixel_count)
-{
+static inline void
+convert_rgb_to_bgra_ssse3(
+    const uint8_t* __restrict__ rgb,
+    uint8_t* __restrict__ bgra,
+    size_t pixel_count
+) {
     size_t i = 0;
-    
-    for (; i + 8 <= pixel_count; i += 8) {
-        __m128i rgb_low = _mm_loadu_si128((__m128i*)(rgb + i * 3));
-        __m128i rgb_high = _mm_loadl_epi64((__m128i*)(rgb + i * 3 + 16));
-    }
-    
-    for (i = 0; i + 4 <= pixel_count; i += 4) {
-        const uint8_t* p = rgb + i * 3;
-        uint8_t* dst = bgra + i * 4;
-        
-        dst[0] = p[2];   dst[1] = p[1];   dst[2] = p[0];   dst[3] = 0xFF;
-        dst[4] = p[5];   dst[5] = p[4];   dst[6] = p[3];   dst[7] = 0xFF;
-        dst[8] = p[8];   dst[9] = p[7];   dst[10] = p[6];  dst[11] = 0xFF;
-        dst[12] = p[11]; dst[13] = p[10]; dst[14] = p[9];  dst[15] = 0xFF;
-    }
-    
-    for (; i < pixel_count; ++i) {
-        const uint8_t* p = rgb + i * 3;
-        uint8_t* dst = bgra + i * 4;
-        dst[0] = p[2];
-        dst[1] = p[1];
-        dst[2] = p[0];
-        dst[3] = 0xFF;
-    }
-}
 
-static inline void convert_rgb_to_rgb565_simd(const uint8_t* __restrict__ rgb, 
-                                              uint8_t* __restrict__ rgb565, 
-                                              size_t pixel_count)
-{
-    size_t i = 0;
-    uint16_t* dst16 = (uint16_t*)rgb565;
-    
+#ifdef __SSSE3__
+    const __m128i shuffle = _mm_setr_epi8(
+        2,1,0, -1,
+        5,4,3, -1,
+        8,7,6, -1,
+        11,10,9, -1
+    );
+    const __m128i alpha = _mm_set1_epi32(0xFF000000);
+
     for (; i + 4 <= pixel_count; i += 4) {
-        const uint8_t* p = rgb + i * 3;
-        dst16[i + 0] = ((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3);
-        dst16[i + 1] = ((p[3] >> 3) << 11) | ((p[4] >> 2) << 5) | (p[5] >> 3);
-        dst16[i + 2] = ((p[6] >> 3) << 11) | ((p[7] >> 2) << 5) | (p[8] >> 3);
-        dst16[i + 3] = ((p[9] >> 3) << 11) | ((p[10] >> 2) << 5) | (p[11] >> 3);
+        __m128i src = _mm_loadu_si128((const __m128i*)(rgb + i * 3));
+        __m128i pix = _mm_shuffle_epi8(src, shuffle);
+        pix = _mm_or_si128(pix, alpha);
+        _mm_storeu_si128((__m128i*)(bgra + i * 4), pix);
     }
-    
+#endif
+
     for (; i < pixel_count; ++i) {
-        const uint8_t* p = rgb + i * 3;
-        dst16[i] = ((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3);
+        bgra[4*i+0] = rgb[3*i+2];
+        bgra[4*i+1] = rgb[3*i+1];
+        bgra[4*i+2] = rgb[3*i+0];
+        bgra[4*i+3] = 0xFF;
     }
 }
 
-static inline void fast_memcpy_simd(void* __restrict__ dst, 
-                                   const void* __restrict__ src, 
-                                   size_t size)
-{
-    uint8_t* d = (uint8_t*)dst;
-    const uint8_t* s = (const uint8_t*)src;
+static inline void
+convert_rgb_to_rgb565(
+    const uint8_t* __restrict__ rgb,
+    uint16_t* __restrict__ dst,
+    size_t n
+) {
     size_t i = 0;
-    
-#ifdef __AVX2__
-    if (cpu_has_avx2 && ((uintptr_t)d & 31) == 0 && ((uintptr_t)s & 31) == 0) {
-        for (; i + 32 <= size; i += 32) {
-            __m256i chunk = _mm256_load_si256((__m256i*)(s + i));
-            _mm256_stream_si256((__m256i*)(d + i), chunk);
-        }
+
+    for (; i + 4 <= n; i += 4) {
+        dst[i+0] = ((rgb[ 0]>>3)<<11)|((rgb[ 1]>>2)<<5)|(rgb[ 2]>>3);
+        dst[i+1] = ((rgb[ 3]>>3)<<11)|((rgb[ 4]>>2)<<5)|(rgb[ 5]>>3);
+        dst[i+2] = ((rgb[ 6]>>3)<<11)|((rgb[ 7]>>2)<<5)|(rgb[ 8]>>3);
+        dst[i+3] = ((rgb[ 9]>>3)<<11)|((rgb[10]>>2)<<5)|(rgb[11]>>3);
+        rgb += 12;
     }
-#endif
-    
-#ifdef __SSE2__
-    if (cpu_has_sse2) {
-        for (; i + 16 <= size; i += 16) {
-            __m128i chunk = _mm_loadu_si128((__m128i*)(s + i));
-            _mm_storeu_si128((__m128i*)(d + i), chunk);
-        }
+
+    for (; i < n; ++i, rgb += 3) {
+        dst[i] = ((rgb[0]>>3)<<11)|((rgb[1]>>2)<<5)|(rgb[2]>>3);
     }
-#endif
-    
-    memcpy(d + i, s + i, size - i); // Copy remaining bytes
 }
+
+struct FBTempBuffers {
+    std::vector<uint8_t> rgb_row;
+    std::vector<uint8_t> bgra_row;
+    std::vector<uint16_t> rgb565_row;
+    std::vector<uint32_t> x_lookup;
+    std::vector<uint32_t> y_lookup;
+};
+
+static FBTempBuffers fbtmp;
 
 static void render_to_framebuffer(const std::vector<uint8_t>& data)
 {
-    if (fb_fd < 0) {
-        init_framebuffer();
-        if (fb_fd < 0) {
-            std::cerr << "[FRAMEBUFFER] Cannot render: framebuffer not initialized\n";
-            return;
-        }
-    }
+    if (fb_fd < 0 || !fb_mmap || data.size() < 8) return;
 
-    if (data.size() < 8 || !fb_mmap) return;
-
-    const uint32_t img_width  = *reinterpret_cast<const uint32_t*>(&data[0]);
-    const uint32_t img_height = *reinterpret_cast<const uint32_t*>(&data[4]);
-    const size_t expected_size = 8ull + (size_t)img_width * img_height * 3;
-
-    if (data.size() != expected_size) return;
-
+    const uint32_t iw = *(uint32_t*)&data[0];
+    const uint32_t ih = *(uint32_t*)&data[4];
     const uint8_t* rgb = data.data() + 8;
 
-    if (img_width == fb_width && img_height == fb_height) {
-        if (fb_bpp == 3 && fb_line_length == img_width * 3) {
-            fast_memcpy_simd(fb_mmap, rgb, img_width * img_height * 3);
-            return;
+    if (iw == fb_width && ih == fb_height) {
+
+        for (uint32_t y = 0; y < ih; ++y) {
+            uint8_t* dst = fb_mmap + y * fb_line_length;
+            const uint8_t* src = rgb + y * iw * 3;
+
+            if (fb_bpp == 3) {
+                memcpy(dst, src, iw * 3);
+            }
+            else if (fb_bpp == 4) {
+                fbtmp.bgra_row.resize(iw * 4);
+                convert_rgb_to_bgra_ssse3(src, fbtmp.bgra_row.data(), iw);
+                memcpy(dst, fbtmp.bgra_row.data(), iw * 4);
+            }
+            else if (fb_bpp == 2) {
+                fbtmp.rgb565_row.resize(iw);
+                convert_rgb_to_rgb565(src, fbtmp.rgb565_row.data(), iw);
+                memcpy(dst, fbtmp.rgb565_row.data(), iw * 2);
+            }
         }
-        
+        return;
+    }
+    // Resize with nearest-neighbor scaling
+    static uint32_t last_iw = 0, last_ih = 0, last_fw = 0, last_fh = 0;
+
+    if (iw != last_iw || ih != last_ih ||
+        fb_width != last_fw || fb_height != last_fh)
+    {
+        fbtmp.x_lookup.resize(fb_width);
+        fbtmp.y_lookup.resize(fb_height);
+
+        for (uint32_t x = 0; x < fb_width; ++x)
+            fbtmp.x_lookup[x] = (uint64_t)x * iw / fb_width;
+
+        for (uint32_t y = 0; y < fb_height; ++y)
+            fbtmp.y_lookup[y] = (uint64_t)y * ih / fb_height;
+
+        last_iw = iw; last_ih = ih;
+        last_fw = fb_width; last_fh = fb_height;
+    }
+
+    fbtmp.rgb_row.resize(fb_width * 3);
+    if (fb_bpp == 4) fbtmp.bgra_row.resize(fb_width * 4);
+    if (fb_bpp == 2) fbtmp.rgb565_row.resize(fb_width);
+
+    for (uint32_t y = 0; y < fb_height; ++y) {
+        uint8_t* dst = fb_mmap + y * fb_line_length;
+        const uint8_t* src_row = rgb + fbtmp.y_lookup[y] * iw * 3;
+
         if (fb_bpp == 3) {
-            for (uint32_t y = 0; y < img_height; ++y) {
-                fast_memcpy_simd(
-                    fb_mmap + y * fb_line_length,
-                    rgb + y * img_width * 3,
-                    img_width * 3
-                );
+            for (uint32_t x = 0; x < fb_width; ++x) {
+                const uint8_t* p = src_row + fbtmp.x_lookup[x] * 3;
+                dst[x*3+0] = p[0];
+                dst[x*3+1] = p[1];
+                dst[x*3+2] = p[2];
             }
-            return;
         }
-
-        if (fb_bpp == 4) {
-            std::vector<uint8_t> row_buffer(img_width * 4);
-            
-            for (uint32_t y = 0; y < img_height; ++y) {
-                convert_rgb_to_bgra_avx2(
-                    rgb + y * img_width * 3,
-                    row_buffer.data(),
-                    img_width
-                );
-                fast_memcpy_simd(
-                    fb_mmap + y * fb_line_length,
-                    row_buffer.data(),
-                    img_width * 4
-                );
+        else {
+            for (uint32_t x = 0; x < fb_width; ++x) {
+                const uint8_t* p = src_row + fbtmp.x_lookup[x] * 3;
+                fbtmp.rgb_row[x*3+0] = p[0];
+                fbtmp.rgb_row[x*3+1] = p[1];
+                fbtmp.rgb_row[x*3+2] = p[2];
             }
-            return;
-        }
 
-        if (fb_bpp == 2) {
-            std::vector<uint8_t> row_buffer(img_width * 2);
-            
-            for (uint32_t y = 0; y < img_height; ++y) {
-                convert_rgb_to_rgb565_simd(
-                    rgb + y * img_width * 3,
-                    row_buffer.data(),
-                    img_width
-                );
-                fast_memcpy_simd(
-                    fb_mmap + y * fb_line_length,
-                    row_buffer.data(),
-                    img_width * 2
-                );
+            if (fb_bpp == 4) {
+                convert_rgb_to_bgra_ssse3(fbtmp.rgb_row.data(), fbtmp.bgra_row.data(), fb_width);
+                memcpy(dst, fbtmp.bgra_row.data(), fb_width * 4);
+            } else {
+                convert_rgb_to_rgb565(fbtmp.rgb_row.data(), fbtmp.rgb565_row.data(), fb_width);
+                memcpy(dst, fbtmp.rgb565_row.data(), fb_width * 2);
             }
-            return;
         }
     }
 
-    const uint32_t target_w = std::min(img_width, fb_width);
-    const uint32_t target_h = std::min(img_height, fb_height);
-    const int off_x = ((int)fb_width  - (int)target_w) / 2;
-    const int off_y = ((int)fb_height - (int)target_h) / 2;
-
-    std::vector<uint32_t> y_lookup(target_h);
-    for (uint32_t y = 0; y < target_h; ++y) {
-        y_lookup[y] = ((uint64_t)y * img_height / target_h) * img_width * 3;
-    }
-
-    if (fb_bpp == 4) {
-        std::vector<uint8_t> row_rgb(target_w * 3);
-        std::vector<uint8_t> row_bgra(target_w * 4);
-        
-        for (uint32_t y = 0; y < target_h; ++y) {
-            const int fb_y = off_y + y;
-            if ((unsigned)fb_y >= fb_height) continue;
-            
-            const uint8_t* src_row = rgb + y_lookup[y];
-            
-            for (uint32_t x = 0; x < target_w; ++x) {
-                const uint32_t src_x = (uint64_t)x * img_width / target_w;
-                const uint8_t* p = src_row + src_x * 3;
-                row_rgb[x * 3 + 0] = p[0];
-                row_rgb[x * 3 + 1] = p[1];
-                row_rgb[x * 3 + 2] = p[2];
-            }
-            
-            convert_rgb_to_bgra_avx2(row_rgb.data(), row_bgra.data(), target_w);
-            
-            fast_memcpy_simd(
-                fb_mmap + fb_y * fb_line_length + off_x * 4,
-                row_bgra.data(),
-                target_w * 4
-            );
-        }
-        return;
-    }
-
-    if (fb_bpp == 3) {
-        std::vector<uint8_t> row_buffer(target_w * 3);
-        
-        for (uint32_t y = 0; y < target_h; ++y) {
-            const int fb_y = off_y + y;
-            if ((unsigned)fb_y >= fb_height) continue;
-            
-            const uint8_t* src_row = rgb + y_lookup[y];
-            
-            for (uint32_t x = 0; x < target_w; ++x) {
-                const uint32_t src_x = (uint64_t)x * img_width / target_w;
-                const uint8_t* p = src_row + src_x * 3;
-                row_buffer[x * 3 + 0] = p[0];
-                row_buffer[x * 3 + 1] = p[1];
-                row_buffer[x * 3 + 2] = p[2];
-            }
-            
-            fast_memcpy_simd(
-                fb_mmap + fb_y * fb_line_length + off_x * 3,
-                row_buffer.data(),
-                target_w * 3
-            );
-        }
-        return;
-    }
-
-    if (fb_bpp == 2) {
-        std::vector<uint8_t> row_rgb(target_w * 3);
-        std::vector<uint8_t> row_565(target_w * 2);
-        
-        for (uint32_t y = 0; y < target_h; ++y) {
-            const int fb_y = off_y + y;
-            if ((unsigned)fb_y >= fb_height) continue;
-            
-            const uint8_t* src_row = rgb + y_lookup[y];
-            
-            for (uint32_t x = 0; x < target_w; ++x) {
-                const uint32_t src_x = (uint64_t)x * img_width / target_w;
-                const uint8_t* p = src_row + src_x * 3;
-                row_rgb[x * 3 + 0] = p[0];
-                row_rgb[x * 3 + 1] = p[1];
-                row_rgb[x * 3 + 2] = p[2];
-            }
-            
-            convert_rgb_to_rgb565_simd(row_rgb.data(), row_565.data(), target_w);
-            
-            fast_memcpy_simd(
-                fb_mmap + fb_y * fb_line_length + off_x * 2,
-                row_565.data(),
-                target_w * 2
-            );
-        }
-        return;
-    }
 }
 
 int main(int argc, char **argv)
@@ -3796,9 +3999,11 @@ int main(int argc, char **argv)
             {
                 // Renderer 6 = framebuffer - write to /dev/fb0 instead of terminal
                 if (current_config.renderer == 6) {
-                    std::cerr << "[FRAMEBUFFER] Rendering to framebuffer\n";
                     render_to_framebuffer(rendered);
-                } else {
+                } else if (current_config.renderer == 7) { // KMS direct rendering mode
+                    render_to_kms(rendered);
+                }
+                else {
                     std::cout << "\033[H" << std::flush;
                     write(STDOUT_FILENO, rendered.data(), rendered.size());
                 }
@@ -3893,6 +4098,7 @@ int main(int argc, char **argv)
         audio_opus_decoder = nullptr;
     }
 
+    cleanup_kms_display();
     cleanup_framebuffer();
 
     std::cerr << "[EXIT] Shutdown complete.\n";
