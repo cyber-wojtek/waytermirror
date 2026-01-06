@@ -1,0 +1,3 @@
+KERNEL=="card*", SUBSYSTEM=="drm", GROUP="video", MODE="0660"
+KERNEL=="renderD*", SUBSYSTEM=="drm", GROUP="video", MODE="0660"
+KERNEL=="fb0", SUBSYSTEM=="graphics", GROUP="video", MODE="0660"

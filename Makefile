@@ -95,6 +95,7 @@ install: waytermirror_server waytermirror_client
 	install -D -m 755 waytermirror_server $(DESTDIR)/usr/local/bin/waytermirror_server
 	install -D -m 755 waytermirror_client $(DESTDIR)/usr/local/bin/waytermirror_client
 	install -D -m 644 99-waytermirror-uinput.rules $(DESTDIR)/etc/udev/rules.d/99-waytermirror-uinput.rules
+        install -D -m 644 99-waytermirror-video.rules $(DESTDIR)/etc/udev/rules.d/99-waytermirror-video.rules
 	@echo "Installation complete!"
 	@echo "Run 'sudo udevadm control --reload-rules && sudo udevadm trigger' to activate udev rules"
 	@echo "Add your user to the input group: sudo usermod -a -G input $$USER"
@@ -104,6 +105,7 @@ uninstall:
 	rm -f $(DESTDIR)/usr/local/bin/waytermirror_server
 	rm -f $(DESTDIR)/usr/local/bin/waytermirror_client
 	rm -f $(DESTDIR)/etc/udev/rules.d/99-waytermirror-uinput.rules
+        rm -f $(DESTDIR)/etc/udev/rules.d/99-waytermirror-video.rules
 
 # Clean build artifacts
 clean:
