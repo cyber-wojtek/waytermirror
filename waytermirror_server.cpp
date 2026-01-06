@@ -3227,12 +3227,6 @@ static std::vector<uint8_t> render_kitty(
     int terminal_pixel_width = (term_pixel_width > 0) ? term_pixel_width : (term_width * 10);
     int terminal_pixel_height = (term_pixel_height > 0) ? term_pixel_height : (term_height * 20);
     
-    int max_dimension = 1920; // Base size
-    if (quality < 30) max_dimension = 640;
-    else if (quality < 50) max_dimension = 960;
-    else if (quality < 70) max_dimension = 1280;
-    else if (quality < 90) max_dimension = 1600;
-    
     int img_width, img_height;
     
     if (keep_aspect_ratio)
@@ -3241,10 +3235,10 @@ static std::vector<uint8_t> render_kitty(
         double term_aspect = (double)terminal_pixel_width / terminal_pixel_height;
         
         if (src_aspect > term_aspect) {
-            img_width = std::min(terminal_pixel_width, max_dimension);
+            img_width = std::min(terminal_pixel_width, terminal_pixel_width);
             img_height = (int)(img_width / src_aspect);
         } else {
-            img_height = std::min(terminal_pixel_height, max_dimension);
+            img_height = std::min(terminal_pixel_height, terminal_pixel_height);
             img_width = (int)(img_height * src_aspect);
         }
         
