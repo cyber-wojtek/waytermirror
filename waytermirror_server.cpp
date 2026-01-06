@@ -3923,7 +3923,7 @@ static void capture_thread(int output_index, int fps) {
 
                 bool got_frame = frame_ready_cvs[output_index]->wait_for(
                     lock,
-                    std::chrono::milliseconds(100),
+                    std::chrono::milliseconds(1000),
                     [&] { return output_ready[output_index] || !running; });
 
                 if (!running) break;
