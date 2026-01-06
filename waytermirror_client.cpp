@@ -41,6 +41,12 @@
 #include <gbm.h>
 #include <sys/mman.h>
 #include <cstring>
+extern "C" {
+    #include <libavcodec/avcodec.h>
+    #include <libavutil/imgutils.h>
+    #include <libavutil/opt.h>
+    #include <libswscale/swscale.h>
+}
 
 // Opus encoders/decoders
 static OpusEncoder *microphone_opus_encoder = nullptr; // For encoding microphone data to send
@@ -145,6 +151,16 @@ static bool exclusive_mode = false;
 
 // Output management
 static uint32_t outputs = 1;
+
+// FFmpeg decoding context
+AVCodecContext* dec_ctx = nullptr;
+AVFrame* dec_frame = nullptr;
+AVFrame* rgba_frame = nullptr;
+AVPacket* pkt = nullptr;
+SwsContext* sws = nullptr;
+
+uint8_t* rgba_buf = nullptr;
+int rgba_stride = 0;
 
 // Protocol definitions
 enum class MessageType : uint8_t
@@ -695,6 +711,43 @@ static void build_scaling_lut(uint32_t src_w, uint32_t src_h,
     scaling_lut.dst_w = dst_w;
     scaling_lut.dst_h = dst_h;
     scaling_lut.valid = true;
+}
+
+void init_h264_decoder(int width, int height)
+{
+    const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    if (!codec) abort();
+
+    dec_ctx = avcodec_alloc_context3(codec);
+    dec_ctx->width = width;
+    dec_ctx->height = height;
+
+    if (avcodec_open2(dec_ctx, codec, nullptr) < 0)
+        abort();
+
+    dec_frame = av_frame_alloc();
+    rgba_frame = av_frame_alloc();
+    pkt = av_packet_alloc();
+
+    sws = sws_getContext(
+        width, height, AV_PIX_FMT_YUV420P,
+        width, height, AV_PIX_FMT_RGBA,
+        SWS_FAST_BILINEAR,
+        nullptr, nullptr, nullptr
+    );
+
+    rgba_stride = width * 4;
+    rgba_buf = (uint8_t*)av_malloc(rgba_stride * height);
+
+    av_image_fill_arrays(
+        rgba_frame->data,
+        rgba_frame->linesize,
+        rgba_buf,
+        AV_PIX_FMT_RGBA,
+        width,
+        height,
+        1
+    );
 }
 
 static void render_to_kms(const std::vector<uint8_t> &data)

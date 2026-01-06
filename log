@@ -56,7 +56,7 @@ Then log out and back in.
 [HOTPLUG]   - Pointer capability
 [HOTPLUG] Device added: DELL Wireless hotkeys
 [HOTPLUG]   - Keyboard capability
-[INIT] Session ID: abc40b86-3437-4ffa-89d4-efaed5e52c73
+[INIT] Session ID: 8a197942-d176-45a8-b0ad-2acc342d608c
 [CONFIG] Connected to 100.81.126.88:10002
 [VIDEO] Connected to 100.81.126.88:9999
 [AUDIO IN] Connected to 100.81.126.88:10001
@@ -77,15 +77,13 @@ Render Device: CPU
 
 [CONFIG] Sent: 103x27 fps=60 renderer=5 detail=100 follow_focus=0
 [INIT] Waiting for screen info from server...
-[INIT] Warning: No screen info received, using default 1920x1080
-[AUDIO] Receive thread started
-[AUDIO] Received format: 48000Hz 2ch format=1
+[INIT] Received screen info: 1920x1080 offset: 0,0
+[INIT] Screen info received: 1920x1080
 
 === Waytermirror Client Started ===
-Session: abc40b86-3437-4ffa-89d4-efaed5e52c73
+Session: 8a197942-d176-45a8-b0ad-2acc342d608c
 Output: 0 | Resolution: 1920x1080
-Renderer: kitty[INPUT] Thread started with libinput and hotplug monitoring
-kitty | Color mode: true
+Renderer: kitty | Color mode: true
 FPS: 60 | Scale: 1
 Compression: ON
 
@@ -97,10 +95,17 @@ Compression: ON
 Input forwarding: DISABLED (local shortcuts only)
 Press Ctrl+Alt+Shift+H for full shortcut list
 Audio playback enabled (system audio from server)
+w
+started with libinput and hotplug monitoring
+Audio playback enabled (system audio from server)
 ================================================
 
+[AUDIO] Receive thread started
+[AUDIO] Received format: 48000Hz 2ch format=1
 [AUDIO] Playback initialized (48000Hz 2ch, format=1)
 [AUDIO] Starting receive loop...
-[AUDIO] Received 294 packets, queue size: 16
-[AUDIO] Received 235 packets, queue size: 23
-[AUDIO] Receive thread stopped
+[AUDIO] Received 251 packets, queue size: 10
+[AUDIO] Received 233 packets, queue size: 15
+[AUDIO] Received 236 packets, queue size: 11
+[AUDIO] Received 235 packets, queue size: 18
+[AUDIO] Received 235 packets, queue size: 13

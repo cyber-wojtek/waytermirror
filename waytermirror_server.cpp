@@ -3541,7 +3541,7 @@ static std::vector<uint8_t> render_framebuffer(
     uint8_t quality,
     double rotation_angle,
     PixelFormat pixel_format,
-    H264Encoder *h264_enc)  // ADD ENCODER PARAMETER
+    H264Encoder *h264_enc)
 {
     if (!frame_data || frame_width == 0 || frame_height == 0) {
         std::cerr << "[FRAMEBUFFER] ERROR: Invalid input\n";
@@ -3648,7 +3648,7 @@ static std::vector<uint8_t> render_kms(
     uint8_t quality,
     double rotation_angle,
     PixelFormat pixel_format,
-    H264Encoder *h264_enc)  // ADD ENCODER PARAMETER
+    H264Encoder *h264_enc)
 {
     if (!frame_data || frame_width == 0 || frame_height == 0) {
         std::cerr << "[KMS] ERROR: Invalid input\n";
