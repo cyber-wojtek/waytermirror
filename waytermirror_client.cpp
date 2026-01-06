@@ -3288,6 +3288,16 @@ convert_rgb_to_rgb565(
     }
 }
 
+static void render_to_kitty(const std::vector<uint8_t> &data)
+{
+    static std::string kitty_sequence_prefix = "\033_Gf=24,s=" + std::to_string(data.size()) + ";"; // 24-bit RGB (_Gf=24 -> RGB, s=... -> size)
+    static std::string kitty_sequence_suffix = "\033\\";
+    std::cout << kitty_sequence_prefix;
+    std::cout.write((const char *)data.data(), data.size());
+    std::cout << kitty_sequence_suffix;
+    std::cout.flush();
+}
+
 struct FBTempBuffers
 {
     std::vector<uint8_t> rgb_row;
@@ -4301,6 +4311,11 @@ int main(int argc, char **argv)
             }
             else if (!video_paused.load() && receive_newest_frame(rendered))
             {
+                // Renderer kitty(5) - render
+                if (current_config.renderer == 5)
+                {
+                    render_to_kitty(rendered);
+                }
                 // Renderer 6 = framebuffer - write to /dev/fb0 instead of terminal
                 if (current_config.renderer == 6)
                 {
