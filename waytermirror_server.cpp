@@ -3488,6 +3488,9 @@ static std::vector<uint8_t> render_kitty(
         }
     }
 
+    // make sure img_width is divisible by 2 for H.264 encoder
+    img_width -= img_width & 1;
+
     std::vector<uint8_t> h264_data = encode_h264_frame(
             *h264_enc, rgb_data.data(), img_width, img_height, quality);
     
@@ -3599,6 +3602,8 @@ static std::vector<uint8_t> render_framebuffer(
     
     // Use H.264 compression if encoder provided
     if (h264_enc) {
+        img_width -= img_width & 1;  // ensure width is even
+
         std::vector<uint8_t> h264_data = encode_h264_frame(
             *h264_enc, rgb_data.data(), img_width, img_height, quality);
         
@@ -3627,7 +3632,7 @@ static std::vector<uint8_t> render_framebuffer(
 }
 
 // KMS renderer - same as framebuffer here
-static std::vector<uint8_t> render_kms(
+static std::vector<uint8_t> render_framebuffer(
     const uint8_t *frame_data,
     uint32_t frame_width,
     uint32_t frame_height,
@@ -3643,22 +3648,16 @@ static std::vector<uint8_t> render_kms(
     uint8_t quality,
     double rotation_angle,
     PixelFormat pixel_format,
-    H264Encoder *h264_enc)
+    H264Encoder *h264_enc)  // ADD ENCODER PARAMETER
 {
     if (!frame_data || frame_width == 0 || frame_height == 0) {
-        std::cerr << "[KMS] ERROR: Invalid input - frame_data=" << (void*)frame_data 
-                  << " w=" << frame_width << " h=" << frame_height << "\n";
+        std::cerr << "[KMS] ERROR: Invalid input\n";
         return {};
     }
-    
-    // Debug: Check if frame data is mostly zeros (blank)
-    static int frame_count = 0;
-    frame_count++;
 
     uint32_t rot_width, rot_height;
     get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
 
-    // Use terminal pixel dimensions if available, otherwise use reasonable defaults
     int target_width = (term_pixel_width > 0) ? term_pixel_width : 1920;
     int target_height = (term_pixel_height > 0) ? term_pixel_height : 1080;
     
@@ -3683,17 +3682,13 @@ static std::vector<uint8_t> render_kms(
         img_height = (int)(target_height * scale_factor);
     }
 
-    // Ensure valid dimensions
     if (img_width <= 0) img_width = target_width;
     if (img_height <= 0) img_height = target_height;
     if (img_width <= 0) img_width = 1920;
     if (img_height <= 0) img_height = 1080;
 
-    // Create RGB24 buffer (3 bytes per pixel)
+    // Create RGB24 buffer
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
-    
-    size_t pixels_filled = 0;
-    size_t pixels_black = 0;
     
     for (int y = 0; y < img_height; y++) {
         for (int x = 0; x < img_width; x++) {
@@ -3709,13 +3704,31 @@ static std::vector<uint8_t> render_kms(
             rgb_data[idx + 0] = r;
             rgb_data[idx + 1] = g;
             rgb_data[idx + 2] = b;
-            
-            pixels_filled++;
-            if (r == 0 && g == 0 && b == 0) pixels_black++;
         }
     }
     
-    // Prepare header: width (4 bytes) + height (4 bytes) + RGB data
+    // Use H.264 compression if encoder provided
+    if (h264_enc) {
+        img_width -= img_width & 1;  // ensure width is even
+        
+        std::vector<uint8_t> h264_data = encode_h264_frame(
+            *h264_enc, rgb_data.data(), img_width, img_height, quality);
+        
+        if (!h264_data.empty()) {
+            // Build header: [width][height][compressed_size][H264_data]
+            std::vector<uint8_t> result;
+            result.resize(12);  // 4 + 4 + 4 bytes header
+            *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
+            *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
+            *reinterpret_cast<uint32_t*>(&result[8]) = h264_data.size();
+            result.insert(result.end(), h264_data.begin(), h264_data.end());
+            return result;
+        }
+        
+        std::cerr << "[H264] Encoding failed, falling back to raw\n";
+    }
+    
+    // Fallback: uncompressed RGB24
     std::vector<uint8_t> result;
     result.resize(8);
     *reinterpret_cast<uint32_t*>(&result[0]) = img_width;

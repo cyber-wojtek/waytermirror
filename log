@@ -1,9 +1,17 @@
 === Client Features ===
 Video: ON
-Audio: OFF
-Input: ON (Shared)
+Audio: ON
+Input: OFF
 Microphone: OFF
 =======================
+
+
+=== WARNING ===
+Not running as root. Input devices may not be accessible.
+Run with sudo or add your user to the 'input' group:
+  sudo usermod -a -G input $USER
+Then log out and back in.
+===============
 
 [INPUT] Opened device: /dev/input/event4
 [INPUT] Opened device: /dev/input/event8
@@ -48,14 +56,11 @@ Microphone: OFF
 [HOTPLUG]   - Pointer capability
 [HOTPLUG] Device added: DELL Wireless hotkeys
 [HOTPLUG]   - Keyboard capability
-[INIT] Session ID: ecbe15d1-4cfe-4a0a-bbae-0fecf9a0bca2
+[INIT] Session ID: abc40b86-3437-4ffa-89d4-efaed5e52c73
 [CONFIG] Connected to 100.81.126.88:10002
 [VIDEO] Connected to 100.81.126.88:9999
-[INPUT] Connected to 100.81.126.88:10000
-[CONFIG] Querying KMS terminal geometry...
-[KMS] Opened DRM device: /dev/dri/card0
-[KMS] Display mode: 1920x1080 @ 60Hz
-[KMS] Initialized successfully
+[AUDIO IN] Connected to 100.81.126.88:10001
+[CLIENT] Got geometry from ioctl: 927x446 (reserved 1 top, 1 bottom)
 === Zoom Configuration ===
 Enabled: NO
 Level: 2x
@@ -70,16 +75,17 @@ Quality: 100 (0=fast, 100=best)
 Render Device: CPU
 ===========================
 
-[CONFIG] Sent: 240x67 fps=60 renderer=7 detail=100 follow_focus=0
+[CONFIG] Sent: 103x27 fps=60 renderer=5 detail=100 follow_focus=0
 [INIT] Waiting for screen info from server...
-[INIT] Received screen info: 1920x1080 offset: 0,0
-[INIT] Screen info received: 1920x1080
-[INIT] Mouse centered at 960,540
+[INIT] Warning: No screen info received, using default 1920x1080
+[AUDIO] Receive thread started
+[AUDIO] Received format: 48000Hz 2ch format=1
 
 === Waytermirror Client Started ===
-Session: ecbe15d1-4cfe-4a0a-bbae-0fecf9a0bca2
-Output: 1 | Resolution: 1920x1080
-Renderer: kms | Color mode: true
+Session: abc40b86-3437-4ffa-89d4-efaed5e52c73
+Output: 0 | Resolution: 1920x1080
+Renderer: kitty[INPUT] Thread started with libinput and hotplug monitoring
+kitty | Color mode: true
 FPS: 60 | Scale: 1
 Compression: ON
 
@@ -88,16 +94,13 @@ Compression: ON
   Z=Zoom  +/-=Zoom In/Out  0=Reset Zoom  Arrows=Pan
   R=Renderer  C=Color  D/S=Detail  W/E=Quality
   P=Pause  A=Audio Mute  M=Mic Mute  F=Focus-Follow
-Input forwarding: ENABLED
+Input forwarding: DISABLED (local shortcuts only)
 Press Ctrl+Alt+Shift+H for full shortcut list
+Audio playback enabled (system audio from server)
 ================================================
 
-[INPUT] Thread started with libinput and hotplug monitoring
-[KMS] Invalid image dimensions: 942889755x842741051
-
-[EXIT] Quit shortcut detected!
-[INPUT] Thread stopped
-
-[EXIT] Shutting down...
-[KMS] Cleanup complete
-[EXIT] Shutdown complete.
+[AUDIO] Playback initialized (48000Hz 2ch, format=1)
+[AUDIO] Starting receive loop...
+[AUDIO] Received 294 packets, queue size: 16
+[AUDIO] Received 235 packets, queue size: 23
+[AUDIO] Receive thread stopped
