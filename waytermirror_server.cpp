@@ -3632,7 +3632,7 @@ static std::vector<uint8_t> render_framebuffer(
 }
 
 // KMS renderer - same as framebuffer here
-static std::vector<uint8_t> render_framebuffer(
+static std::vector<uint8_t> render_kms(
     const uint8_t *frame_data,
     uint32_t frame_width,
     uint32_t frame_height,
