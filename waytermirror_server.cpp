@@ -3429,7 +3429,7 @@ static std::vector<uint8_t> render_kitty(
     bool keep_aspect_ratio,
     double scale_factor,
     uint8_t detail_level,
-    uint8_t quality,
+    uint8_t quality, 
     double rotation_angle,
     PixelFormat pixel_format,
     H264Encoder *h264_enc)
@@ -3493,16 +3493,16 @@ static std::vector<uint8_t> render_kitty(
     static const char base64_chars[] = 
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     
-    size_t b64_size = ((rgba_data.size() + 2) / 3) * 4;
+    size_t b64_size = ((rgb_data.size() + 2) / 3) * 4;
     std::string base64_encoded;
     base64_encoded.reserve(b64_size);
     
-    for (size_t i = 0; i < rgba_data.size(); i += 3) {
-        size_t remaining = rgba_data.size() - i;
+    for (size_t i = 0; i < rgb_data.size(); i += 3 ) {
+        size_t remaining = rgb_data.size() - i;
         
-        uint32_t b = (static_cast<uint32_t>(rgba_data[i]) << 16);
-        if (remaining > 1) b |= (static_cast<uint32_t>(rgba_data[i + 1]) << 8);
-        if (remaining > 2) b |= static_cast<uint32_t>(rgba_data[i + 2]);
+        uint32_t b = (static_cast<uint32_t>(rgb_data[i]) << 16);
+        if (remaining > 1) b |= (static_cast<uint32_t>(rgb_data[i + 1]) << 8);
+        if (remaining > 2) b |= static_cast<uint32_t>(rgb_data[i + 2]);
         
         base64_encoded += base64_chars[(b >> 18) & 0x3F];
         base64_encoded += base64_chars[(b >> 12) & 0x3F];
