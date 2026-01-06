@@ -8,6 +8,7 @@ INCLUDES = -I. \
            -I/usr/include/pipewire-0.3 \
            -I/usr/include/spa-0.2 \
 		   -I/usr/include/glib-2.0 \
+		   -I/usr/include/drm \
            $(shell pkg-config --cflags gio-2.0) \
 		   $(shell pkg-config --cflags libsixel)
 
