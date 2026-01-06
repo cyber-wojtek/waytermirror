@@ -13,7 +13,7 @@ INCLUDES = -I. \
 		   $(shell pkg-config --cflags libsixel)
 
 # Base libraries
-LIBS_BASE = -lwayland-client -lm -llz4 -lpthread -linput -ludev -lopus -lopusfile -lsixel -lpng -ldrm -lgbm $(shell pkg-config --libs gio-2.0)
+LIBS_BASE = -lwayland-client -lm -llz4 -lpthread -linput -ludev -lopus -lopusfile -lsixel -ldrm -lgbm -lavcodec -lavutil -lswscale $(shell pkg-config --libs gio-2.0)
 
 # PipeWire support (default: enabled)
 # To disable: make PIPEWIRE=false

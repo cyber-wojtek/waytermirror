@@ -47,11 +47,14 @@ depends=(
     # Sixel
     libsixel
 
-    # PNG
-    libpng
+    # FFMPEG (for H.264 encoding)
+    ffmpeg
 
     # DRM (for GBM)
     libdrm
+
+    # Mesa (for GBM)
+    mesa
 )
 
 makedepends=(
