@@ -3251,10 +3251,6 @@ static std::vector<uint8_t> render_kitty(
         img_height = (int)(terminal_pixel_height * scale_factor);
     }
     
-    // Clamp to reasonable bounds
-    img_width = std::clamp(img_width, 32, max_dimension);
-    img_height = std::clamp(img_height, 32, max_dimension);
-    
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
     
     for (int y = 0; y < img_height; y++)
