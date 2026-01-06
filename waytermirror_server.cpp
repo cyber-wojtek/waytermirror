@@ -3227,6 +3227,12 @@ static std::vector<uint8_t> render_kitty(
     int terminal_pixel_width = (term_pixel_width > 0) ? term_pixel_width : (term_width * 10);
     int terminal_pixel_height = (term_pixel_height > 0) ? term_pixel_height : (term_height * 20);
     
+    int max_dimension = 1920; // Base size
+    if (quality < 30) max_dimension = 640;
+    else if (quality < 50) max_dimension = 960;
+    else if (quality < 70) max_dimension = 1280;
+    else if (quality < 90) max_dimension = 1600;
+    
     int img_width, img_height;
     
     if (keep_aspect_ratio)
@@ -3235,10 +3241,10 @@ static std::vector<uint8_t> render_kitty(
         double term_aspect = (double)terminal_pixel_width / terminal_pixel_height;
         
         if (src_aspect > term_aspect) {
-            img_width = terminal_pixel_width;
+            img_width = std::min(terminal_pixel_width, max_dimension);
             img_height = (int)(img_width / src_aspect);
         } else {
-            img_height = terminal_pixel_height;
+            img_height = std::min(terminal_pixel_height, max_dimension);
             img_width = (int)(img_height * src_aspect);
         }
         
@@ -3247,18 +3253,15 @@ static std::vector<uint8_t> render_kitty(
     }
     else
     {
-        img_width = (int)(terminal_pixel_width * scale_factor);
-        img_height = (int)(terminal_pixel_height * scale_factor);
+        img_width = std::min((int)(terminal_pixel_width * scale_factor), max_dimension);
+        img_height = std::min((int)(terminal_pixel_height * scale_factor), max_dimension);
     }
     
-    img_width = std::max(img_width, 32);
-    img_height = std::max(img_height, 32);
+    // Clamp to reasonable bounds
+    img_width = std::clamp(img_width, 32, max_dimension);
+    img_height = std::clamp(img_height, 32, max_dimension);
     
-    /*std::cerr << "[KITTY] Encoding " << img_width << "x" << img_height 
-              << " from " << rot_width << "x" << rot_height 
-              << " (term: " << terminal_pixel_width << "x" << terminal_pixel_height << ")\n";*/
-
-    std::vector<uint8_t> rgba_data(img_width * img_height * 4);
+    std::vector<uint8_t> rgb_data(img_width * img_height * 3);
     
     for (int y = 0; y < img_height; y++)
     {
@@ -3272,11 +3275,10 @@ static std::vector<uint8_t> render_kitty(
                                (int)rot_x, (int)rot_y, rot_width, rot_height, 
                                rotation_angle, r, g, b, pixel_format);
             
-            int idx = (y * img_width + x) * 4;
-            rgba_data[idx + 0] = r;
-            rgba_data[idx + 1] = g;
-            rgba_data[idx + 2] = b;
-            rgba_data[idx + 3] = 255;
+            int idx = (y * img_width + x) * 3;
+            rgb_data[idx + 0] = r;
+            rgb_data[idx + 1] = g;
+            rgb_data[idx + 2] = b;
         }
     }
 
@@ -3284,8 +3286,6 @@ static std::vector<uint8_t> render_kitty(
     png_structp png_ptr = nullptr;
     png_infop info_ptr = nullptr;
     
-    std::vector<uint8_t> *data;
-
     static auto write_fn = [](png_structp png_ptr, png_bytep data, png_size_t length) {
         std::vector<uint8_t> *png_data = static_cast<std::vector<uint8_t>*>(png_get_io_ptr(png_ptr));
         png_data->insert(png_data->end(), data, data + length);
@@ -3312,21 +3312,22 @@ static std::vector<uint8_t> render_kitty(
     
     png_set_write_fn(png_ptr, &png_data, write_fn, nullptr);
 
-    int compression = 1 + (quality / 33);
+    int compression = (quality < 40) ? 1 : (quality < 70) ? 3 : 6;
     png_set_compression_level(png_ptr, compression);
     
-    int filter = (quality >= 70) ? PNG_FILTER_NONE : PNG_FILTER_SUB;
+    png_set_filter(png_ptr, 0, PNG_FILTER_NONE);
     
     png_set_IHDR(png_ptr, info_ptr, img_width, img_height, 8,
-                 PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE,
-                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-    
-    png_set_filter(png_ptr, 0, filter);
+                 PNG_COLOR_TYPE_RGB,
+                 PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_DEFAULT, 
+                 PNG_FILTER_TYPE_DEFAULT);
     
     png_write_info(png_ptr, info_ptr);
     
+    // Write scanlines
     for (int y = 0; y < img_height; y++) {
-        png_write_row(png_ptr, &rgba_data[y * img_width * 4]);
+        png_write_row(png_ptr, &rgb_data[y * img_width * 3]);
     }
     
     png_write_end(png_ptr, nullptr);
@@ -3337,17 +3338,20 @@ static std::vector<uint8_t> render_kitty(
         return {};
     }
     
+    // Validate PNG signature
     if (png_data[0] != 0x89 || png_data[1] != 'P' || 
         png_data[2] != 'N' || png_data[3] != 'G') {
         std::cerr << "[KITTY] Invalid PNG signature\n";
         return {};
     }
     
+    // Base64 encoding
     static const char base64_chars[] = 
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     
+    size_t b64_size = ((png_data.size() + 2) / 3) * 4;
     std::string base64_encoded;
-    base64_encoded.reserve(((png_data.size() + 2) / 3) * 4);
+    base64_encoded.reserve(b64_size);
     
     for (size_t i = 0; i < png_data.size(); i += 3) {
         size_t remaining = png_data.size() - i;
@@ -3363,12 +3367,14 @@ static std::vector<uint8_t> render_kitty(
     }
     
     std::vector<uint8_t> result;
-    const size_t CHUNK_SIZE = 4096;
+    const size_t CHUNK_SIZE = 16384;
     
     if (base64_encoded.size() <= CHUNK_SIZE) {
+        // Single transmission
         std::string msg = "\033_Gf=100,a=T,t=d,q=2;" + base64_encoded + "\033\\";
         result.assign(msg.begin(), msg.end());
     } else {
+        // Chunked transmission with larger chunks
         for (size_t i = 0; i < base64_encoded.size(); i += CHUNK_SIZE) {
             size_t chunk_size = std::min(CHUNK_SIZE, base64_encoded.size() - i);
             bool is_last = (i + chunk_size >= base64_encoded.size());
@@ -3384,10 +3390,6 @@ static std::vector<uint8_t> render_kitty(
             result.insert(result.end(), chunk_str.begin(), chunk_str.end());
         }
     }
-    
-    /*std::cerr << "[KITTY] Encoded " << png_data.size() << " bytes PNG -> " 
-              << base64_encoded.size() << " bytes base64 -> " 
-              << result.size() << " bytes total\n";*/
     
     return result;
 }
