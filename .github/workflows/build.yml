@@ -32,7 +32,7 @@ jobs:
           opusfile \
           libsixel \
           libpng \
-          libdrm
+          libdrm mesa
 
     - uses: actions/checkout@v4
 
@@ -67,7 +67,7 @@ jobs:
           pkg-config \
           libargparse-dev \
           libopus-dev \
-          libopusfile-dev libsixel-dev libpng-dev libdrm-dev 
+          libopusfile-dev libsixel-dev libpng-dev libdrm-dev libgbm-dev
 
     - uses: actions/checkout@v4
 
