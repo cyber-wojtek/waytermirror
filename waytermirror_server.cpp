@@ -3907,12 +3907,37 @@ static std::vector<uint8_t> render_framebuffer(
         return {};
     }
 
-    // Build header: [width][height][compressed_size][H264_data]
+        // Get SPS/PPS from encoder (extradata)
+    std::vector<uint8_t> extradata;
+    if (h264_enc->codec_ctx && h264_enc->codec_ctx->extradata)
+    {
+        extradata.insert(extradata.end(),
+                         h264_enc->codec_ctx->extradata,
+                         h264_enc->codec_ctx->extradata + h264_enc->codec_ctx->extradata_size);
+    }
+
+    // Build header: [extradata_size (32B)][extradata (8B*)][width (32B)][height (32B)][compressed_size (32B)][H264_data (8B*)]
     std::vector<uint8_t> result;
-    result.resize(12); // 4 + 4 + 4 bytes header
-    *reinterpret_cast<uint32_t *>(&result[0]) = img_width;
-    *reinterpret_cast<uint32_t *>(&result[4]) = img_height;
-    *reinterpret_cast<uint32_t *>(&result[8]) = h264_data.size();
+    size_t extradata_size = extradata.size();
+    result.resize(4 + extradata_size + 4 + 4 + 4);
+    uint8_t *ptr = result.data();
+
+    *reinterpret_cast<uint32_t *>(ptr) = extradata_size;
+    ptr += 4;
+
+    if (extradata_size > 0)
+    {
+        memcpy(ptr, extradata.data(), extradata_size);
+        ptr += extradata_size;
+    }
+
+    *reinterpret_cast<uint32_t *>(ptr) = img_width;
+    ptr += 4;
+    *reinterpret_cast<uint32_t *>(ptr) = img_height;
+    ptr += 4;
+    *reinterpret_cast<uint32_t *>(ptr) = h264_data.size();
+    ptr += 4;
+    
     result.insert(result.end(), h264_data.begin(), h264_data.end());
     return result;
 }
