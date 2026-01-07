@@ -3554,7 +3554,6 @@ static bool decode_h264_to_rgb(
             std::cerr << "[H264 DECODER] Init failed\n";
             return false;
         }
-        h264_decoder.received_keyframe = false;
     }
 
     std::lock_guard<std::mutex> lock(h264_decoder.mutex);
@@ -3571,13 +3570,26 @@ static bool decode_h264_to_rgb(
     memcpy(h264_decoder.pkt->data, h264_data, h264_size);
     
     bool is_keyframe = false;
+    // Check for SPS (7) or PPS (8) or IDR (5)
     for (size_t i = 0; i + 4 < h264_size; i++) {
-        if (h264_data[i] == 0 && h264_data[i+1] == 0 && h264_data[i+2] == 0 && h264_data[i+3] == 1) {
-            uint8_t nal_type = h264_data[i+4] & 0x1F;
-            if (nal_type == 5 || nal_type == 7 || nal_type == 8) {  // IDR, SPS, or PPS
+        if (h264_data[i] == 0 && h264_data[i+1] == 0 && h264_data[i+2] == 1) {
+            uint8_t nal_type = h264_data[i+3] & 0x1F;
+            if (nal_type == 5 || nal_type == 7 || nal_type == 8) {
                 is_keyframe = true;
+                h264_decoder.received_keyframe = true;
                 break;
             }
+        }
+        // Also check 4-byte start code
+        if (h264_data[i] == 0 && h264_data[i+1] == 0 && 
+            h264_data[i+2] == 0 && h264_data[i+3] == 1) {
+            uint8_t nal_type = h264_data[i+4] & 0x1F;
+            if (nal_type == 5 || nal_type == 7 || nal_type == 8) {
+                is_keyframe = true;
+                h264_decoder.received_keyframe = true;
+                break;
+            }
+            i++; // Skip the extra byte
         }
     }
 
@@ -3606,7 +3618,6 @@ static bool decode_h264_to_rgb(
         
         if (ret < 0 && ret != AVERROR(EAGAIN)) {
             std::cerr << "[H264 DECODER] Send packet failed: " << ret << "\n";
-            avcodec_flush_buffers(h264_decoder.codec_ctx);
             h264_decoder.frame->pts = 0;
             return false;
         }
@@ -3619,7 +3630,6 @@ static bool decode_h264_to_rgb(
             return false;
         }
         std::cerr << "[H264 DECODER] Receive frame failed: " << ret << "\n";
-        avcodec_flush_buffers(h264_decoder.codec_ctx);
         h264_decoder.frame->pts = 0;
         h264_decoder.received_keyframe = false;
         return false;
@@ -3985,6 +3995,67 @@ static FBTempBuffers fbtmp;
 
 static void render_to_framebuffer(const std::vector<uint8_t> &data)
 {
+    if (data.size() < 16)
+    {
+        std::cerr << "[FRAMEBUFFER] Invalid data size: " << data.size() << "\n";
+        return;
+    }
+    
+    size_t offset = 0;
+    const uint32_t extradata_size = *(uint32_t *)&data[offset];
+    offset += 4;
+    
+    if (extradata_size > 1024 || offset + extradata_size + 12 > data.size())
+    {
+        std::cerr << "[FRAMEBUFFER] Invalid extradata_size: " << extradata_size << "\n";
+        return;
+    }
+    
+    const uint8_t *extradata = (extradata_size > 0) ? (data.data() + offset) : nullptr;
+    offset += extradata_size;
+    
+    const uint32_t width = *(uint32_t *)&data[offset];
+    offset += 4;
+    
+    const uint32_t height = *(uint32_t *)&data[offset];
+    offset += 4;
+    
+    const uint32_t compressed_size = *(uint32_t *)&data[offset];
+    offset += 4;
+    
+    if (width == 0 || height == 0 || width > 8192 || height > 8192)
+    {
+        std::cerr << "[FRAMEBUFFER] Invalid dimensions: " << width << "x" << height << "\n";
+        return;
+    }
+    
+    if (compressed_size == 0 || offset + compressed_size > data.size())
+    {
+        std::cerr << "[FRAMEBUFFER] Invalid compressed_size: " << compressed_size << "\n";
+        return;
+    }
+    
+    const uint8_t *h264_data = data.data() + offset;
+    
+    //std::cerr << "[FRAMEBUFFER] Decoding H.264: " << compressed_size << " bytes -> " 
+    //          << width << "x" << height << " (extradata: " << extradata_size << " bytes)\n";
+
+    // Allocate fresh buffers each time (avoid reuse issues)
+    std::vector<uint8_t> rgb_data;
+    
+    if (!decode_h264_to_rgb(h264_data, extradata, extradata_size, compressed_size, width, height, rgb_data))
+    {
+        std::cerr << "[FRAMEBUFFER] Failed to decode H.264 data\n";
+        return;
+    }
+    
+    size_t expected_rgb_size = (size_t)width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE;
+    if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
+    {
+        // Invalid decode result - skip this frame silently
+        return;
+    }
+
     if (fb_fd < 0 || !fb_mmap || data.size() < 8)
     {
         init_framebuffer();
@@ -3994,16 +4065,11 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
         }
     }
 
-    const uint32_t iw = *(uint32_t *)&data[0];
-    const uint32_t ih = *(uint32_t *)&data[4];
-    const uint8_t *rgb = data.data() + 8;
+    const uint8_t *rgb = rgb_data.data();
+    const uint32_t iw = width;
+    const uint32_t ih = height;
 
-    if (iw == 0 || ih == 0 || iw > 65'535 || ih > 65'535)
-    {
-        std::cerr << "[FRAMEBUFFER] Invalid image dimensions: " << iw << "x" << ih << "\n";
-        return;
-    }
-
+    // Direct copy if sizes match
     if (iw == fb_width && ih == fb_height)
     {
 

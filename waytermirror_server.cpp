@@ -3199,9 +3199,12 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
     enc.codec_ctx->height = height;
     enc.codec_ctx->time_base = {1, fps};
     enc.codec_ctx->framerate = {fps, 1};
-    enc.codec_ctx->gop_size = fps * 2;
+    enc.codec_ctx->gop_size = 10; // Keyframe every 10 frames
     enc.codec_ctx->max_b_frames = 0;           // Start with 0 for low latency
     enc.codec_ctx->pix_fmt = AV_PIX_FMT_RGB24; // x264rgb uses RGB24
+    enc.codec_ctx->bit_rate = 0;
+    enc.codec_ctx->rc_max_rate = 0;
+    enc.codec_ctx->rc_buffer_size = 0;
 
     // Choose preset based on quality
     const char *preset;
@@ -3254,23 +3257,14 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
     }
 
     int bitrate = (int)(width * height * fps * bpp); // in bps
+    int crf = 10 + (int)((100 - quality) * 0.2); // CRF from 10 (best) to 30 (worst)
 
-    // Use CRF mode with more relaxed constraints
-    int crf = 15 + ((100 - quality) * 8 / 100); // 15-23 range (was 18-28) - lower is better
+    av_opt_set(enc.codec_ctx->priv_data, "qp", "0", 0);
 
     // Set x264rgb-specific options
     av_opt_set(enc.codec_ctx->priv_data, "preset", preset, 0);
     av_opt_set(enc.codec_ctx->priv_data, "tune", "zerolatency", 0);
-    av_opt_set_int(enc.codec_ctx->priv_data, "crf", crf, 0);
-
-    // VBV with much higher limits for better quality
-    enc.codec_ctx->rc_max_rate = bitrate * 3;    // Increased from 2x to 3x
-    enc.codec_ctx->rc_buffer_size = bitrate * 2; // Increased from 1x to 2x
-    enc.codec_ctx->bit_rate = bitrate;
-
-    // Tighter QP limits for consistent quality
-    av_opt_set_int(enc.codec_ctx->priv_data, "qmin", 10, 0);
-    av_opt_set_int(enc.codec_ctx->priv_data, "qmax", 35, 0); // Reduced from 51 to 35
+    
 
     // Enable better motion estimation and analysis
     if (quality >= 40)
@@ -3367,7 +3361,7 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
 
     std::cerr << "[H264] FFmpeg encoder initialized: " << width << "x" << height
               << " preset=" << preset << " profile=" << profile
-              << " crf=" << crf << " target_bitrate=" << (bitrate / 1000) << "kbps"
+              << " target_bitrate=" << (bitrate / 1000) << "kbps"
               << " bpp=" << std::fixed << std::setprecision(3) << bpp << "\n";
     return true;
 }
@@ -3448,7 +3442,10 @@ static std::vector<uint8_t> encode_h264_frame(
                width * 3);
     }
 
-    enc.frame->pts = enc.pts++;
+    enc.frame->pts = enc.pts;
+    enc.pkt->pts = enc.pts;
+    enc.pkt->dts = enc.pts;
+    enc.pts++;
 
     // Send frame to encoder
     ret = avcodec_send_frame(enc.codec_ctx, enc.frame);
