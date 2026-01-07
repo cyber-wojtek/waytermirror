@@ -49,19 +49,24 @@
 #include <fstream>
 #include <rapidjson/document.h>
 #include <opus/opus.h>
-extern "C" {
-    #include <x264.h>
+extern "C"
+{
+#include <libavcodec/avcodec.h>
+#include <libavutil/opt.h>
+#include <libavutil/imgutils.h>
+#include <libswscale/swscale.h>
 }
-
 
 static const uint32_t MAX_FRAME_WIDTH = 8192;
 static const uint32_t MAX_FRAME_HEIGHT = 8192;
 static const uint32_t MAX_FRAME_STRIDE = 65536;
 static const size_t MAX_BUFFER_SIZE = 512 * 1024 * 1024; // 512MB
 
-static bool validate_frame_dimensions(uint32_t width, uint32_t height, uint32_t stride) {
+static bool validate_frame_dimensions(uint32_t width, uint32_t height, uint32_t stride)
+{
     if (width == 0 || height == 0 || stride == 0 ||
-        width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT || stride > MAX_FRAME_STRIDE) {
+        width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT || stride > MAX_FRAME_STRIDE)
+    {
         return false;
     }
     size_t calculated_size = (size_t)stride * (size_t)height;
@@ -69,25 +74,27 @@ static bool validate_frame_dimensions(uint32_t width, uint32_t height, uint32_t 
 }
 
 // pixel color channel layout from compositor/capture source
-enum PixelFormat : uint8_t {
-  FMT_BGRx = 0,   // BGRX (wayland default, X ignored)
-  FMT_BGRA = 1,   // BGRA with alpha
-  FMT_RGBx = 2,   // RGBX (X ignored)
-  FMT_RGBA = 3,   // RGBA with alpha
-  FMT_xBGR = 4,   // XBGR (X padding first)
-  FMT_ABGR = 5,   // ABGR (alpha first)
-  FMT_xRGB = 6,   // XRGB (X padding first)
-  FMT_ARGB = 7,   // ARGB (alpha first)
-  FMT_BGR  = 8,   // BGR 24-bit (3 bytes)
-  FMT_RGB  = 9,   // RGB 24-bit (3 bytes)
+enum PixelFormat : uint8_t
+{
+    FMT_BGRx = 0, // BGRX (wayland default, X ignored)
+    FMT_BGRA = 1, // BGRA with alpha
+    FMT_RGBx = 2, // RGBX (X ignored)
+    FMT_RGBA = 3, // RGBA with alpha
+    FMT_xBGR = 4, // XBGR (X padding first)
+    FMT_ABGR = 5, // ABGR (alpha first)
+    FMT_xRGB = 6, // XRGB (X padding first)
+    FMT_ARGB = 7, // ARGB (alpha first)
+    FMT_BGR = 8,  // BGR 24-bit (3 bytes)
+    FMT_RGB = 9,  // RGB 24-bit (3 bytes)
 };
 
 // wl_shm format constants (from wayland-client-protocol.h)
-enum {
+enum
+{
     WL_FMT_ARGB8888 = 0,
     WL_FMT_XRGB8888 = 1,
-    WL_FMT_RGB888   = 0x34324752,
-    WL_FMT_BGR888   = 0x34324742,
+    WL_FMT_RGB888 = 0x34324752,
+    WL_FMT_BGR888 = 0x34324742,
     WL_FMT_XBGR8888 = 0x34324258,
     WL_FMT_RGBX8888 = 0x34325852,
     WL_FMT_BGRX8888 = 0x34325842,
@@ -103,41 +110,71 @@ enum {
 };
 
 // wl_shm format -> PixelFormat (little-endian byte order)
-static PixelFormat wl_shm_to_pixelfmt(uint32_t wl_fmt) {
-    //std::cerr << "[FMT] Converting wl_shm_format " <<  std::hex << wl_fmt <<  std::dec << " to PixelFormat\n";
-    switch (wl_fmt) {
-        case WL_FMT_ARGB8888: return FMT_BGRA;
-        case WL_FMT_XRGB8888: return FMT_BGRx;
-        case WL_FMT_XBGR8888: return FMT_RGBx;
-        case WL_FMT_ABGR8888: return FMT_RGBA;
-        case WL_FMT_RGBX8888: return FMT_xBGR;
-        case WL_FMT_BGRX8888: return FMT_xRGB;
-        case WL_FMT_RGBA8888: return FMT_ABGR;
-        case WL_FMT_BGRA8888: return FMT_ARGB;
-        case WL_FMT_RGB888:   return FMT_BGR;
-        case WL_FMT_BGR888:   return FMT_RGB;
-        case WL_FMT_RGBX8888_A8: return FMT_xBGR;
-        case WL_FMT_BGRX8888_A8: return FMT_xRGB;
-        case WL_FMT_RGB888_A8:   return FMT_BGR;
-        case WL_FMT_BGR888_A8:   return FMT_RGB;
-        default: return FMT_BGRx;
+static PixelFormat wl_shm_to_pixelfmt(uint32_t wl_fmt)
+{
+    // std::cerr << "[FMT] Converting wl_shm_format " <<  std::hex << wl_fmt <<  std::dec << " to PixelFormat\n";
+    switch (wl_fmt)
+    {
+    case WL_FMT_ARGB8888:
+        return FMT_BGRA;
+    case WL_FMT_XRGB8888:
+        return FMT_BGRx;
+    case WL_FMT_XBGR8888:
+        return FMT_RGBx;
+    case WL_FMT_ABGR8888:
+        return FMT_RGBA;
+    case WL_FMT_RGBX8888:
+        return FMT_xBGR;
+    case WL_FMT_BGRX8888:
+        return FMT_xRGB;
+    case WL_FMT_RGBA8888:
+        return FMT_ABGR;
+    case WL_FMT_BGRA8888:
+        return FMT_ARGB;
+    case WL_FMT_RGB888:
+        return FMT_BGR;
+    case WL_FMT_BGR888:
+        return FMT_RGB;
+    case WL_FMT_RGBX8888_A8:
+        return FMT_xBGR;
+    case WL_FMT_BGRX8888_A8:
+        return FMT_xRGB;
+    case WL_FMT_RGB888_A8:
+        return FMT_BGR;
+    case WL_FMT_BGR888_A8:
+        return FMT_RGB;
+    default:
+        return FMT_BGRx;
     }
 }
 
 // spa_video_format -> PixelFormat
-static PixelFormat spa_to_pixelfmt(uint32_t spa_fmt) {
-    switch (spa_fmt) {
-        case  8: return FMT_RGBx;
-        case  9: return FMT_BGRx;
-        case 10: return FMT_xRGB;
-        case 11: return FMT_xBGR;
-        case 12: return FMT_RGBA;
-        case 13: return FMT_BGRA;
-        case 14: return FMT_ARGB;
-        case 15: return FMT_ABGR;
-        case 16: return FMT_RGB;
-        case 17: return FMT_BGR;
-        default: return FMT_BGRx;  // fallback
+static PixelFormat spa_to_pixelfmt(uint32_t spa_fmt)
+{
+    switch (spa_fmt)
+    {
+    case 8:
+        return FMT_RGBx;
+    case 9:
+        return FMT_BGRx;
+    case 10:
+        return FMT_xRGB;
+    case 11:
+        return FMT_xBGR;
+    case 12:
+        return FMT_RGBA;
+    case 13:
+        return FMT_BGRA;
+    case 14:
+        return FMT_ARGB;
+    case 15:
+        return FMT_ABGR;
+    case 16:
+        return FMT_RGB;
+    case 17:
+        return FMT_BGR;
+    default:
+        return FMT_BGRx; // fallback
     }
 }
 
@@ -260,8 +297,8 @@ struct ClientConfig
     uint32_t fps;
     uint32_t term_width;
     uint32_t term_height;
-    uint32_t term_pixel_width;   // Actual terminal pixel dimensions (for sixel)
-    uint32_t term_pixel_height;  // Actual terminal pixel dimensions (for sixel)
+    uint32_t term_pixel_width;  // Actual terminal pixel dimensions (for sixel)
+    uint32_t term_pixel_height; // Actual terminal pixel dimensions (for sixel)
     uint8_t color_mode;
     uint8_t renderer;
     uint8_t keep_aspect_ratio;
@@ -289,15 +326,15 @@ struct ClientConfig
     int microphone_opus_complexity = 5;
     int microphone_bitrate = 64000; // in bps
     int microphone_opus_application = OPUS_APPLICATION_VOIP;
-    uint32_t requested_capture_width;   // 0 = native
-    uint32_t requested_capture_height;  // 0 = native
-    
+    uint32_t requested_capture_width;  // 0 = native
+    uint32_t requested_capture_height; // 0 = native
 };
 
-enum CaptureBackend {
-    WLR_SCREENCOPY,  // Original wlr-screencopy protocol
-    PIPEWIRE,        // PipeWire screencapture
-    AUTO_CAPTURE     // Auto-detect
+enum CaptureBackend
+{
+    WLR_SCREENCOPY, // Original wlr-screencopy protocol
+    PIPEWIRE,       // PipeWire screencapture
+    AUTO_CAPTURE    // Auto-detect
 };
 
 static CaptureBackend capture_backend = AUTO_CAPTURE;
@@ -379,17 +416,17 @@ struct ZoomState
     std::mutex mutex;
 };
 
-struct H264Encoder {
-    x264_t *encoder = nullptr;
-    x264_picture_t pic_in;
-    x264_picture_t pic_out;
+struct H264Encoder
+{
+    AVCodecContext *codec_ctx = nullptr;
+    AVFrame *frame = nullptr;
+    AVPacket *pkt = nullptr;
     uint32_t width = 0;
     uint32_t height = 0;
     bool initialized = false;
     std::mutex mutex;
-    int frame_count = 0;
+    int64_t pts = 0;
 };
-
 
 struct ClientConnection
 {
@@ -635,7 +672,8 @@ static std::vector<wl_output *> outputs;
 static std::vector<std::string> output_names;
 
 // Output geometry info (position in virtual desktop)
-struct OutputGeometry {
+struct OutputGeometry
+{
     int32_t x = 0;
     int32_t y = 0;
     int32_t width = 0;
@@ -645,27 +683,32 @@ static std::vector<OutputGeometry> output_geometries;
 
 static uint64_t capture_width = 0, capture_height = 0;
 
-static CaptureBackend detect_capture_backend() {
+static CaptureBackend detect_capture_backend()
+{
     // Check compositor type
-    if (compositor_type == "kde" || compositor_type == "gnome") {
-        if (pipewire_capture_available()) {
+    if (compositor_type == "kde" || compositor_type == "gnome")
+    {
+        if (pipewire_capture_available())
+        {
             std::cerr << "[CAPTURE] KDE/GNOME detected, using PipeWire\n";
             return PIPEWIRE;
         }
     }
-    
+
     // Check if wlr-screencopy is available
-    if (manager != nullptr) {
+    if (manager != nullptr)
+    {
         std::cerr << "[CAPTURE] Using wlr-screencopy protocol\n";
         return WLR_SCREENCOPY;
     }
-    
+
     // Fallback to PipeWire if available
-    if (pipewire_capture_available()) {
+    if (pipewire_capture_available())
+    {
         std::cerr << "[CAPTURE] wlr-screencopy not available, falling back to PipeWire\n";
         return PIPEWIRE;
     }
-    
+
     std::cerr << "[CAPTURE] ERROR: No capture backend available (neither wlr-screencopy nor PipeWire)!\n";
     return WLR_SCREENCOPY; // Will fail later
 }
@@ -713,27 +756,18 @@ struct Capture
     Capture() = default;
 
     // Move constructor (needed for std::vector operations)
-    Capture(Capture&& other) noexcept
-        : front_buffer(other.front_buffer)
-        , front_data(other.front_data)
-        , back_buffer(std::move(other.back_buffer))
-        , width(other.width)
-        , height(other.height)
-        , stride(other.stride)
-        , size(other.size)
-        , format(other.format)
-        , timestamp(other.timestamp)
-        , back_ready(other.back_ready)
-        , front_ready(other.front_ready)
-        , frame_in_flight(other.frame_in_flight.load())
+    Capture(Capture &&other) noexcept
+        : front_buffer(other.front_buffer), front_data(other.front_data), back_buffer(std::move(other.back_buffer)), width(other.width), height(other.height), stride(other.stride), size(other.size), format(other.format), timestamp(other.timestamp), back_ready(other.back_ready), front_ready(other.front_ready), frame_in_flight(other.frame_in_flight.load())
     {
         other.front_buffer = nullptr;
         other.front_data = nullptr;
     }
 
     // Move assignment operator
-    Capture& operator=(Capture&& other) noexcept {
-        if (this != &other) {
+    Capture &operator=(Capture &&other) noexcept
+    {
+        if (this != &other)
+        {
             front_buffer = other.front_buffer;
             front_data = other.front_data;
             back_buffer = std::move(other.back_buffer);
@@ -753,8 +787,8 @@ struct Capture
     }
 
     // Delete copy operations (atomic is not copyable)
-    Capture(const Capture&) = delete;
-    Capture& operator=(const Capture&) = delete;
+    Capture(const Capture &) = delete;
+    Capture &operator=(const Capture &) = delete;
 };
 
 // Frame cache per output
@@ -801,21 +835,25 @@ static std::condition_variable input_cv;
 static std::atomic<int> host_cursor_x{0};
 static std::atomic<int> host_cursor_y{0};
 
-static int create_shm_file(size_t size) {
-  int fd = memfd_create("wayterm-mirror-shm", MFD_CLOEXEC);
-  if (fd < 0) return -1;
-  if (ftruncate(fd, size) < 0) {
-    close(fd);
-    return -1;
-  }
-  
-  void* addr = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  if (addr != MAP_FAILED) {
-    madvise(addr, size, MADV_SEQUENTIAL | MADV_WILLNEED);
-    munmap(addr, size);
-  }
-  
-  return fd;
+static int create_shm_file(size_t size)
+{
+    int fd = memfd_create("wayterm-mirror-shm", MFD_CLOEXEC);
+    if (fd < 0)
+        return -1;
+    if (ftruncate(fd, size) < 0)
+    {
+        close(fd);
+        return -1;
+    }
+
+    void *addr = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (addr != MAP_FAILED)
+    {
+        madvise(addr, size, MADV_SEQUENTIAL | MADV_WILLNEED);
+        munmap(addr, size);
+    }
+
+    return fd;
 }
 
 // --- Output geometry detection ---
@@ -831,7 +869,7 @@ static void detect_output_geometries_hyprland()
         return;
 
     output_geometries.resize(outputs.size());
-    
+
     for (rapidjson::SizeType i = 0; i < doc.Size() && i < outputs.size(); i++)
     {
         const rapidjson::Value &mon = doc[i];
@@ -843,8 +881,8 @@ static void detect_output_geometries_hyprland()
             output_geometries[i].width = mon["width"].GetInt();
         if (mon.HasMember("height") && mon["height"].IsInt())
             output_geometries[i].height = mon["height"].GetInt();
-        
-        std::cerr << "[OUTPUT] Monitor " << i << " geometry: " 
+
+        std::cerr << "[OUTPUT] Monitor " << i << " geometry: "
                   << output_geometries[i].x << "," << output_geometries[i].y
                   << " " << output_geometries[i].width << "x" << output_geometries[i].height << "\n";
     }
@@ -862,7 +900,7 @@ static void detect_output_geometries_sway()
         return;
 
     output_geometries.resize(outputs.size());
-    
+
     for (rapidjson::SizeType i = 0; i < doc.Size() && i < outputs.size(); i++)
     {
         const rapidjson::Value &out = doc[i];
@@ -878,8 +916,8 @@ static void detect_output_geometries_sway()
             if (rect.HasMember("height") && rect["height"].IsInt())
                 output_geometries[i].height = rect["height"].GetInt();
         }
-        
-        std::cerr << "[OUTPUT] Monitor " << i << " geometry: " 
+
+        std::cerr << "[OUTPUT] Monitor " << i << " geometry: "
                   << output_geometries[i].x << "," << output_geometries[i].y
                   << " " << output_geometries[i].width << "x" << output_geometries[i].height << "\n";
     }
@@ -888,7 +926,7 @@ static void detect_output_geometries_sway()
 static void detect_output_geometries()
 {
     output_geometries.resize(outputs.size());
-    
+
     if (compositor_type == "hyprland")
         detect_output_geometries_hyprland();
     else if (compositor_type == "sway")
@@ -1002,7 +1040,7 @@ static int detect_focused_output_gnome()
                 std::cerr << "[FOCUS] GNOME: Active window on monitor " << idx << "\n";
                 return idx;
             }
-        }   
+        }
     }
 
     std::cerr << "[FOCUS] GNOME: CLI detection failed, using fallback\n";
@@ -1108,7 +1146,8 @@ static void frame_buffer(void *data, zwlr_screencopy_frame_v1 *frame,
     Capture *cap = ctx->capture;
 
     // Validate frame dimensions before proceeding
-    if (!validate_frame_dimensions(width, height, stride)) {
+    if (!validate_frame_dimensions(width, height, stride))
+    {
         std::cerr << "[ERROR] Invalid frame dimensions: " << width << "x" << height
                   << " stride=" << stride << "\n";
         zwlr_screencopy_frame_v1_destroy(frame);
@@ -1424,12 +1463,14 @@ static const zwlr_foreign_toplevel_manager_v1_listener manager_listener = {
 
 // --- Virtual input ---
 
-static void handle_key_event(const KeyEvent &evt) {
+static void handle_key_event(const KeyEvent &evt)
+{
     std::cerr << "[SERVER] Received key " << evt.keycode << " pressed=" << (int)evt.pressed
               << " [shift=" << (int)evt.shift << " ctrl=" << (int)evt.ctrl
               << " alt=" << (int)evt.alt << "]\n";
 
-    if (!virtual_input_mgr.is_initialized()) {
+    if (!virtual_input_mgr.is_initialized())
+    {
         std::cerr << "[SERVER] No input backend initialized!\n";
         return;
     }
@@ -1438,7 +1479,8 @@ static void handle_key_event(const KeyEvent &evt) {
     std::cerr << "[SERVER] Key event sent\n";
 }
 
-static void handle_mouse_move(const MouseMove &evt, const std::string &client_id) {
+static void handle_mouse_move(const MouseMove &evt, const std::string &client_id)
+{
     std::shared_ptr<ClientConnection> conn;
     uint32_t output_index = 0;
     uint32_t output_width = 0;
@@ -1447,23 +1489,26 @@ static void handle_mouse_move(const MouseMove &evt, const std::string &client_id
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
         auto it = clients.find(client_id);
-        if (it != clients.end()) {
+        if (it != clients.end())
+        {
             conn = it->second;
             output_index = conn->config.follow_focus
-                ? focus_tracker.focused_output_index.load()
-                : conn->config.output_index;
+                               ? focus_tracker.focused_output_index.load()
+                               : conn->config.output_index;
             output_index = std::min(output_index, (uint32_t)(outputs.size() - 1));
 
             std::lock_guard<std::mutex> output_lock(*output_mutexes[output_index]);
             Capture &cap = output_captures[output_index];
-            if (cap.width > 0 && cap.height > 0) {
+            if (cap.width > 0 && cap.height > 0)
+            {
                 output_width = cap.width;
                 output_height = cap.height;
             }
         }
     }
 
-    if (output_width == 0 || output_height == 0) {
+    if (output_width == 0 || output_height == 0)
+    {
         output_width = evt.width;
         output_height = evt.height;
     }
@@ -1471,17 +1516,19 @@ static void handle_mouse_move(const MouseMove &evt, const std::string &client_id
     // Client sends output-relative coordinates
     // Convert to virtual desktop coordinates for the virtual pointer
     int32_t offset_x = 0, offset_y = 0;
-    if (output_index < output_geometries.size()) {
+    if (output_index < output_geometries.size())
+    {
         offset_x = output_geometries[output_index].x;
         offset_y = output_geometries[output_index].y;
     }
-    
+
     int32_t virtual_x = evt.x + offset_x;
     int32_t virtual_y = evt.y + offset_y;
 
     // Calculate total virtual desktop bounds
     int32_t min_x = 0, min_y = 0, max_x = 0, max_y = 0;
-    for (const auto &geom : output_geometries) {
+    for (const auto &geom : output_geometries)
+    {
         min_x = std::min(min_x, geom.x);
         min_y = std::min(min_y, geom.y);
         max_x = std::max(max_x, geom.x + geom.width);
@@ -1489,7 +1536,7 @@ static void handle_mouse_move(const MouseMove &evt, const std::string &client_id
     }
     uint32_t virtual_width = max_x - min_x;
     uint32_t virtual_height = max_y - min_y;
-    
+
     // Adjust coordinates to be relative to virtual desktop origin
     virtual_x -= min_x;
     virtual_y -= min_y;
@@ -1500,19 +1547,23 @@ static void handle_mouse_move(const MouseMove &evt, const std::string &client_id
     virtual_input_mgr.send_mouse_move(virtual_x, virtual_y, virtual_width, virtual_height);
 }
 
-static void handle_mouse_button(const MouseButton &evt) {
+static void handle_mouse_button(const MouseButton &evt)
+{
     std::cerr << "[SERVER] Mouse button: button=" << evt.button
               << " pressed=" << (int)evt.pressed << "\n";
 
     uint32_t linux_button = BTN_LEFT;
-    if (evt.button == 2) linux_button = BTN_MIDDLE;
-    else if (evt.button == 3) linux_button = BTN_RIGHT;
+    if (evt.button == 2)
+        linux_button = BTN_MIDDLE;
+    else if (evt.button == 3)
+        linux_button = BTN_RIGHT;
 
     virtual_input_mgr.send_mouse_button(linux_button, evt.pressed);
     std::cerr << "[SERVER] Mouse button sent\n";
 }
 
-static void handle_mouse_scroll(const MouseScroll &evt) {
+static void handle_mouse_scroll(const MouseScroll &evt)
+{
     std::cerr << "[SERVER] Mouse scroll: direction=" << evt.direction << "\n";
 
     virtual_input_mgr.send_mouse_scroll(evt.direction);
@@ -1595,7 +1646,8 @@ static uint8_t rgb_to_ansi_256(uint8_t r, uint8_t g, uint8_t b)
     // Map to the real xterm 256-color palette (cube: 0,95,135,175,215,255; grayscale: 8 + 10*i)
     static const int cube_vals[6] = {0, 95, 135, 175, 215, 255};
 
-    auto nearest_cube_idx = [](int v) {
+    auto nearest_cube_idx = [](int v)
+    {
         int best_idx = 0;
         int best_diff = 999;
         for (int i = 0; i < 6; ++i)
@@ -1677,38 +1729,54 @@ static std::string rgb_to_ansi_bg(uint8_t r, uint8_t g, uint8_t b, ColorMode mod
 }
 
 // bytes per pixel for format (3 for 24-bit, 4 for 32-bit)
-static inline int bpp_for_fmt(PixelFormat fmt) {
-  return (fmt == FMT_BGR || fmt == FMT_RGB) ? 3 : 4;
+static inline int bpp_for_fmt(PixelFormat fmt)
+{
+    return (fmt == FMT_BGR || fmt == FMT_RGB) ? 3 : 4;
 }
 
 // extract rgb from pixel data based on format
 static inline void get_rgb(const uint8_t *p, uint8_t &r, uint8_t &g, uint8_t &b, PixelFormat fmt)
 {
-    switch (fmt) {
+    switch (fmt)
+    {
     case FMT_BGRx:
     case FMT_BGRA:
-        b = p[0]; g = p[1]; r = p[2];
+        b = p[0];
+        g = p[1];
+        r = p[2];
         break;
     case FMT_RGBx:
     case FMT_RGBA:
-        r = p[0]; g = p[1]; b = p[2];
+        r = p[0];
+        g = p[1];
+        b = p[2];
         break;
     case FMT_xBGR:
     case FMT_ABGR:
-        b = p[1]; g = p[2]; r = p[3];
+        b = p[1];
+        g = p[2];
+        r = p[3];
         break;
     case FMT_xRGB:
     case FMT_ARGB:
-        r = p[1]; g = p[2]; b = p[3];
+        r = p[1];
+        g = p[2];
+        b = p[3];
         break;
     case FMT_BGR:
-        b = p[0]; g = p[1]; r = p[2];
+        b = p[0];
+        g = p[1];
+        r = p[2];
         break;
     case FMT_RGB:
-        r = p[0]; g = p[1]; b = p[2];
+        r = p[0];
+        g = p[1];
+        b = p[2];
         break;
     default:
-        b = p[0]; g = p[1]; r = p[2]; // fallback BGRx
+        b = p[0];
+        g = p[1];
+        r = p[2]; // fallback BGRx
     }
 }
 
@@ -1727,27 +1795,28 @@ static inline void sample_rotated_pixel(
     double rad = rotation_angle * M_PI / 180.0;
     double cos_a = cos(rad);
     double sin_a = sin(rad);
-    
+
     double cx_out = rotated_width / 2.0;
     double cy_out = rotated_height / 2.0;
     double cx_in = frame_width / 2.0;
     double cy_in = frame_height / 2.0;
-    
+
     double dx = x - cx_out;
     double dy = y - cy_out;
-    
+
     // inverse rotation to find source pixel
     double src_x_f = cos_a * dx + sin_a * dy + cx_in;
     double src_y_f = -sin_a * dx + cos_a * dy + cy_in;
-    
+
     int src_x = (int)round(src_x_f);
     int src_y = (int)round(src_y_f);
-    
-    if (src_x < 0 || src_x >= (int)frame_width || src_y < 0 || src_y >= (int)frame_height) {
+
+    if (src_x < 0 || src_x >= (int)frame_width || src_y < 0 || src_y >= (int)frame_height)
+    {
         r = g = b = 0;
         return;
     }
-    
+
     const uint8_t *p = frame_data + src_y * frame_stride + src_x * bpp_for_fmt(fmt);
     get_rgb(p, r, g, b, fmt);
 }
@@ -1761,7 +1830,7 @@ static inline void get_rotated_dimensions(
     double rad = fabs(rotation_angle) * M_PI / 180.0;
     double cos_a = fabs(cos(rad));
     double sin_a = fabs(sin(rad));
-    
+
     out_width = (uint32_t)ceil(frame_width * cos_a + frame_height * sin_a);
     out_height = (uint32_t)ceil(frame_width * sin_a + frame_height * cos_a);
 }
@@ -1829,7 +1898,7 @@ static RegionalColorAnalysis analyze_regional_colors(
 
                 uint8_t r, g, b;
                 sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                   rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
+                                     rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
 
                 reds.push_back(r);
                 greens.push_back(g);
@@ -1969,7 +2038,7 @@ static BrailleCell analyze_braille_cell(
 
                 uint8_t r, g, b;
                 sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                   px, py, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
+                                     px, py, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
 
                 double dx = kx - kernel_size / 2.0;
                 double dy = ky - kernel_size / 2.0;
@@ -1998,8 +2067,14 @@ static BrailleCell analyze_braille_cell(
     // Edge detection adjacency pairs
     int adjacency_pairs[][2] = {
         {0, 1}, {1, 2}, {3, 4}, {4, 5}, {6, 7}, // Vertical
-        {0, 3}, {1, 4}, {2, 5}, {6, 7},         // Horizontal
-        {0, 4}, {1, 3}, {1, 5}, {2, 4}          // Diagonal
+        {0, 3},
+        {1, 4},
+        {2, 5},
+        {6, 7}, // Horizontal
+        {0, 4},
+        {1, 3},
+        {1, 5},
+        {2, 4} // Diagonal
     };
 
     cell.has_edge = false;
@@ -2129,7 +2204,6 @@ static uint8_t calculate_braille_pattern(
         }
     }
 
-    // CRITICAL FIX: Invert if majority lit - makes dark content (like text) become foreground
     int lit_count = __builtin_popcount(pattern);
     if (lit_count > 4)
     {
@@ -2263,11 +2337,16 @@ static std::string render_braille(
 
     // Calculate kernel size based on detail
     int kernel_size;
-    if (detail_level >= 90) kernel_size = 1;
-    else if (detail_level >= 80) kernel_size = 2;
-    else if (detail_level >= 60) kernel_size = 3;
-    else if (detail_level >= 40) kernel_size = 4;
-    else kernel_size = 5;
+    if (detail_level >= 90)
+        kernel_size = 1;
+    else if (detail_level >= 80)
+        kernel_size = 2;
+    else if (detail_level >= 60)
+        kernel_size = 3;
+    else if (detail_level >= 40)
+        kernel_size = 4;
+    else
+        kernel_size = 5;
 
     // Braille dot positions (2x4 grid)
     int dot_positions[8][2] = {
@@ -2303,7 +2382,7 @@ static std::string render_braille(
 
                         uint8_t r, g, b;
                         sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                            px, py, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
+                                             px, py, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
 
                         double dx = kx - kernel_size / 2.0;
                         double dy = ky - kernel_size / 2.0;
@@ -2326,7 +2405,8 @@ static std::string render_braille(
 
             // Calculate mean luma for threshold
             double mean_luma = 0;
-            for (int i = 0; i < 8; i++) mean_luma += lumas[i];
+            for (int i = 0; i < 8; i++)
+                mean_luma += lumas[i];
             mean_luma /= 8.0;
 
             // Calculate pattern using simple threshold
@@ -2695,11 +2775,11 @@ static std::string render_blocks(
 
             uint8_t r_top, g_top, b_top;
             sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               rot_x, rot_y_top, rot_width, rot_height, rotation_angle, r_top, g_top, b_top, pixel_format);
+                                 rot_x, rot_y_top, rot_width, rot_height, rotation_angle, r_top, g_top, b_top, pixel_format);
 
             uint8_t r_bot, g_bot, b_bot;
             sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               rot_x, rot_y_bot, rot_width, rot_height, rotation_angle, r_bot, g_bot, b_bot, pixel_format);
+                                 rot_x, rot_y_bot, rot_width, rot_height, rotation_angle, r_bot, g_bot, b_bot, pixel_format);
 
             // Output half-block character with top/bottom colors
             out << rgb_to_ansi(r_top, g_top, b_top, mode);
@@ -2786,7 +2866,7 @@ static std::string render_ascii(
 
             uint8_t r, g, b;
             sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
+                                 rot_x, rot_y, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
 
             // Calculate luminance
             double luma = 0.299 * r + 0.587 * g + 0.114 * b;
@@ -2861,11 +2941,16 @@ static std::string render_hybrid(
 
     // Calculate kernel size based on detail
     int kernel_size;
-    if (detail_level >= 95) kernel_size = 1;
-    else if (detail_level >= 80) kernel_size = 2;
-    else if (detail_level >= 60) kernel_size = 3;
-    else if (detail_level >= 40) kernel_size = 4;
-    else kernel_size = 5;
+    if (detail_level >= 95)
+        kernel_size = 1;
+    else if (detail_level >= 80)
+        kernel_size = 2;
+    else if (detail_level >= 60)
+        kernel_size = 3;
+    else if (detail_level >= 40)
+        kernel_size = 4;
+    else
+        kernel_size = 5;
 
     // Braille dot positions (2x4 grid)
     int dot_positions[8][2] = {
@@ -2874,8 +2959,14 @@ static std::string render_hybrid(
     // Edge detection adjacency pairs
     int adjacency_pairs[][2] = {
         {0, 1}, {1, 2}, {3, 4}, {4, 5}, {6, 7}, // Vertical
-        {0, 3}, {1, 4}, {2, 5}, {6, 7},         // Horizontal
-        {0, 4}, {1, 3}, {1, 5}, {2, 4}          // Diagonal
+        {0, 3},
+        {1, 4},
+        {2, 5},
+        {6, 7}, // Horizontal
+        {0, 4},
+        {1, 3},
+        {1, 5},
+        {2, 4} // Diagonal
     };
     double edge_threshold = (detail_level >= 70) ? 30.0 : 50.0;
 
@@ -2908,7 +2999,7 @@ static std::string render_hybrid(
 
                         uint8_t r, g, b;
                         sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                                            px, py, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
+                                             px, py, rot_width, rot_height, rotation_angle, r, g, b, pixel_format);
 
                         double dx = kx - kernel_size / 2.0;
                         double dy = ky - kernel_size / 2.0;
@@ -2949,16 +3040,17 @@ static std::string render_hybrid(
             {
                 int idx1 = adjacency_pairs[i][0];
                 int idx2 = adjacency_pairs[i][1];
-                
+
                 double dr = colors[idx1][0] - colors[idx2][0];
                 double dg = colors[idx1][1] - colors[idx2][1];
                 double db = colors[idx1][2] - colors[idx2][2];
                 double color_dist = sqrt(2.0 * dr * dr + 4.0 * dg * dg + 3.0 * db * db);
-                
+
                 double luma_diff = fabs(lumas[idx1] - lumas[idx2]);
                 double edge = fmax(color_dist, luma_diff * 2.0);
-                
-                if (edge > edge_threshold) {
+
+                if (edge > edge_threshold)
+                {
                     has_edge = true;
                     break;
                 }
@@ -2973,7 +3065,8 @@ static std::string render_hybrid(
             {
                 // Braille rendering
                 double mean_luma = 0;
-                for (int i = 0; i < 8; i++) mean_luma += lumas[i];
+                for (int i = 0; i < 8; i++)
+                    mean_luma += lumas[i];
                 mean_luma /= 8.0;
 
                 uint8_t pattern = 0;
@@ -3060,218 +3153,259 @@ static std::string render_hybrid(
     return out.str();
 }
 
-static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height, int quality, int fps) {
+static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height, int quality, int fps)
+{
     std::lock_guard<std::mutex> lock(enc.mutex);
-    
-    if (enc.initialized && enc.width == width && enc.height == height) {
+
+    if (enc.initialized && enc.width == width && enc.height == height)
+    {
         return true;
     }
-    
-    if (enc.initialized) {
-        if (enc.encoder) {
-            x264_encoder_close(enc.encoder);
-            enc.encoder = nullptr;
+
+    if (enc.initialized)
+    {
+        if (enc.codec_ctx)
+        {
+            avcodec_free_context(&enc.codec_ctx);
+        }
+        if (enc.frame)
+        {
+            av_frame_free(&enc.frame);
+        }
+        if (enc.pkt)
+        {
+            av_packet_free(&enc.pkt);
         }
         enc.initialized = false;
     }
-    
-    x264_param_t param;
-    
+
+    // Find the x264rgb encoder
+    const AVCodec *codec = avcodec_find_encoder_by_name("libx264rgb");
+    if (!codec)
+    {
+        std::cerr << "[H264] libx264rgb encoder not found\n";
+        return false;
+    }
+
+    enc.codec_ctx = avcodec_alloc_context3(codec);
+    if (!enc.codec_ctx)
+    {
+        std::cerr << "[H264] Failed to allocate codec context\n";
+        return false;
+    }
+
+    // Set basic parameters
+    enc.codec_ctx->width = width;
+    enc.codec_ctx->height = height;
+    enc.codec_ctx->time_base = {1, fps};
+    enc.codec_ctx->framerate = {fps, 1};
+    enc.codec_ctx->gop_size = fps * 2;
+    enc.codec_ctx->max_b_frames = 0;           // Start with 0 for low latency
+    enc.codec_ctx->pix_fmt = AV_PIX_FMT_RGB24; // x264rgb uses RGB24
+
     // Choose preset based on quality
-    const char* preset;
-    
-    if (quality >= 80) {
+    const char *preset;
+    if (quality >= 80)
+    {
         preset = "slow";
-    } else if (quality >= 60) {
+        enc.codec_ctx->max_b_frames = 3;
+    }
+    else if (quality >= 60)
+    {
         preset = "medium";
-    } else if (quality >= 40) {
+        enc.codec_ctx->max_b_frames = 2;
+    }
+    else if (quality >= 40)
+    {
         preset = "fast";
-    } else if (quality >= 20) {
+        enc.codec_ctx->max_b_frames = 1;
+    }
+    else if (quality >= 20)
+    {
         preset = "faster";
-    } else {
+    }
+    else
+    {
         preset = "veryfast";
     }
-    
-    if (x264_param_default_preset(&param, preset, "zerolatency") < 0) {
-        std::cerr << "[H264] Failed to set preset\n";
-        return false;
-    }
-    
-    // Configure basic parameters
-    param.i_threads = 1;
-    param.i_width = width;
-    param.i_height = height;
-    param.i_fps_num = fps;
-    param.i_fps_den = 1;
-    param.i_keyint_max = fps * 2;
-    param.b_repeat_headers = 1;
-    param.b_annexb = 1;
-    
-    // IMPORTANT: Set bitrate control mode
-    // We can use either CRF or ABR (average bitrate)
-    // Let's use CRF with VBV (Video Buffering Verifier) for quality control
-    
+
     // Calculate target bitrate based on quality and resolution
-    // Bits per pixel approach
+    // Increased multipliers for better quality with screen content
     double bpp;
-    if (quality >= 80) {
-        bpp = 0.15;  // High quality: 0.15 bits per pixel
-    } else if (quality >= 60) {
-        bpp = 0.10;  // Medium-high: 0.10 bpp
-    } else if (quality >= 40) {
-        bpp = 0.07;  // Medium: 0.07 bpp
-    } else if (quality >= 20) {
-        bpp = 0.05;  // Low-medium: 0.05 bpp
-    } else {
-        bpp = 0.03;  // Low: 0.03 bpp
+    if (quality >= 80)
+    {
+        bpp = 0.25; // High quality: increased from 0.15
     }
-    
-    int bitrate = (int)(width * height * fps * bpp / 1000);  // in kbps
-    
-    // Use CRF mode with VBV buffer for quality-based encoding
-    param.rc.i_rc_method = X264_RC_CRF;
-    
-    // Map quality to CRF (18-28 range for good quality)
-    int crf = 18 + ((100 - quality) * 10 / 100);  // 18-28 range
-    param.rc.f_rf_constant = crf;
-    
-    // Set VBV (Video Buffering Verifier) to control bitrate variance
-    param.rc.i_vbv_max_bitrate = bitrate * 2;  // Max bitrate (2x average)
-    param.rc.i_vbv_buffer_size = bitrate;      // Buffer size
-    param.rc.f_vbv_buffer_init = 0.9f;         // Initial buffer fullness
-    
-    // Set QP limits to prevent extreme quality variations
-    param.rc.i_qp_min = 10;  // Minimum QP (best quality)
-    param.rc.i_qp_max = 51;  // Maximum QP (worst quality)
-    param.rc.i_qp_step = 4;  // Maximum QP change between frames
-    
-    // Adaptive quantization
-    param.rc.i_aq_mode = X264_AQ_VARIANCE;  // Variance-based AQ
-    param.rc.f_aq_strength = 1.0f;
-    
-    // Psychovisual optimizations
-    param.analyse.b_psy = 1;
-    param.rc.f_pb_factor = 1.3f;
-    param.rc.f_ip_factor = 1.4f;
-    
-    // Enable deblocking filter
-    param.b_deblocking_filter = 1;
-    param.i_deblocking_filter_alphac0 = 0;
-    param.i_deblocking_filter_beta = 0;
-    
-    // Motion estimation settings based on quality
-    if (quality >= 60) {
-        param.analyse.i_me_method = X264_ME_UMH;  // Uneven multi-hex search
-        param.analyse.i_subpel_refine = 7;
-        param.analyse.b_mixed_references = 1;
-        param.analyse.i_me_range = 16;
-        param.analyse.i_mv_range = -1;  // Auto
-        param.analyse.b_chroma_me = 1;
-        param.analyse.i_trellis = 1;
-    } else if (quality >= 40) {
-        param.analyse.i_me_method = X264_ME_HEX;
-        param.analyse.i_subpel_refine = 6;
-        param.analyse.b_mixed_references = 1;
-        param.analyse.i_me_range = 16;
-    } else {
-        param.analyse.i_me_method = X264_ME_DIA;
-        param.analyse.i_subpel_refine = 4;
-        param.analyse.i_me_range = 16;
+    else if (quality >= 60)
+    {
+        bpp = 0.18; // Medium-high: increased from 0.10
     }
-    
-    // Partition decision
-    if (quality >= 60) {
-        param.analyse.inter = X264_ANALYSE_I4x4 | X264_ANALYSE_I8x8 |
-                             X264_ANALYSE_PSUB16x16 | X264_ANALYSE_BSUB16x16 |
-                             X264_ANALYSE_PSUB8x8;
-        param.analyse.intra = X264_ANALYSE_I4x4 | X264_ANALYSE_I8x8;
-    } else if (quality >= 40) {
-        param.analyse.inter = X264_ANALYSE_I4x4 | X264_ANALYSE_PSUB16x16 | X264_ANALYSE_BSUB16x16;
-        param.analyse.intra = X264_ANALYSE_I4x4;
+    else if (quality >= 40)
+    {
+        bpp = 0.12; // Medium: increased from 0.07
     }
-    
-    // B-frames for better compression at higher quality
-    if (quality >= 60) {
-        param.i_bframe = 3;
-        param.i_bframe_adaptive = X264_B_ADAPT_TRELLIS;
-    } else if (quality >= 40) {
-        param.i_bframe = 2;
-        param.i_bframe_adaptive = X264_B_ADAPT_FAST;
-    } else {
-        param.i_bframe = 0;  // No B-frames for low quality/fast encoding
+    else if (quality >= 20)
+    {
+        bpp = 0.08; // Low-medium: increased from 0.05
     }
-    
-    // Reference frames
-    if (quality >= 80) {
-        param.i_frame_reference = 4;
-    } else if (quality >= 60) {
-        param.i_frame_reference = 3;
-    } else if (quality >= 40) {
-        param.i_frame_reference = 2;
-    } else {
-        param.i_frame_reference = 1;
+    else
+    {
+        bpp = 0.05; // Low: increased from 0.03
     }
-    
-    // Profile selection
-    const char* profile;
-    if (quality >= 60) {
-        profile = "high";
-    } else if (quality >= 40) {
-        profile = "main";
-    } else {
-        profile = "baseline";
+
+    int bitrate = (int)(width * height * fps * bpp); // in bps
+
+    // Use CRF mode with more relaxed constraints
+    int crf = 15 + ((100 - quality) * 8 / 100); // 15-23 range (was 18-28) - lower is better
+
+    // Set x264rgb-specific options
+    av_opt_set(enc.codec_ctx->priv_data, "preset", preset, 0);
+    av_opt_set(enc.codec_ctx->priv_data, "tune", "zerolatency", 0);
+    av_opt_set_int(enc.codec_ctx->priv_data, "crf", crf, 0);
+
+    // VBV with much higher limits for better quality
+    enc.codec_ctx->rc_max_rate = bitrate * 3;    // Increased from 2x to 3x
+    enc.codec_ctx->rc_buffer_size = bitrate * 2; // Increased from 1x to 2x
+    enc.codec_ctx->bit_rate = bitrate;
+
+    // Tighter QP limits for consistent quality
+    av_opt_set_int(enc.codec_ctx->priv_data, "qmin", 10, 0);
+    av_opt_set_int(enc.codec_ctx->priv_data, "qmax", 35, 0); // Reduced from 51 to 35
+
+    // Enable better motion estimation and analysis
+    if (quality >= 40)
+    {
+        av_opt_set(enc.codec_ctx->priv_data, "me_method", "umh", 0); // Better motion estimation
+        av_opt_set_int(enc.codec_ctx->priv_data, "me_range", 24, 0); // Increased search range
+        av_opt_set_int(enc.codec_ctx->priv_data, "subq", 7, 0);      // Better subpixel refinement
     }
-    
-    if (x264_param_apply_profile(&param, profile) < 0) {
-        std::cerr << "[H264] Failed to apply profile\n";
+
+    // Increase reference frames for better compression
+    if (quality >= 60)
+    {
+        av_opt_set_int(enc.codec_ctx->priv_data, "refs", 5, 0); // More reference frames
+    }
+    else if (quality >= 40)
+    {
+        av_opt_set_int(enc.codec_ctx->priv_data, "refs", 3, 0);
+    }
+
+    // Profile selection - x264rgb requires high444 profile for 4:4:4 RGB encoding
+    // baseline and main profiles don't support 4:4:4 chroma subsampling
+    const char *profile = "high444"; // Always use high444 for RGB encoding
+    av_opt_set(enc.codec_ctx->priv_data, "profile", profile, 0);
+
+    // Optimize for screen content (sharp edges, text, etc.)
+    av_opt_set_int(enc.codec_ctx->priv_data, "aq-mode", 2, 0); // Variance AQ for better quality distribution
+    av_opt_set(enc.codec_ctx->priv_data, "aq-strength", "1.0", 0);
+
+    // Deblocking filter - helps with blocking artifacts
+    av_opt_set_int(enc.codec_ctx->priv_data, "deblock", 0, 0); // 0:0 for balanced filtering
+
+    // Enable CABAC for better compression (disabled in baseline, but we're using high444)
+    av_opt_set_int(enc.codec_ctx->priv_data, "coder", 1, 0); // CABAC
+
+    // Partitions for better quality
+    if (quality >= 60)
+    {
+        av_opt_set(enc.codec_ctx->priv_data, "partitions", "all", 0);
+    }
+    else if (quality >= 40)
+    {
+        av_opt_set(enc.codec_ctx->priv_data, "partitions", "p8x8,b8x8,i8x8,i4x4", 0);
+    }
+
+    // Open codec
+    int ret = avcodec_open2(enc.codec_ctx, codec, nullptr);
+    if (ret < 0)
+    {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[H264] Failed to open codec: " << errbuf << "\n";
+        avcodec_free_context(&enc.codec_ctx);
         return false;
     }
-    
-    enc.encoder = x264_encoder_open(&param);
-    if (!enc.encoder) {
-        std::cerr << "[H264] Failed to open encoder\n";
+
+    // Allocate frame
+    enc.frame = av_frame_alloc();
+    if (!enc.frame)
+    {
+        std::cerr << "[H264] Failed to allocate frame\n";
+        avcodec_free_context(&enc.codec_ctx);
         return false;
     }
-    
-    if (x264_picture_alloc(&enc.pic_in, X264_CSP_I420, width, height) < 0) {
-        std::cerr << "[H264] Failed to allocate picture\n";
-        x264_encoder_close(enc.encoder);
-        enc.encoder = nullptr;
+
+    enc.frame->format = enc.codec_ctx->pix_fmt;
+    enc.frame->width = width;
+    enc.frame->height = height;
+
+    ret = av_frame_get_buffer(enc.frame, 0);
+    if (ret < 0)
+    {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[H264] Failed to allocate frame buffer: " << errbuf << "\n";
+        av_frame_free(&enc.frame);
+        avcodec_free_context(&enc.codec_ctx);
         return false;
     }
-    
+
+    // Allocate packet
+    enc.pkt = av_packet_alloc();
+    if (!enc.pkt)
+    {
+        std::cerr << "[H264] Failed to allocate packet\n";
+        av_frame_free(&enc.frame);
+        avcodec_free_context(&enc.codec_ctx);
+        return false;
+    }
+
     enc.width = width;
     enc.height = height;
-    enc.frame_count = 0;
+    enc.pts = 0;
     enc.initialized = true;
-    
-    std::cerr << "[H264] Encoder initialized: " << width << "x" << height 
-              << " preset=" << preset << " profile=" << profile 
-              << " crf=" << crf << " target_bitrate=" << bitrate << "kbps"
+
+    std::cerr << "[H264] FFmpeg encoder initialized: " << width << "x" << height
+              << " preset=" << preset << " profile=" << profile
+              << " crf=" << crf << " target_bitrate=" << (bitrate / 1000) << "kbps"
               << " bpp=" << std::fixed << std::setprecision(3) << bpp << "\n";
     return true;
 }
 
-static void cleanup_h264_encoder(H264Encoder &enc) {
+static void cleanup_h264_encoder(H264Encoder &enc)
+{
     std::lock_guard<std::mutex> lock(enc.mutex);
-    
-    if (!enc.initialized) return;
-    
+
+    if (!enc.initialized)
+        return;
+
     // Flush encoder
-    if (enc.encoder) {
-        x264_nal_t *nals;
-        int i_nals;
-        while (x264_encoder_delayed_frames(enc.encoder)) {
-            x264_encoder_encode(enc.encoder, &nals, &i_nals, nullptr, &enc.pic_out);
+    if (enc.codec_ctx)
+    {
+        avcodec_send_frame(enc.codec_ctx, nullptr); // Send NULL to flush
+
+        AVPacket *pkt = av_packet_alloc();
+        while (avcodec_receive_packet(enc.codec_ctx, pkt) == 0)
+        {
+            av_packet_unref(pkt);
         }
-        
-        x264_picture_clean(&enc.pic_in);
-        x264_encoder_close(enc.encoder);
-        enc.encoder = nullptr;
+        av_packet_free(&pkt);
+
+        avcodec_free_context(&enc.codec_ctx);
     }
-    
+
+    if (enc.frame)
+    {
+        av_frame_free(&enc.frame);
+    }
+
+    if (enc.pkt)
+    {
+        av_packet_free(&enc.pkt);
+    }
+
     enc.initialized = false;
-    std::cerr << "[H264] Encoder cleaned up\n";
+    std::cerr << "[H264] FFmpeg encoder cleaned up\n";
 }
 
 static std::vector<uint8_t> encode_h264_frame(
@@ -3284,118 +3418,92 @@ static std::vector<uint8_t> encode_h264_frame(
 {
     static int loc_fps = 30;
     static int loc_quality = 75;
-    if (!enc.initialized || enc.width != width || enc.height != height || loc_fps != fps || loc_quality != quality) {
+    if (!enc.initialized || enc.width != width || enc.height != height || loc_fps != fps || loc_quality != quality)
+    {
         loc_fps = fps;
         loc_quality = quality;
         cleanup_h264_encoder(enc);
-        if (!init_h264_encoder(enc, width, height, quality, fps)) {
+        if (!init_h264_encoder(enc, width, height, quality, fps))
+        {
             return {};
         }
     }
-    
+
     std::lock_guard<std::mutex> lock(enc.mutex);
-    
-    // Convert RGB to I420 (YUV420P) with proper floating point conversion
-    const uint8_t *rgb = rgb_data;
-    uint8_t *y = enc.pic_in.img.plane[0];
-    uint8_t *u = enc.pic_in.img.plane[1];
-    uint8_t *v = enc.pic_in.img.plane[2];
-    
-    int y_stride = enc.pic_in.img.i_stride[0];
-    int uv_stride = enc.pic_in.img.i_stride[1];
-    
-    // RGB to YUV conversion (ITU-R BT.601)
-    for (uint32_t j = 0; j < height; j++) {
-        for (uint32_t i = 0; i < width; i++) {
-            uint8_t r = rgb[(j * width + i) * 3 + 0];
-            uint8_t g = rgb[(j * width + i) * 3 + 1];
-            uint8_t b = rgb[(j * width + i) * 3 + 2];
-            
-            // Y = 0.299*R + 0.587*G + 0.114*B
-            float y_val = 0.299f * r + 0.587f * g + 0.114f * b;
-            y[j * y_stride + i] = (uint8_t)std::clamp(y_val, 0.0f, 255.0f);
-            
-            // Subsample U and V (every 2x2 block)
-            if ((j % 2 == 0) && (i % 2 == 0)) {
-                // Average 2x2 block for better quality
-                float r_sum = r, g_sum = g, b_sum = b;
-                int count = 1;
-                
-                if (i + 1 < width) {
-                    r_sum += rgb[(j * width + i + 1) * 3 + 0];
-                    g_sum += rgb[(j * width + i + 1) * 3 + 1];
-                    b_sum += rgb[(j * width + i + 1) * 3 + 2];
-                    count++;
-                }
-                if (j + 1 < height) {
-                    r_sum += rgb[((j + 1) * width + i) * 3 + 0];
-                    g_sum += rgb[((j + 1) * width + i) * 3 + 1];
-                    b_sum += rgb[((j + 1) * width + i) * 3 + 2];
-                    count++;
-                }
-                if (i + 1 < width && j + 1 < height) {
-                    r_sum += rgb[((j + 1) * width + i + 1) * 3 + 0];
-                    g_sum += rgb[((j + 1) * width + i + 1) * 3 + 1];
-                    b_sum += rgb[((j + 1) * width + i + 1) * 3 + 2];
-                    count++;
-                }
-                
-                r_sum /= count;
-                g_sum /= count;
-                b_sum /= count;
-                
-                // U = -0.169*R - 0.331*G + 0.500*B + 128
-                float u_val = -0.169f * r_sum - 0.331f * g_sum + 0.500f * b_sum + 128.0f;
-                // V = 0.500*R - 0.419*G - 0.081*B + 128
-                float v_val = 0.500f * r_sum - 0.419f * g_sum - 0.081f * b_sum + 128.0f;
-                
-                u[(j/2) * uv_stride + (i/2)] = (uint8_t)std::clamp(u_val, 0.0f, 255.0f);
-                v[(j/2) * uv_stride + (i/2)] = (uint8_t)std::clamp(v_val, 0.0f, 255.0f);
-            }
-        }
-    }
-    
-    enc.pic_in.i_pts = enc.frame_count++;
-    
-    // Encode
-    x264_nal_t *nals;
-    int i_nals;
-    int frame_size = x264_encoder_encode(enc.encoder, &nals, &i_nals, &enc.pic_in, &enc.pic_out);
-    
-    if (frame_size < 0) {
-        std::cerr << "[H264] Encode failed\n";
+
+    // Make frame writable
+    int ret = av_frame_make_writable(enc.frame);
+    if (ret < 0)
+    {
+        std::cerr << "[H264] Failed to make frame writable\n";
         return {};
     }
-    
-    if (frame_size == 0) {
+
+    // Copy RGB data directly (no color conversion needed with x264rgb!)
+    // The input is RGB24, which matches our encoder's pixel format
+    for (uint32_t y = 0; y < height; y++)
+    {
+        memcpy(enc.frame->data[0] + y * enc.frame->linesize[0],
+               rgb_data + y * width * 3,
+               width * 3);
+    }
+
+    enc.frame->pts = enc.pts++;
+
+    // Send frame to encoder
+    ret = avcodec_send_frame(enc.codec_ctx, enc.frame);
+    if (ret < 0)
+    {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[H264] Error sending frame: " << errbuf << "\n";
         return {};
     }
-    
-    // Collect all NAL units
+
+    // Receive encoded packets
     std::vector<uint8_t> encoded_data;
-    for (int i = 0; i < i_nals; i++) {
-        encoded_data.insert(encoded_data.end(), 
-                          nals[i].p_payload, 
-                          nals[i].p_payload + nals[i].i_payload);
+
+    while (ret >= 0)
+    {
+        ret = avcodec_receive_packet(enc.codec_ctx, enc.pkt);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+        {
+            break;
+        }
+        else if (ret < 0)
+        {
+            char errbuf[256];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            std::cerr << "[H264] Error receiving packet: " << errbuf << "\n";
+            return {};
+        }
+
+        // Append packet data
+        encoded_data.insert(encoded_data.end(),
+                            enc.pkt->data,
+                            enc.pkt->data + enc.pkt->size);
+
+        av_packet_unref(enc.pkt);
     }
-    
+
     // Stats
     static int frame_count = 0;
     static size_t total_input = 0;
     static size_t total_output = 0;
-    
+
     frame_count++;
     total_input += width * height * 3;
     total_output += encoded_data.size();
-    
-    if (frame_count % 100 == 0) {
+
+    if (frame_count % 100 == 0)
+    {
         double ratio = total_output > 0 ? (double)total_input / total_output : 0;
         double saved = total_input > 0 ? 100.0 * (1.0 - (double)total_output / total_input) : 0;
-        std::cerr << "[H264] Compression | Ratio: " << std::fixed 
-                  << std::setprecision(2) << ratio << "x | Saved: " 
+        std::cerr << "[H264] Compression | Ratio: " << std::fixed
+                  << std::setprecision(2) << ratio << "x | Saved: "
                   << saved << "% over " << frame_count << " frames\n";
     }
-    
+
     return encoded_data;
 }
 
@@ -3428,25 +3536,28 @@ static std::vector<uint8_t> render_sixel(
     // Otherwise fallback to estimating from cell dimensions (10x20 pixels per cell)
     int terminal_pixel_width = (term_pixel_width > 0) ? term_pixel_width : term_width * 10;
     int terminal_pixel_height = (term_pixel_height > 0) ? term_pixel_height : term_height * 20;
-    
+
     int sixel_width, sixel_height;
-    
+
     if (keep_aspect_ratio)
     {
         double src_aspect = (double)rot_width / rot_height;
         double term_aspect = (double)terminal_pixel_width / terminal_pixel_height;
-        
+
         // Fit within terminal while preserving aspect ratio
-        if (src_aspect > term_aspect) {
+        if (src_aspect > term_aspect)
+        {
             // Image is wider - fit to width
             sixel_width = terminal_pixel_width;
             sixel_height = (int)(sixel_width / src_aspect);
-        } else {
+        }
+        else
+        {
             // Image is taller - fit to height
             sixel_height = terminal_pixel_height;
             sixel_width = (int)(sixel_height * src_aspect);
         }
-        
+
         // Apply scale factor for user adjustment
         sixel_width = (int)(sixel_width * scale_factor);
         sixel_height = (int)(sixel_height * scale_factor);
@@ -3457,16 +3568,15 @@ static std::vector<uint8_t> render_sixel(
         sixel_width = (int)(terminal_pixel_width * scale_factor);
         sixel_height = (int)(terminal_pixel_height * scale_factor);
     }
-    
-        
-    /*std::cerr << "[SIXEL] Encoding " << sixel_width << "x" << sixel_height 
-              << " from source " << rot_width << "x" << rot_height 
-              << " (scale=" << scale_factor << ", quality=" << (int)quality 
+
+    /*std::cerr << "[SIXEL] Encoding " << sixel_width << "x" << sixel_height
+              << " from source " << rot_width << "x" << rot_height
+              << " (scale=" << scale_factor << ", quality=" << (int)quality
               << ", detail=" << (int)detail_level << ")\n";*/
 
     // Build RGB888 image with rotation and scaling applied
     std::vector<uint8_t> rgb_data(sixel_width * sixel_height * 3);
-    
+
     for (int y = 0; y < sixel_height; y++)
     {
         for (int x = 0; x < sixel_width; x++)
@@ -3474,12 +3584,12 @@ static std::vector<uint8_t> render_sixel(
             // Bilinear sampling for better quality
             double rot_x = (double)x * rot_width / sixel_width;
             double rot_y = (double)y * rot_height / sixel_height;
-            
+
             uint8_t r, g, b;
             sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               (int)rot_x, (int)rot_y, rot_width, rot_height, 
-                               rotation_angle, r, g, b, pixel_format);
-            
+                                 (int)rot_x, (int)rot_y, rot_width, rot_height,
+                                 rotation_angle, r, g, b, pixel_format);
+
             int idx = (y * sixel_width + x) * 3;
             rgb_data[idx + 0] = r;
             rgb_data[idx + 1] = g;
@@ -3492,14 +3602,12 @@ static std::vector<uint8_t> render_sixel(
     sixel_dither_t *dither = nullptr;
     std::vector<uint8_t> output_buffer;
 
-    SIXELSTATUS status = sixel_output_new(&output, 
-        [](char *data, int size, void *priv) -> int {
+    SIXELSTATUS status = sixel_output_new(&output, [](char *data, int size, void *priv) -> int
+                                          {
             auto *vec = static_cast<std::vector<uint8_t>*>(priv);
             vec->insert(vec->end(), data, data + size);
-            return size;
-        }, 
-        &output_buffer, nullptr);
-    
+            return size; }, &output_buffer, nullptr);
+
     if (SIXEL_FAILED(status))
     {
         std::cerr << "[SIXEL] Failed to create output\n";
@@ -3507,9 +3615,10 @@ static std::vector<uint8_t> render_sixel(
     }
 
     sixel_output_set_encode_policy(output, SIXEL_ENCODEPOLICY_FAST);
-    
-    int palette_size = (quality >= 70) ? 256 : (quality >= 40) ? 128 : 64;
-    
+
+    int palette_size = (quality >= 70) ? 256 : (quality >= 40) ? 128
+                                                               : 64;
+
     status = sixel_dither_new(&dither, palette_size, nullptr);
     if (SIXEL_FAILED(status))
     {
@@ -3517,10 +3626,10 @@ static std::vector<uint8_t> render_sixel(
         sixel_output_unref(output);
         return {};
     }
-    
+
     int diffusion_type = SIXEL_DIFFUSE_NONE;
     int sixel_quality = SIXEL_QUALITY_HIGH;
-    
+
     if (detail_level >= 90 && quality >= 85)
     {
         diffusion_type = SIXEL_DIFFUSE_ATKINSON;
@@ -3534,25 +3643,25 @@ static std::vector<uint8_t> render_sixel(
     {
         sixel_quality = SIXEL_QUALITY_LOW;
     }
-    
+
     sixel_dither_set_diffusion_type(dither, diffusion_type);
-    
+
     sixel_dither_initialize(dither, rgb_data.data(), sixel_width, sixel_height,
-                           SIXEL_PIXELFORMAT_RGB888,
-                           SIXEL_LARGE_AUTO, SIXEL_REP_AUTO, sixel_quality);
+                            SIXEL_PIXELFORMAT_RGB888,
+                            SIXEL_LARGE_AUTO, SIXEL_REP_AUTO, sixel_quality);
 
     status = sixel_encode(rgb_data.data(), sixel_width, sixel_height, 0,
-                         dither, output);
-    
+                          dither, output);
+
     sixel_dither_unref(dither);
     sixel_output_unref(output);
-    
+
     if (SIXEL_FAILED(status))
     {
         std::cerr << "[SIXEL] Encoding failed\n";
         return {};
     }
- 
+
     return output_buffer;
 }
 
@@ -3569,7 +3678,7 @@ static std::vector<uint8_t> render_kitty(
     bool keep_aspect_ratio,
     double scale_factor,
     uint8_t detail_level,
-    uint8_t quality, 
+    uint8_t quality,
     double rotation_angle,
     PixelFormat pixel_format,
     H264Encoder *h264_enc,
@@ -3583,22 +3692,25 @@ static std::vector<uint8_t> render_kitty(
 
     int terminal_pixel_width = (term_pixel_width > 0) ? term_pixel_width : (term_width * 10);
     int terminal_pixel_height = (term_pixel_height > 0) ? term_pixel_height : (term_height * 20);
-    
+
     int img_width, img_height;
-    
+
     if (keep_aspect_ratio)
     {
         double src_aspect = (double)rot_width / rot_height;
         double term_aspect = (double)terminal_pixel_width / terminal_pixel_height;
-        
-        if (src_aspect > term_aspect) {
+
+        if (src_aspect > term_aspect)
+        {
             img_width = terminal_pixel_width;
             img_height = (int)(img_width / src_aspect);
-        } else {
+        }
+        else
+        {
             img_height = terminal_pixel_height;
             img_width = (int)(img_height * src_aspect);
         }
-        
+
         img_width = (int)(img_width * scale_factor);
         img_height = (int)(img_height * scale_factor);
     }
@@ -3609,24 +3721,26 @@ static std::vector<uint8_t> render_kitty(
     }
 
     // Ensure img_width is divisible by 2 (required for YUV420)
-    if (img_width & 1) --img_width;
-    if (img_height & 1) --img_height;
-    
+    if (img_width & 1)
+        --img_width;
+    if (img_height & 1)
+        --img_height;
+
     // Build RGB24 data
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
-    
+
     for (int y = 0; y < img_height; y++)
     {
         for (int x = 0; x < img_width; x++)
         {
             double rot_x = (double)x * rot_width / img_width;
             double rot_y = (double)y * rot_height / img_height;
-            
+
             uint8_t r, g, b;
             sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               (int)rot_x, (int)rot_y, rot_width, rot_height, 
-                               rotation_angle, r, g, b, pixel_format);
-            
+                                 (int)rot_x, (int)rot_y, rot_width, rot_height,
+                                 rotation_angle, r, g, b, pixel_format);
+
             int idx = (y * img_width + x) * 3;
             rgb_data[idx + 0] = r;
             rgb_data[idx + 1] = g;
@@ -3635,50 +3749,44 @@ static std::vector<uint8_t> render_kitty(
     }
 
     std::vector<uint8_t> h264_data = encode_h264_frame(
-            *h264_enc, rgb_data.data(), img_width, img_height, quality, fps);
-    
-    if (h264_data.empty()) {
+        *h264_enc, rgb_data.data(), img_width, img_height, quality, fps);
+
+    if (h264_data.empty())
+    {
         return {};
     }
-    
+
     // Get SPS/PPS from encoder (extradata)
     std::vector<uint8_t> extradata;
-    if (h264_enc->encoder) {
-        x264_nal_t *nals;
-        int i_nals;
-        
-        // Get headers (SPS/PPS)
-        int header_size = x264_encoder_headers(h264_enc->encoder, &nals, &i_nals);
-        if (header_size > 0) {
-            for (int i = 0; i < i_nals; i++) {
-                extradata.insert(extradata.end(), 
-                               nals[i].p_payload, 
-                               nals[i].p_payload + nals[i].i_payload);
-            }
-        }
+    if (h264_enc->codec_ctx && h264_enc->codec_ctx->extradata)
+    {
+        extradata.insert(extradata.end(),
+                         h264_enc->codec_ctx->extradata,
+                         h264_enc->codec_ctx->extradata + h264_enc->codec_ctx->extradata_size);
     }
-    
+
     // Build header: [extradata_size (32B)][extradata (8B*)][width (32B)][height (32B)][compressed_size (32B)][H264_data (8B*)]
     std::vector<uint8_t> result;
     size_t extradata_size = extradata.size();
     result.resize(4 + extradata_size + 4 + 4 + 4);
     uint8_t *ptr = result.data();
-    
-    *reinterpret_cast<uint32_t*>(ptr) = extradata_size;
+
+    *reinterpret_cast<uint32_t *>(ptr) = extradata_size;
     ptr += 4;
-    
-    if (extradata_size > 0) {
+
+    if (extradata_size > 0)
+    {
         memcpy(ptr, extradata.data(), extradata_size);
         ptr += extradata_size;
     }
-    
-    *reinterpret_cast<uint32_t*>(ptr) = img_width;
+
+    *reinterpret_cast<uint32_t *>(ptr) = img_width;
     ptr += 4;
-    *reinterpret_cast<uint32_t*>(ptr) = img_height;
+    *reinterpret_cast<uint32_t *>(ptr) = img_height;
     ptr += 4;
-    *reinterpret_cast<uint32_t*>(ptr) = h264_data.size();
+    *reinterpret_cast<uint32_t *>(ptr) = h264_data.size();
     ptr += 4;
-    
+
     result.insert(result.end(), h264_data.begin(), h264_data.end());
     return result;
 }
@@ -3702,7 +3810,8 @@ static std::vector<uint8_t> render_framebuffer(
     H264Encoder *h264_enc,
     int fps)
 {
-    if (!frame_data || frame_width == 0 || frame_height == 0) {
+    if (!frame_data || frame_width == 0 || frame_height == 0)
+    {
         std::cerr << "[FRAMEBUFFER] ERROR: Invalid input\n";
         return {};
     }
@@ -3712,46 +3821,58 @@ static std::vector<uint8_t> render_framebuffer(
 
     int target_width = (term_pixel_width > 0) ? term_pixel_width : 1920;
     int target_height = (term_pixel_height > 0) ? term_pixel_height : 1080;
-    
+
     int img_width, img_height;
-    
-    if (keep_aspect_ratio) {
+
+    if (keep_aspect_ratio)
+    {
         double src_aspect = (double)rot_width / rot_height;
         double target_aspect = (double)target_width / target_height;
-        
-        if (src_aspect > target_aspect) {
+
+        if (src_aspect > target_aspect)
+        {
             img_width = target_width;
             img_height = (int)(img_width / src_aspect);
-        } else {
+        }
+        else
+        {
             img_height = target_height;
             img_width = (int)(img_height * src_aspect);
         }
-        
+
         img_width = (int)(img_width * scale_factor);
         img_height = (int)(img_height * scale_factor);
-    } else {
+    }
+    else
+    {
         img_width = (int)(target_width * scale_factor);
         img_height = (int)(target_height * scale_factor);
     }
 
-    if (img_width <= 0) img_width = target_width;
-    if (img_height <= 0) img_height = target_height;
-    if (img_width <= 0) img_width = 1920;
-    if (img_height <= 0) img_height = 1080;
+    if (img_width <= 0)
+        img_width = target_width;
+    if (img_height <= 0)
+        img_height = target_height;
+    if (img_width <= 0)
+        img_width = 1920;
+    if (img_height <= 0)
+        img_height = 1080;
 
     // Create RGB24 buffer
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
-    
-    for (int y = 0; y < img_height; y++) {
-        for (int x = 0; x < img_width; x++) {
+
+    for (int y = 0; y < img_height; y++)
+    {
+        for (int x = 0; x < img_width; x++)
+        {
             double rot_x = (double)x * rot_width / img_width;
             double rot_y = (double)y * rot_height / img_height;
-            
+
             uint8_t r, g, b;
             sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               (int)rot_x, (int)rot_y, rot_width, rot_height, 
-                               rotation_angle, r, g, b, pixel_format);
-            
+                                 (int)rot_x, (int)rot_y, rot_width, rot_height,
+                                 rotation_angle, r, g, b, pixel_format);
+
             int idx = (y * img_width + x) * 3;
             rgb_data[idx + 0] = r;
             rgb_data[idx + 1] = g;
@@ -3760,39 +3881,41 @@ static std::vector<uint8_t> render_framebuffer(
     }
 
     std::vector<uint8_t> h264_data;
-    
+
     // Use H.264 compression if encoder provided
-    if (h264_enc) {
-        img_width -= img_width & 1;  // ensure width is even
+    if (h264_enc)
+    {
+        img_width -= img_width & 1; // ensure width is even
 
         h264_data = encode_h264_frame(
             *h264_enc, rgb_data.data(), img_width, img_height, quality, fps);
-        
-        if (!h264_data.empty()) {
+
+        if (!h264_data.empty())
+        {
             // Build header: [width][height][compressed_size][H264_data]
             std::vector<uint8_t> result;
-            result.resize(12);  // 4 + 4 + 4 bytes header
-            *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
-            *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
-            *reinterpret_cast<uint32_t*>(&result[8]) = h264_data.size();
+            result.resize(12); // 4 + 4 + 4 bytes header
+            *reinterpret_cast<uint32_t *>(&result[0]) = img_width;
+            *reinterpret_cast<uint32_t *>(&result[4]) = img_height;
+            *reinterpret_cast<uint32_t *>(&result[8]) = h264_data.size();
             result.insert(result.end(), h264_data.begin(), h264_data.end());
             return result;
         }
-        
-        std::cerr << "[H264] Encoding failed\n";
 
+        std::cerr << "[H264] Encoding failed\n";
     }
-    
-    if (h264_data.empty()) {
+
+    if (h264_data.empty())
+    {
         return {};
     }
 
     // Build header: [width][height][compressed_size][H264_data]
     std::vector<uint8_t> result;
-    result.resize(12);  // 4 + 4 + 4 bytes header
-    *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
-    *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
-    *reinterpret_cast<uint32_t*>(&result[8]) = h264_data.size();
+    result.resize(12); // 4 + 4 + 4 bytes header
+    *reinterpret_cast<uint32_t *>(&result[0]) = img_width;
+    *reinterpret_cast<uint32_t *>(&result[4]) = img_height;
+    *reinterpret_cast<uint32_t *>(&result[8]) = h264_data.size();
     result.insert(result.end(), h264_data.begin(), h264_data.end());
     return result;
 }
@@ -3817,7 +3940,8 @@ static std::vector<uint8_t> render_kms(
     H264Encoder *h264_enc,
     int fps)
 {
-    if (!frame_data || frame_width == 0 || frame_height == 0) {
+    if (!frame_data || frame_width == 0 || frame_height == 0)
+    {
         std::cerr << "[KMS] ERROR: Invalid input\n";
         std::cerr << "[KMS] ERROR: Invalid input\n";
         return {};
@@ -3828,180 +3952,205 @@ static std::vector<uint8_t> render_kms(
 
     int target_width = (term_pixel_width > 0) ? term_pixel_width : 1920;
     int target_height = (term_pixel_height > 0) ? term_pixel_height : 1080;
-    
+
     int img_width, img_height;
-    
-    if (keep_aspect_ratio) {
+
+    if (keep_aspect_ratio)
+    {
         double src_aspect = (double)rot_width / rot_height;
         double target_aspect = (double)target_width / target_height;
-        
-        if (src_aspect > target_aspect) {
+
+        if (src_aspect > target_aspect)
+        {
             img_width = target_width;
             img_height = (int)(img_width / src_aspect);
-        } else {
+        }
+        else
+        {
             img_height = target_height;
             img_width = (int)(img_height * src_aspect);
         }
-        
+
         img_width = (int)(img_width * scale_factor);
         img_height = (int)(img_height * scale_factor);
-    } else {
+    }
+    else
+    {
         img_width = (int)(target_width * scale_factor);
         img_height = (int)(target_height * scale_factor);
     }
 
-    if (img_width <= 0) img_width = target_width;
-    if (img_height <= 0) img_height = target_height;
-    if (img_width <= 0) img_width = 1920;
-    if (img_height <= 0) img_height = 1080;
+    if (img_width <= 0)
+        img_width = target_width;
+    if (img_height <= 0)
+        img_height = target_height;
+    if (img_width <= 0)
+        img_width = 1920;
+    if (img_height <= 0)
+        img_height = 1080;
 
     // Create RGB24 buffer
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
-    
-    for (int y = 0; y < img_height; y++) {
-        for (int x = 0; x < img_width; x++) {
+
+    for (int y = 0; y < img_height; y++)
+    {
+        for (int x = 0; x < img_width; x++)
+        {
             double rot_x = (double)x * rot_width / img_width;
             double rot_y = (double)y * rot_height / img_height;
-            
+
             uint8_t r, g, b;
             sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
-                               (int)rot_x, (int)rot_y, rot_width, rot_height, 
-                               rotation_angle, r, g, b, pixel_format);
-            
+                                 (int)rot_x, (int)rot_y, rot_width, rot_height,
+                                 rotation_angle, r, g, b, pixel_format);
+
             int idx = (y * img_width + x) * 3;
             rgb_data[idx + 0] = r;
             rgb_data[idx + 1] = g;
             rgb_data[idx + 2] = b;
         }
     }
-    
+
     // Use H.264 compression if encoder provided
     std::vector<uint8_t> h264_data = encode_h264_frame(
         *h264_enc, rgb_data.data(), img_width, img_height, quality, fps);
-    
-    if (h264_data.empty()) {
+
+    if (h264_data.empty())
+    {
         return {};
     }
 
     // Build header: [width][height][compressed_size][H264_data]
     std::vector<uint8_t> result;
-    result.resize(12);  // 4 + 4 + 4 bytes header
-    *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
-    *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
-    *reinterpret_cast<uint32_t*>(&result[8]) = h264_data.size();
+    result.resize(12); // 4 + 4 + 4 bytes header
+    *reinterpret_cast<uint32_t *>(&result[0]) = img_width;
+    *reinterpret_cast<uint32_t *>(&result[4]) = img_height;
+    *reinterpret_cast<uint32_t *>(&result[8]) = h264_data.size();
     result.insert(result.end(), h264_data.begin(), h264_data.end());
     return result;
 }
 
-
 template <typename TW, typename TH, typename TS>
 static void apply_capture_resolution(
-    std::vector<uint8_t>& frame_data,
-    TW& width,
-    TH& height,
-    TS& stride,
+    std::vector<uint8_t> &frame_data,
+    TW &width,
+    TH &height,
+    TS &stride,
     PixelFormat pixel_format)
 {
-    if (capture_width == 0 || capture_height == 0) return;
-    if (width == capture_width && height == capture_height) return;
-    if (capture_width >= width && capture_height >= height) return;
-    
+    if (capture_width == 0 || capture_height == 0)
+        return;
+    if (width == capture_width && height == capture_height)
+        return;
+    if (capture_width >= width && capture_height >= height)
+        return;
+
     // Validate input dimensions
-    if (width == 0 || height == 0 || stride == 0) {
+    if (width == 0 || height == 0 || stride == 0)
+    {
         std::cerr << "[SCALE ERROR] Invalid input dimensions\n";
         return;
     }
-    
+
     // Validate source buffer size - USE CURRENT STRIDE
     int bpp = bpp_for_fmt(pixel_format);
-    size_t expected_buffer = (size_t)height * (size_t)stride;  // Use stride, not width*bpp
-    if (frame_data.size() < expected_buffer) {
-        std::cerr << "[CLIENT SCALE ERROR] Source buffer too small: " 
-                << frame_data.size() << " < " << expected_buffer 
-                << " (w=" << width << " h=" << height << " stride=" << stride << " bpp=" << bpp << ")\n";
+    size_t expected_buffer = (size_t)height * (size_t)stride; // Use stride, not width*bpp
+    if (frame_data.size() < expected_buffer)
+    {
+        std::cerr << "[CLIENT SCALE ERROR] Source buffer too small: "
+                  << frame_data.size() << " < " << expected_buffer
+                  << " (w=" << width << " h=" << height << " stride=" << stride << " bpp=" << bpp << ")\n";
         return;
     }
-    
+
     // Ensure destination dimensions are valid
     uint32_t dst_width = std::min((uint32_t)capture_width, (uint32_t)width);
     uint32_t dst_height = std::min((uint32_t)capture_height, (uint32_t)height);
-    
-    if (dst_width == 0 || dst_height == 0) {
+
+    if (dst_width == 0 || dst_height == 0)
+    {
         std::cerr << "[SCALE ERROR] Invalid destination dimensions\n";
         return;
     }
-    
+
     size_t dst_stride = (size_t)dst_width * bpp;
     size_t dst_size = dst_height * dst_stride;
-    
+
     // Validate destination buffer won't overflow
-    if (dst_size > 512 * 1024 * 1024) {
+    if (dst_size > 512 * 1024 * 1024)
+    {
         std::cerr << "[SCALE ERROR] Destination buffer too large\n";
         return;
     }
-    
+
     std::vector<uint8_t> scaled(dst_size);
-    
+
     // Bilinear interpolation with proper bounds checking
-    for (uint32_t dy = 0; dy < dst_height; dy++) {
-        for (uint32_t dx = 0; dx < dst_width; dx++) {
+    for (uint32_t dy = 0; dy < dst_height; dy++)
+    {
+        for (uint32_t dx = 0; dx < dst_width; dx++)
+        {
             // Map destination pixel to source coordinates
             double sx = ((double)dx + 0.5) * width / dst_width - 0.5;
             double sy = ((double)dy + 0.5) * height / dst_height - 0.5;
-            
+
             // Clamp to valid range BEFORE converting to int
             sx = std::clamp(sx, 0.0, (double)(width - 1));
             sy = std::clamp(sy, 0.0, (double)(height - 1));
-            
+
             int x0 = (int)sx;
             int y0 = (int)sy;
             int x1 = std::min(x0 + 1, (int)width - 1);
             int y1 = std::min(y0 + 1, (int)height - 1);
-            
+
             double fx = sx - x0;
             double fy = sy - y0;
-            
+
             // Additional safety clamps
             x0 = std::clamp(x0, 0, (int)width - 1);
             y0 = std::clamp(y0, 0, (int)height - 1);
             x1 = std::clamp(x1, 0, (int)width - 1);
             y1 = std::clamp(y1, 0, (int)height - 1);
-            
+
             // Calculate offsets with overflow protection - USE STRIDE NOT width*bpp
             size_t off00 = (size_t)y0 * stride + (size_t)x0 * bpp;
             size_t off10 = (size_t)y0 * stride + (size_t)x1 * bpp;
             size_t off01 = (size_t)y1 * stride + (size_t)x0 * bpp;
             size_t off11 = (size_t)y1 * stride + (size_t)x1 * bpp;
-            
+
             // Validate ALL offsets are in bounds (need bpp bytes)
-            if (off00 + bpp > frame_data.size() || 
+            if (off00 + bpp > frame_data.size() ||
                 off10 + bpp > frame_data.size() ||
-                off01 + bpp > frame_data.size() || 
-                off11 + bpp > frame_data.size()) {
+                off01 + bpp > frame_data.size() ||
+                off11 + bpp > frame_data.size())
+            {
                 std::cerr << "[SCALE ERROR] Buffer access out of bounds at dx=" << dx << " dy=" << dy << "\n";
                 // Fill with black and continue
                 size_t dst_off = (size_t)dy * dst_stride + (size_t)dx * bpp;
-                if (dst_off + bpp <= scaled.size()) {
+                if (dst_off + bpp <= scaled.size())
+                {
                     memset(&scaled[dst_off], 0, bpp);
                 }
                 continue;
             }
-            
+
             // Sample 4 pixels - now safe
-            const uint8_t* p00 = frame_data.data() + off00;
-            const uint8_t* p10 = frame_data.data() + off10;
-            const uint8_t* p01 = frame_data.data() + off01;
-            const uint8_t* p11 = frame_data.data() + off11;
-            
+            const uint8_t *p00 = frame_data.data() + off00;
+            const uint8_t *p10 = frame_data.data() + off10;
+            const uint8_t *p01 = frame_data.data() + off01;
+            const uint8_t *p11 = frame_data.data() + off11;
+
             // Interpolate each channel
             size_t dst_off = (size_t)dy * dst_stride + (size_t)dx * bpp;
-            if (dst_off + bpp > scaled.size()) {
+            if (dst_off + bpp > scaled.size())
+            {
                 std::cerr << "[SCALE ERROR] Destination offset out of bounds\n";
                 continue;
             }
-            
-            uint8_t* dst = scaled.data() + dst_off;
-            for (int c = 0; c < bpp; c++) {
+
+            uint8_t *dst = scaled.data() + dst_off;
+            for (int c = 0; c < bpp; c++)
+            {
                 double top = p00[c] * (1.0 - fx) + p10[c] * fx;
                 double bot = p01[c] * (1.0 - fx) + p11[c] * fx;
                 double val = top * (1.0 - fy) + bot * fy;
@@ -4009,118 +4158,130 @@ static void apply_capture_resolution(
             }
         }
     }
-    
+
     frame_data = std::move(scaled);
     width = dst_width;
     height = dst_height;
-    stride = dst_stride;  // CRITICAL: Update stride to match new dimensions
+    stride = dst_stride;
 }
 
 template <typename TW, typename TH, typename TS>
 static void apply_client_resolution(
-    std::vector<uint8_t>& frame_data,
-    TW& width,
-    TH& height,
-    TS& stride,
+    std::vector<uint8_t> &frame_data,
+    TW &width,
+    TH &height,
+    TS &stride,
     PixelFormat pixel_format,
     int client_width,
     int client_height)
 {
-    if (client_width == 0 || client_height == 0) return;
-    if (width == (uint32_t)client_width && height == (uint32_t)client_height) return;
-    
-    if (width == 0 || height == 0) {
+    if (client_width == 0 || client_height == 0)
+        return;
+    if (width == (uint32_t)client_width && height == (uint32_t)client_height)
+        return;
+
+    if (width == 0 || height == 0)
+    {
         std::cerr << "[CLIENT SCALE ERROR] Invalid input dimensions\n";
         return;
     }
-    
+
     int bpp = bpp_for_fmt(pixel_format);
-    if (bpp == 0) {
+    if (bpp == 0)
+    {
         std::cerr << "[CLIENT SCALE ERROR] Invalid pixel format\n";
         return;
     }
-    
-    // CRITICAL FIX: Use stride for actual buffer size, not width
+
     size_t expected_size = (size_t)height * (size_t)stride;
-    if (frame_data.size() < expected_size) {
-        std::cerr << "[CLIENT SCALE ERROR] Source buffer too small: " << frame_data.size() 
-                  << " < " << expected_size << " (w=" << width << " h=" << height 
+    if (frame_data.size() < expected_size)
+    {
+        std::cerr << "[CLIENT SCALE ERROR] Source buffer too small: " << frame_data.size()
+                  << " < " << expected_size << " (w=" << width << " h=" << height
                   << " stride=" << stride << " bpp=" << bpp << ")\n";
         return;
     }
-    
+
     // Ensure stride matches width if not already set correctly
-    if (stride != (TS)(width * bpp)) {
-        std::cerr << "[CLIENT SCALE] Warning: stride mismatch, correcting: " 
+    if (stride != (TS)(width * bpp))
+    {
+        std::cerr << "[CLIENT SCALE] Warning: stride mismatch, correcting: "
                   << stride << " -> " << (width * bpp) << "\n";
         stride = width * bpp;
     }
-    
+
     size_t dst_stride = (size_t)client_width * bpp;
     size_t dst_size = (size_t)client_height * dst_stride;
-    
-    if (dst_size > 512 * 1024 * 1024) {
+
+    if (dst_size > 512 * 1024 * 1024)
+    {
         std::cerr << "[SCALE ERROR] Destination buffer too large\n";
         return;
     }
-    
+
     std::vector<uint8_t> scaled(dst_size);
-    
+
     // Bilinear interpolation with proper bounds checking
-    for (uint32_t dy = 0; dy < (uint32_t)client_height; dy++) {
-        for (uint32_t dx = 0; dx < (uint32_t)client_width; dx++) {
+    for (uint32_t dy = 0; dy < (uint32_t)client_height; dy++)
+    {
+        for (uint32_t dx = 0; dx < (uint32_t)client_width; dx++)
+        {
             // Map destination pixel to source coordinates
             double sx = ((double)dx + 0.5) * width / client_width - 0.5;
             double sy = ((double)dy + 0.5) * height / client_height - 0.5;
-            
+
             // Clamp to valid range BEFORE converting to int
             sx = std::clamp(sx, 0.0, (double)(width - 1));
             sy = std::clamp(sy, 0.0, (double)(height - 1));
-            
+
             int x0 = (int)sx;
             int y0 = (int)sy;
             int x1 = std::min(x0 + 1, (int)width - 1);
             int y1 = std::min(y0 + 1, (int)height - 1);
-            
+
             double fx = sx - x0;
             double fy = sy - y0;
-            
+
             // Additional safety clamps
             x0 = std::clamp(x0, 0, (int)width - 1);
             y0 = std::clamp(y0, 0, (int)height - 1);
             x1 = std::clamp(x1, 0, (int)width - 1);
             y1 = std::clamp(y1, 0, (int)height - 1);
-            
+
             // Calculate offsets with overflow protection - USE STRIDE
             size_t off00 = (size_t)y0 * stride + (size_t)x0 * bpp;
             size_t off10 = (size_t)y0 * stride + (size_t)x1 * bpp;
             size_t off01 = (size_t)y1 * stride + (size_t)x0 * bpp;
             size_t off11 = (size_t)y1 * stride + (size_t)x1 * bpp;
-            
+
             // Validate ALL offsets are in bounds (need bpp bytes)
-            if (off00 + bpp > frame_data.size() || 
+            if (off00 + bpp > frame_data.size() ||
                 off10 + bpp > frame_data.size() ||
-                off01 + bpp > frame_data.size() || 
-                off11 + bpp > frame_data.size()) {
+                off01 + bpp > frame_data.size() ||
+                off11 + bpp > frame_data.size())
+            {
                 size_t dst_off = (size_t)dy * dst_stride + (size_t)dx * bpp;
-                if (dst_off + bpp <= scaled.size()) {
+                if (dst_off + bpp <= scaled.size())
+                {
                     memset(&scaled[dst_off], 0, bpp);
                 }
                 continue;
             }
-            
+
             // Sample 4 pixels - now safe
-            const uint8_t* p00 = frame_data.data() + off00;
-            const uint8_t* p10 = frame_data.data() + off10;
-            const uint8_t* p01 = frame_data.data() + off01;
-            const uint8_t* p11 = frame_data.data() + off11;
-            
+            const uint8_t *p00 = frame_data.data() + off00;
+            const uint8_t *p10 = frame_data.data() + off10;
+            const uint8_t *p01 = frame_data.data() + off01;
+            const uint8_t *p11 = frame_data.data() + off11;
+
             // Interpolate each channel
             size_t dst_off = (size_t)dy * dst_stride + (size_t)dx * bpp;
-            if (dst_off + bpp > scaled.size()) continue;
-            
-            uint8_t* dst = scaled.data() + dst_off;
-            for (int c = 0; c < bpp; c++) {
+            if (dst_off + bpp > scaled.size())
+                continue;
+
+            uint8_t *dst = scaled.data() + dst_off;
+            for (int c = 0; c < bpp; c++)
+            {
                 double top = p00[c] * (1.0 - fx) + p10[c] * fx;
                 double bot = p01[c] * (1.0 - fx) + p11[c] * fx;
                 double val = top * (1.0 - fy) + bot * fy;
@@ -4128,46 +4289,51 @@ static void apply_client_resolution(
             }
         }
     }
-    
+
     frame_data = std::move(scaled);
     width = client_width;
     height = client_height;
     stride = dst_stride;
 }
 
-static void capture_thread(int output_index, int fps) {
+static void capture_thread(int output_index, int fps)
+{
     if (output_index >= (int)outputs.size())
         return;
 
     const long frame_delay = 1000000 / fps;
-    
+
     std::cerr << "[CAPTURE] Thread started for output " << output_index
-              << " at " << fps << " FPS using " 
+              << " at " << fps << " FPS using "
               << (capture_backend == PIPEWIRE ? "PipeWire" : "wlr-screencopy") << "\n";
 
-    if (capture_backend == PIPEWIRE) {
+    if (capture_backend == PIPEWIRE)
+    {
         // PipeWire capture loop
         auto &pw_cap = pipewire_captures[output_index];
-        
-        if (!pw_cap) {
+
+        if (!pw_cap)
+        {
             std::cerr << "[CAPTURE] Output " << output_index << " not initialized\n";
             return;
         }
-        
+
         auto last_frame_time = std::chrono::steady_clock::now();
-        
-        while (running) {
+
+        while (running)
+        {
             auto frame_start = std::chrono::steady_clock::now();
-            
+
             std::vector<uint8_t> frame_data;
             uint32_t width, height, stride;
-            
-            if (pw_cap->get_frame(frame_data, width, height, stride)) {
+
+            if (pw_cap->get_frame(frame_data, width, height, stride))
+            {
                 // Copy to output buffer
                 std::lock_guard<std::mutex> lock(*output_mutexes[output_index]);
                 Capture &cap = output_captures[output_index];
                 apply_capture_resolution(frame_data, width, height, stride, FMT_BGRA);
-                
+
                 cap.back_buffer = std::move(frame_data);
                 cap.width = width;
                 cap.height = height;
@@ -4175,34 +4341,41 @@ static void capture_thread(int output_index, int fps) {
                 cap.format = 0; // BGRA
                 cap.back_ready = true;
                 cap.timestamp = std::chrono::steady_clock::now();
-                
+
                 output_ready[output_index] = true;
                 frame_ready_cvs[output_index]->notify_all();
-                
+
                 static int frame_log_count = 0;
-            } else {
+            }
+            else
+            {
                 static int no_frame_count = 0;
-                if (++no_frame_count % 300 == 1) {
-                    std::cerr << "[CAPTURE] No frame available for output " << output_index 
+                if (++no_frame_count % 300 == 1)
+                {
+                    std::cerr << "[CAPTURE] No frame available for output " << output_index
                               << " (" << no_frame_count << " attempts)\n";
                 }
             }
-            
+
             // Frame pacing
             auto now = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                now - last_frame_time).count();
-            
-            if (elapsed < frame_delay) {
+                               now - last_frame_time)
+                               .count();
+
+            if (elapsed < frame_delay)
+            {
                 usleep(frame_delay - elapsed);
             }
-            
+
             last_frame_time = std::chrono::steady_clock::now();
         }
-    } else {
+    }
+    else
+    {
         // wlr-screencopy
         wl_output *output = outputs[output_index];
-        
+
         CaptureContext ctx;
         ctx.output_index = output_index;
         ctx.capture = &output_captures[output_index];
@@ -4220,7 +4393,8 @@ static void capture_thread(int output_index, int fps) {
             ctx.capture->frame_in_flight = true;
         }
 
-        while (running) {
+        while (running)
+        {
             auto frame_start = std::chrono::steady_clock::now();
 
             {
@@ -4229,13 +4403,17 @@ static void capture_thread(int output_index, int fps) {
                 bool got_frame = frame_ready_cvs[output_index]->wait_for(
                     lock,
                     std::chrono::milliseconds(1000),
-                    [&] { return output_ready[output_index] || !running; });
+                    [&]
+                    { return output_ready[output_index] || !running; });
 
-                if (!running) break;
+                if (!running)
+                    break;
 
-                if (!got_frame) {
+                if (!got_frame)
+                {
                     consecutive_timeouts++;
-                    if (consecutive_timeouts > 5) {
+                    if (consecutive_timeouts > 5)
+                    {
                         std::cerr << "[CAPTURE] Multiple timeouts on output " << output_index << "\n";
                         consecutive_timeouts = 0;
                     }
@@ -4245,9 +4423,11 @@ static void capture_thread(int output_index, int fps) {
                 consecutive_timeouts = 0;
                 output_ready[output_index] = false;
 
-                if (ctx.capture->front_ready && ctx.capture->front_data) {
+                if (ctx.capture->front_ready && ctx.capture->front_data)
+                {
                     if (!ctx.capture->back_ready ||
-                        ctx.capture->back_buffer.size() != ctx.capture->size) {
+                        ctx.capture->back_buffer.size() != ctx.capture->size)
+                    {
                         ctx.capture->back_buffer.resize(ctx.capture->size);
                     }
 
@@ -4270,7 +4450,8 @@ static void capture_thread(int output_index, int fps) {
             {
                 std::lock_guard<std::mutex> lock(*ctx.mutex);
 
-                if (!ctx.capture->frame_in_flight) {
+                if (!ctx.capture->frame_in_flight)
+                {
                     auto *frame = zwlr_screencopy_manager_v1_capture_output(manager, 1, output);
                     zwlr_screencopy_frame_v1_add_listener(frame, &frame_listener, &ctx);
                     wl_display_flush(display);
@@ -4280,26 +4461,37 @@ static void capture_thread(int output_index, int fps) {
 
             auto now = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                now - last_frame_time).count();
+                               now - last_frame_time)
+                               .count();
 
-            if (elapsed < frame_delay) {
+            if (elapsed < frame_delay)
+            {
                 long sleep_time = frame_delay - elapsed;
 
-                if (sleep_time > 2000) {
+                if (sleep_time > 2000)
+                {
                     usleep(sleep_time - 1000);
 
-                    while (true) {
+                    while (true)
+                    {
                         now = std::chrono::steady_clock::now();
                         elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                            now - last_frame_time).count();
-                        if (elapsed >= frame_delay) break;
+                                      now - last_frame_time)
+                                      .count();
+                        if (elapsed >= frame_delay)
+                            break;
                     }
-                } else {
-                    while (true) {
+                }
+                else
+                {
+                    while (true)
+                    {
                         now = std::chrono::steady_clock::now();
                         elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                            now - last_frame_time).count();
-                        if (elapsed >= frame_delay) break;
+                                      now - last_frame_time)
+                                      .count();
+                        if (elapsed >= frame_delay)
+                            break;
                     }
                 }
             }
@@ -4449,22 +4641,22 @@ static std::vector<uint8_t> encode_audio_opus(
     }
 
     compressed.resize(comp_size);
-    
+
     // Stats
     size_t original_size = opus_frame_size * channels * sizeof(float);
     total_audio_packets++;
     total_audio_bytes_original += original_size;
     total_audio_bytes_compressed += comp_size;
-    
+
     if (total_audio_packets % 100 == 0)
     {
         double saved = 100.0 * (1.0 - (double)total_audio_bytes_compressed / total_audio_bytes_original);
         double ratio = (double)total_audio_bytes_original / total_audio_bytes_compressed;
-        std::cerr << "[AUDIO] Opus compression | Saved: " << std::fixed << std::setprecision(2) 
-                  << saved << "% | Ratio: " << ratio << "x over " 
+        std::cerr << "[AUDIO] Opus compression | Saved: " << std::fixed << std::setprecision(2)
+                  << saved << "% | Ratio: " << ratio << "x over "
                   << total_audio_packets << " packets\n";
     }
-    
+
     return compressed;
 }
 
@@ -4512,13 +4704,13 @@ static std::vector<uint8_t> decode_microphone_opus(
     total_microphone_packets++;
     total_microphone_bytes_compressed += opus_data.size();
     total_microphone_bytes_original += f32_data.size();
-    
+
     if (total_microphone_packets % 100 == 0)
     {
         double saved = 100.0 * (1.0 - (double)total_microphone_bytes_compressed / total_microphone_bytes_original);
         double ratio = (double)total_microphone_bytes_original / total_microphone_bytes_compressed;
-        std::cerr << "[MICROPHONE] Opus compression | Saved: " << std::fixed << std::setprecision(2) 
-                  << saved << "% | Ratio: " << ratio << "x over " 
+        std::cerr << "[MICROPHONE] Opus compression | Saved: " << std::fixed << std::setprecision(2)
+                  << saved << "% | Ratio: " << ratio << "x over "
                   << total_microphone_packets << " packets\n";
     }
 
@@ -4561,15 +4753,15 @@ static std::vector<uint8_t> compress_frame(const std::vector<uint8_t> &data,
     compressed.resize(comp_size);
 
     // Stats
-    total_bytes_original += data.size(); 
+    total_bytes_original += data.size();
     total_bytes_compressed += comp_size;
-    
+
     if (total_frames_sent % 100 == 0)
     {
         double saved = 100.0 * (1.0 - (double)total_bytes_compressed / total_bytes_original);
         double ratio = (double)total_bytes_original / total_bytes_compressed;
         std::cerr << "[VIDEO] LZ4 Level " << compression_level
-                  << " | Saved: " << std::fixed << std::setprecision(2) << saved 
+                  << " | Saved: " << std::fixed << std::setprecision(2) << saved
                   << "% | Ratio: " << ratio << "x over "
                   << total_frames_sent << " frames\n";
     }
@@ -5015,12 +5207,12 @@ static void audio_thread(int client_socket, std::string session_id)
                     encoder = it->second->audio_opus_encoder;
                 }
             }
-            
+
             if (config.audio_compress && encoder)
             {
                 // COMPRESSED PATH: Accumulate to full Opus frames
                 accumulator.insert(accumulator.end(), audio_data.begin(), audio_data.end());
-                
+
                 // Process full opus frames
                 while (accumulator.size() >= (size_t)frame_bytes)
                 {
@@ -5316,7 +5508,8 @@ static void apply_zoom_transform(
 
     // Validate source buffer
     size_t src_buffer_size = (size_t)src_height * (size_t)src_stride;
-    if (src_buffer_size == 0) {
+    if (src_buffer_size == 0)
+    {
         std::cerr << "[ZOOM ERROR] Invalid source buffer size\n";
         return;
     }
@@ -5326,10 +5519,9 @@ static void apply_zoom_transform(
     int region_width = (int)(zoom.view_width * inv_zoom);
     int region_height = (int)(zoom.view_height * inv_zoom);
 
-    // CRITICAL FIX: Ensure region doesn't exceed source dimensions
     region_width = std::min(region_width, (int)src_width);
     region_height = std::min(region_height, (int)src_height);
-    
+
     // Ensure region is at least 1 pixel
     region_width = std::max(region_width, 1);
     region_height = std::max(region_height, 1);
@@ -5375,7 +5567,6 @@ static void apply_zoom_transform(
             sx0 = std::clamp(sx0, 0, (int)src_width - 1);
             sy0 = std::clamp(sy0, 0, (int)src_height - 1);
 
-            // CRITICAL FIX: Validate buffer access before dereferencing
             size_t off00 = (size_t)sy0 * src_stride + (size_t)sx0 * 4;
             size_t off10 = (size_t)sy0 * src_stride + (size_t)sx1 * 4;
             size_t off01 = (size_t)sy1 * src_stride + (size_t)sx0 * 4;
@@ -5383,7 +5574,8 @@ static void apply_zoom_transform(
 
             // Ensure all offsets are within bounds (need 4 bytes for BGRA)
             if (off00 + 4 > src_buffer_size || off10 + 4 > src_buffer_size ||
-                off01 + 4 > src_buffer_size || off11 + 4 > src_buffer_size) {
+                off01 + 4 > src_buffer_size || off11 + 4 > src_buffer_size)
+            {
                 // Fill with black if out of bounds
                 uint8_t *dst = dst_data.data() + (size_t)dy * dst_stride + (size_t)dx * 4;
                 dst[0] = dst[1] = dst[2] = 0;
@@ -5478,15 +5670,15 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
             conn->config.detail_level = 50; // mid detail
             conn->config.follow_focus = 0;
             conn->config.audio_compress = 1;
-            conn->config.render_device = 0; // CPU
-            conn->config.quality = 50;      // mid quality
+            conn->config.render_device = 0;  // CPU
+            conn->config.quality = 50;       // mid quality
             conn->config.rotation_angle = 0; // no rotation
             // Audio opus defaults
-            conn->config.audio_bitrate = 64000; // 64kbps
-            conn->config.audio_opus_complexity = 5;   // mid complexity
-            conn->config.audio_channels = 2;    // stereo
+            conn->config.audio_bitrate = 64000;                           // 64kbps
+            conn->config.audio_opus_complexity = 5;                       // mid complexity
+            conn->config.audio_channels = 2;                              // stereo
             conn->config.audio_opus_application = OPUS_APPLICATION_AUDIO; // audio mode
-            conn->config.audio_sample_rate = 48000; // 48kHz
+            conn->config.audio_sample_rate = 48000;                       // 48kHz
             // Microphone opus defaults
             conn->config.microphone_compress = 1;
             conn->config.microphone_bitrate = 64000;
@@ -5542,7 +5734,8 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
             output_index = std::min(output_index, (uint32_t)(outputs.size() - 1));
         }
 
-        struct RenderedFrame {
+        struct RenderedFrame
+        {
             std::vector<uint8_t> data;
             std::chrono::steady_clock::time_point timestamp;
         };
@@ -5553,39 +5746,45 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
         std::atomic<bool> renderer_running{true};
 
         // Rendering thread - runs independently
-        auto render_thread_func = [&]() {
+        auto render_thread_func = [&]()
+        {
             std::cerr << "[RENDER] Thread started for session " << session_id << "\n";
-            
+
             auto last_render = std::chrono::steady_clock::now();
             long render_delay = 1000000 / config.fps;
-            
-            while (running && conn->active && renderer_running) {
+
+            while (running && conn->active && renderer_running)
+            {
                 auto render_start = std::chrono::steady_clock::now();
-                
+
                 // Update output index for focus following
                 uint32_t current_output = output_index;
-                if (config.follow_focus) {
+                if (config.follow_focus)
+                {
                     current_output = focus_tracker.focused_output_index.load();
                     current_output = std::min(current_output, (uint32_t)(outputs.size() - 1));
-                } else {
+                }
+                else
+                {
                     current_output = config.output_index;
                     current_output = std::min(current_output, (uint32_t)(outputs.size() - 1));
                 }
-                
+
                 // Capture frame
                 std::vector<uint8_t> local_frame;
                 uint32_t width = 0, height = 0, stride = 0;
                 uint32_t raw_format = 0;
-                
+
                 {
                     std::lock_guard<std::mutex> lock(*output_mutexes[current_output]);
                     Capture &cap = output_captures[current_output];
-                    
-                    if (!cap.back_ready) {
+
+                    if (!cap.back_ready)
+                    {
                         std::this_thread::sleep_for(std::chrono::microseconds(500));
                         continue;
                     }
-                    
+
                     // Make defensive copy of buffer
                     local_frame = cap.back_buffer;
                     width = cap.width;
@@ -5593,258 +5792,279 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                     stride = cap.stride;
                     raw_format = cap.format;
 
-                    
                     // Validate dimensions are sane
-                    if (!validate_frame_dimensions(width, height, stride)) {
+                    if (!validate_frame_dimensions(width, height, stride))
+                    {
                         std::cerr << "[RENDER ERROR] Invalid frame dimensions from capture\n";
                         continue;
                     }
                 }
-                
+
                 // Apply zoom if enabled
                 std::vector<uint8_t> frame_to_render = local_frame;
                 uint32_t render_width = width;
                 uint32_t render_height = height;
                 uint32_t render_stride = stride;
-                
-                if (conn->zoom.enabled) {
+
+                if (conn->zoom.enabled)
+                {
                     update_zoom_smooth_pan(conn->zoom);
-                    
+
                     std::vector<uint8_t> zoomed_frame;
                     uint32_t zoomed_width, zoomed_height, zoomed_stride;
-                    
+
                     apply_zoom_transform(
                         local_frame.data(), width, height, stride,
                         zoomed_frame, zoomed_width, zoomed_height, zoomed_stride,
                         conn->zoom);
-                    
+
                     frame_to_render = zoomed_frame;
                     render_width = zoomed_width;
                     render_height = zoomed_height;
                     render_stride = zoomed_stride;
                 }
-                
+
                 // Render frame
                 ColorMode mode = static_cast<ColorMode>(config.color_mode);
                 bool keep_aspect_ratio = config.keep_aspect_ratio != 0;
-                PixelFormat pixel_fmt = (capture_backend == PIPEWIRE) 
-                    ? spa_to_pixelfmt(raw_format) 
-                    : wl_shm_to_pixelfmt(raw_format);
-               
-                if (config.requested_capture_width > 0 && config.requested_capture_height > 0) {
+                PixelFormat pixel_fmt = (capture_backend == PIPEWIRE)
+                                            ? spa_to_pixelfmt(raw_format)
+                                            : wl_shm_to_pixelfmt(raw_format);
+
+                if (config.requested_capture_width > 0 && config.requested_capture_height > 0)
+                {
                     apply_client_resolution(
-                        frame_to_render, 
-                        render_width, 
-                        render_height, 
+                        frame_to_render,
+                        render_width,
+                        render_height,
                         render_stride,
                         pixel_fmt,
-                        config.requested_capture_width, 
+                        config.requested_capture_width,
                         config.requested_capture_height);
-                    }
+                }
 
                 std::vector<uint8_t> rendered_buf;
                 std::string rendered;
-                switch (config.renderer) {
-                    case 0:
-                        if (config.render_device == 1) {
-                            rendered = render_braille_cuda_wrapper(
-                                frame_to_render.data(), render_width, render_height, render_stride,
-                                config.term_width, config.term_height,
-                                mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt);
-                            rendered_buf.assign(rendered.begin(), rendered.end());
-                        } else {
-                            rendered = render_braille(
-                                frame_to_render.data(), render_width, render_height, render_stride,
-                                config.term_width, config.term_height,
-                                mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt);
-                            rendered_buf.assign(rendered.begin(), rendered.end());
-                        }
-                        break;
-                    case 1:
-                        rendered = render_blocks(
+                switch (config.renderer)
+                {
+                case 0:
+                    if (config.render_device == 1)
+                    {
+                        rendered = render_braille_cuda_wrapper(
                             frame_to_render.data(), render_width, render_height, render_stride,
                             config.term_width, config.term_height,
-                            mode, keep_aspect_ratio, config.scale_factor, 
+                            mode, keep_aspect_ratio, config.scale_factor,
                             config.detail_level, config.quality, config.rotation_angle,
                             pixel_fmt);
-                            rendered_buf.assign(rendered.begin(), rendered.end());
-                        break;
-                    case 2:
-                        rendered = render_ascii(
+                        rendered_buf.assign(rendered.begin(), rendered.end());
+                    }
+                    else
+                    {
+                        rendered = render_braille(
                             frame_to_render.data(), render_width, render_height, render_stride,
                             config.term_width, config.term_height,
-                            mode, keep_aspect_ratio, config.scale_factor, 
+                            mode, keep_aspect_ratio, config.scale_factor,
                             config.detail_level, config.quality, config.rotation_angle,
                             pixel_fmt);
-                            rendered_buf.assign(rendered.begin(), rendered.end());
-                        break;
-                    case 4: {
-                            rendered_buf = std::move(render_sixel(
-                                frame_to_render.data(), render_width, render_height, render_stride,
-                                config.term_width, config.term_height,
-                                config.term_pixel_width, config.term_pixel_height,
-                                mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt));
-                        }
-                        break;
-                    case 5: {
-                            rendered_buf = std::move(render_kitty(
-                                frame_to_render.data(), render_width, render_height, render_stride,
-                                config.term_width, config.term_height,
-                                config.term_pixel_width, config.term_pixel_height,
-                                mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt, &conn->h264_encoder, config.fps));
-                        }
-                        break;
-                    case 6: {
-                            rendered_buf = std::move(render_framebuffer(
-                                frame_to_render.data(), render_width, render_height, render_stride,
-                                config.term_width, config.term_height,
-                                config.term_pixel_width, config.term_pixel_height,
-                                mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt, &conn->h264_encoder, config.fps));
-                        }
-                        break;
-                    case 7: {
-                            rendered_buf = std::move(render_kms(
-                                frame_to_render.data(), render_width, render_height, render_stride,
-                                config.term_width, config.term_height,
-                                config.term_pixel_width, config.term_pixel_height,
-                                mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt, &conn->h264_encoder, config.fps));
-                        }
-                        break;
-                    case 3:
-                    default:
-                        if (config.render_device == 1) {
-                            rendered = render_hybrid_cuda_wrapper(
-                                frame_to_render.data(), render_width, render_height, render_stride,
-                                config.term_width, config.term_height,
-                                mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt);
-                            rendered_buf.assign(rendered.begin(), rendered.end());
-                        } else {
-                            rendered = render_hybrid(
-                                frame_to_render.data(), render_width, render_height, render_stride,
-                                config.term_width, config.term_height,
-                                mode, keep_aspect_ratio, config.scale_factor, 
-                                config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt);
-                            rendered_buf.assign(rendered.begin(), rendered.end());
-                        }
-                        break;
+                        rendered_buf.assign(rendered.begin(), rendered.end());
+                    }
+                    break;
+                case 1:
+                    rendered = render_blocks(
+                        frame_to_render.data(), render_width, render_height, render_stride,
+                        config.term_width, config.term_height,
+                        mode, keep_aspect_ratio, config.scale_factor,
+                        config.detail_level, config.quality, config.rotation_angle,
+                        pixel_fmt);
+                    rendered_buf.assign(rendered.begin(), rendered.end());
+                    break;
+                case 2:
+                    rendered = render_ascii(
+                        frame_to_render.data(), render_width, render_height, render_stride,
+                        config.term_width, config.term_height,
+                        mode, keep_aspect_ratio, config.scale_factor,
+                        config.detail_level, config.quality, config.rotation_angle,
+                        pixel_fmt);
+                    rendered_buf.assign(rendered.begin(), rendered.end());
+                    break;
+                case 4:
+                {
+                    rendered_buf = std::move(render_sixel(
+                        frame_to_render.data(), render_width, render_height, render_stride,
+                        config.term_width, config.term_height,
+                        config.term_pixel_width, config.term_pixel_height,
+                        mode, keep_aspect_ratio, config.scale_factor,
+                        config.detail_level, config.quality, config.rotation_angle,
+                        pixel_fmt));
                 }
-                
-                if (rendered_buf.empty()) {
+                break;
+                case 5:
+                {
+                    rendered_buf = std::move(render_kitty(
+                        frame_to_render.data(), render_width, render_height, render_stride,
+                        config.term_width, config.term_height,
+                        config.term_pixel_width, config.term_pixel_height,
+                        mode, keep_aspect_ratio, config.scale_factor,
+                        config.detail_level, config.quality, config.rotation_angle,
+                        pixel_fmt, &conn->h264_encoder, config.fps));
+                }
+                break;
+                case 6:
+                {
+                    rendered_buf = std::move(render_framebuffer(
+                        frame_to_render.data(), render_width, render_height, render_stride,
+                        config.term_width, config.term_height,
+                        config.term_pixel_width, config.term_pixel_height,
+                        mode, keep_aspect_ratio, config.scale_factor,
+                        config.detail_level, config.quality, config.rotation_angle,
+                        pixel_fmt, &conn->h264_encoder, config.fps));
+                }
+                break;
+                case 7:
+                {
+                    rendered_buf = std::move(render_kms(
+                        frame_to_render.data(), render_width, render_height, render_stride,
+                        config.term_width, config.term_height,
+                        config.term_pixel_width, config.term_pixel_height,
+                        mode, keep_aspect_ratio, config.scale_factor,
+                        config.detail_level, config.quality, config.rotation_angle,
+                        pixel_fmt, &conn->h264_encoder, config.fps));
+                }
+                break;
+                case 3:
+                default:
+                    if (config.render_device == 1)
+                    {
+                        rendered = render_hybrid_cuda_wrapper(
+                            frame_to_render.data(), render_width, render_height, render_stride,
+                            config.term_width, config.term_height,
+                            mode, keep_aspect_ratio, config.scale_factor,
+                            config.detail_level, config.quality, config.rotation_angle,
+                            pixel_fmt);
+                        rendered_buf.assign(rendered.begin(), rendered.end());
+                    }
+                    else
+                    {
+                        rendered = render_hybrid(
+                            frame_to_render.data(), render_width, render_height, render_stride,
+                            config.term_width, config.term_height,
+                            mode, keep_aspect_ratio, config.scale_factor,
+                            config.detail_level, config.quality, config.rotation_angle,
+                            pixel_fmt);
+                        rendered_buf.assign(rendered.begin(), rendered.end());
+                    }
+                    break;
+                }
+
+                if (rendered_buf.empty())
+                {
                     std::cerr << "[RENDER] Warning: Empty rendered frame\n";
                     continue;
                 }
-                
+
                 // Build complete message with screen info
                 std::vector<uint8_t> info_msg;
                 MessageType info_type = MessageType::SCREEN_INFO;
-                
+
                 // Include output offset for proper multi-monitor mouse coordinate handling
                 int32_t out_x = 0, out_y = 0;
-                if (current_output < output_geometries.size()) {
+                if (current_output < output_geometries.size())
+                {
                     out_x = output_geometries[current_output].x;
                     out_y = output_geometries[current_output].y;
                 }
                 ScreenInfo info{width, height, out_x, out_y, current_output, outputs.size()};
-                
+
                 const uint8_t *type_bytes = reinterpret_cast<const uint8_t *>(&info_type);
                 info_msg.insert(info_msg.end(), type_bytes, type_bytes + sizeof(info_type));
                 const uint8_t *info_bytes = reinterpret_cast<const uint8_t *>(&info);
                 info_msg.insert(info_msg.end(), info_bytes, info_bytes + sizeof(info));
-                
+
                 // Build frame message
                 std::vector<uint8_t> frame_msg;
-                
-                if (config.compress) {
+
+                if (config.compress)
+                {
                     // Build uncompressed frame first
                     std::vector<uint8_t> uncompressed;
                     MessageType msg_type = MessageType::RENDERED_FRAME;
                     type_bytes = reinterpret_cast<const uint8_t *>(&msg_type);
                     uncompressed.insert(uncompressed.end(), type_bytes, type_bytes + sizeof(msg_type));
-                    
+
                     RenderedFrameHeader header;
                     header.data_size = rendered_buf.size();
                     const uint8_t *header_bytes = reinterpret_cast<const uint8_t *>(&header);
                     uncompressed.insert(uncompressed.end(), header_bytes, header_bytes + sizeof(header));
-                    
+
                     const uint8_t *data_bytes = reinterpret_cast<const uint8_t *>(rendered_buf.data());
                     uncompressed.insert(uncompressed.end(), data_bytes, data_bytes + rendered_buf.size());
-                    
+
                     std::vector<uint8_t> compressed = compress_frame(uncompressed, config.compression_level);
-                    
+
                     MessageType comp_type = MessageType::COMPRESSED_FRAME;
                     type_bytes = reinterpret_cast<const uint8_t *>(&comp_type);
                     frame_msg.insert(frame_msg.end(), type_bytes, type_bytes + sizeof(comp_type));
-                    
+
                     CompressedFrameHeader comp_header;
                     comp_header.compressed_size = compressed.size();
                     comp_header.uncompressed_size = uncompressed.size();
                     const uint8_t *comp_bytes = reinterpret_cast<const uint8_t *>(&comp_header);
                     frame_msg.insert(frame_msg.end(), comp_bytes, comp_bytes + sizeof(comp_header));
                     frame_msg.insert(frame_msg.end(), compressed.begin(), compressed.end());
-                } else {
+                }
+                else
+                {
                     MessageType msg_type = MessageType::RENDERED_FRAME;
                     type_bytes = reinterpret_cast<const uint8_t *>(&msg_type);
                     frame_msg.insert(frame_msg.end(), type_bytes, type_bytes + sizeof(msg_type));
-                    
+
                     RenderedFrameHeader header;
                     header.data_size = rendered_buf.size();
                     const uint8_t *header_bytes = reinterpret_cast<const uint8_t *>(&header);
                     frame_msg.insert(frame_msg.end(), header_bytes, header_bytes + sizeof(header));
-                    
+
                     const uint8_t *data_bytes = reinterpret_cast<const uint8_t *>(rendered_buf.data());
                     frame_msg.insert(frame_msg.end(), data_bytes, data_bytes + rendered_buf.size());
                 }
-                
+
                 // Combine messages
                 std::vector<uint8_t> complete_msg;
                 complete_msg.reserve(info_msg.size() + frame_msg.size());
                 complete_msg.insert(complete_msg.end(), info_msg.begin(), info_msg.end());
                 complete_msg.insert(complete_msg.end(), frame_msg.begin(), frame_msg.end());
-                
+
                 // Add to rendered queue
                 {
                     std::lock_guard<std::mutex> lock(render_mutex);
-                    
+
                     // Drop old frames if queue is full (keep max 2 frames buffered)
-                    while (rendered_queue.size() >= 2) {
+                    while (rendered_queue.size() >= 2)
+                    {
                         rendered_queue.pop();
                         frames_dropped++;
                     }
-                    
+
                     RenderedFrame rf;
                     rf.data = std::move(complete_msg);
                     rf.timestamp = std::chrono::steady_clock::now();
                     rendered_queue.push(std::move(rf));
                     render_cv.notify_one();
                 }
-                
+
                 // Frame pacing
                 auto now = std::chrono::steady_clock::now();
                 auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                    now - last_render).count();
-                
-                if (elapsed < render_delay) {
+                                   now - last_render)
+                                   .count();
+
+                if (elapsed < render_delay)
+                {
                     usleep(render_delay - elapsed);
                 }
-                
+
                 last_render = std::chrono::steady_clock::now();
             }
-            
+
             std::cerr << "[RENDER] Thread stopped for session " << session_id << "\n";
         };
 
@@ -5854,36 +6074,39 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
         // Send thread - just pulls from queue and sends
         std::cerr << "[FRAME] Starting send loop for session " << session_id << "\n";
 
-        while (running && conn->active && send_queue->running) {
+        while (running && conn->active && send_queue->running)
+        {
             RenderedFrame frame;
-            
+
             {
                 std::unique_lock<std::mutex> lock(render_mutex);
-                
+
                 // Wait for rendered frame
-                render_cv.wait_for(lock, std::chrono::milliseconds(100), [&] {
-                    return !rendered_queue.empty() || !running || !conn->active;
-                });
-                
-                if (!running || !conn->active) break;
-                
-                if (rendered_queue.empty()) continue;
-                
+                render_cv.wait_for(lock, std::chrono::milliseconds(100), [&]
+                                   { return !rendered_queue.empty() || !running || !conn->active; });
+
+                if (!running || !conn->active)
+                    break;
+
+                if (rendered_queue.empty())
+                    continue;
+
                 frame = std::move(rendered_queue.front());
                 rendered_queue.pop();
             }
-            
+
             // Queue for async sending
             {
                 std::lock_guard<std::mutex> lock(send_queue->mutex);
-                if (send_queue->frame_ready) {
+                if (send_queue->frame_ready)
+                {
                     send_queue->dropped_frames++;
                 }
                 send_queue->latest_frame = std::move(frame.data);
                 send_queue->frame_ready = true;
                 send_queue->cv.notify_one();
             }
-            
+
             total_frames_sent++;
         }
 
@@ -6004,21 +6227,24 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
 
             if (n == sizeof(type))
             {
-                if (type == MessageType::CLIENT_CONFIG) {
+                if (type == MessageType::CLIENT_CONFIG)
+                {
                     ClientConfig new_config;
                     n = recv(client_socket, &new_config, sizeof(new_config), 0);
-                    if (n == sizeof(new_config)) {
+                    if (n == sizeof(new_config))
+                    {
                         std::lock_guard<std::mutex> lock(clients_mutex);
-                        
+
                         // Apply client's requested capture resolution
-                        if (new_config.requested_capture_width > 0 && 
-                            new_config.requested_capture_height > 0) {
-                            std::cerr << "[CONFIG] Client " << session_id 
-                                    << " requested capture resolution: "
-                                    << new_config.requested_capture_width << "x"
-                                    << new_config.requested_capture_height << "\n";
+                        if (new_config.requested_capture_width > 0 &&
+                            new_config.requested_capture_height > 0)
+                        {
+                            std::cerr << "[CONFIG] Client " << session_id
+                                      << " requested capture resolution: "
+                                      << new_config.requested_capture_width << "x"
+                                      << new_config.requested_capture_height << "\n";
                         }
-                                                
+
                         // Check if audio opus config changed
                         bool audio_opus_changed =
                             (conn->config.audio_channels != new_config.audio_channels) ||
@@ -6035,11 +6261,11 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
 
                         conn->config = new_config;
 
-                        std::cerr << "[DEBUG] Received config: follow_focus=" << (int)new_config.follow_focus 
+                        std::cerr << "[DEBUG] Received config: follow_focus=" << (int)new_config.follow_focus
                                   << " output_index=" << new_config.output_index
                                   << " renderer=" << (int)new_config.renderer
                                   << " detail=" << (int)new_config.detail_level
-                                  << " quality=" << (int)new_config.quality 
+                                  << " quality=" << (int)new_config.quality
                                   << " audio_compress=" << (int)new_config.audio_compress
                                   << " microphone_compress=" << (int)new_config.microphone_compress << "\n";
 
@@ -6057,7 +6283,7 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                                 update_focus_tracking();
                             }
                         }
-                        
+
                         // Reinitialize audio opus encoder if needed (server encodes audio to send)
                         if (new_config.audio_compress && (audio_opus_changed || !conn->audio_opus_encoder))
                         {
@@ -6143,7 +6369,7 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                         conn->zoom.view_height = zoom_config.view_height;
                         conn->zoom.smooth_pan = zoom_config.smooth_pan != 0;
                         conn->zoom.pan_speed = zoom_config.pan_speed;
-                        
+
                         // Update target position
                         if (conn->zoom.follow_mouse)
                         {
@@ -6460,9 +6686,10 @@ static void shutdown_handler(int signum)
     }
 }
 
-bool wlr_virtual_input_available() 
+bool wlr_virtual_input_available()
 {
-    if (virtual_input_mgr.backend != VirtualInputManager::WLR_PROTOCOLS) {
+    if (virtual_input_mgr.backend != VirtualInputManager::WLR_PROTOCOLS)
+    {
         return false;
     }
 }
@@ -6531,33 +6758,45 @@ int main(int argc, char **argv)
     }
 
     std::string capture_resolution = program.get<std::string>("--capture-resolution");
-    if (capture_resolution != "auto") {
+    if (capture_resolution != "auto")
+    {
         size_t x_pos = capture_resolution.find('x');
-        if (x_pos != std::string::npos) {
+        if (x_pos != std::string::npos)
+        {
             capture_width = std::stoul(capture_resolution.substr(0, x_pos));
             capture_height = std::stoul(capture_resolution.substr(x_pos + 1));
         }
     }
 
     std::string backend_str = program.get<std::string>("--capture-backend");
-    if (backend_str == "pipewire") {
+    if (backend_str == "pipewire")
+    {
         capture_backend = PIPEWIRE;
-    } else if (backend_str == "wlr") {
+    }
+    else if (backend_str == "wlr")
+    {
         capture_backend = WLR_SCREENCOPY;
-    } else {
+    }
+    else
+    {
         capture_backend = AUTO_CAPTURE;
     }
-    
+
     std::string input_backend_str = program.get<std::string>("--input-backend");
     VirtualInputManager::Backend preferred_input_backend = VirtualInputManager::AUTO;
-    if (input_backend_str == "virtual") {
+    if (input_backend_str == "virtual")
+    {
         preferred_input_backend = VirtualInputManager::WLR_PROTOCOLS;
-    } else if (input_backend_str == "uinput") {
+    }
+    else if (input_backend_str == "uinput")
+    {
         preferred_input_backend = VirtualInputManager::UINPUT;
-    } else {
+    }
+    else
+    {
         preferred_input_backend = VirtualInputManager::AUTO;
     }
-    
+
     std::string compositor_override = program.get<std::string>("--compositor");
     compositor_type = detect_compositor(compositor_override);
     std::cerr << "[INIT] Compositor: " << compositor_type << "\n";
@@ -6641,17 +6880,21 @@ int main(int argc, char **argv)
         }
     }
 
-    if (capture_backend == AUTO_CAPTURE) {
+    if (capture_backend == AUTO_CAPTURE)
+    {
         capture_backend = detect_capture_backend();
     }
-    
+
     // Check if we have a valid capture backend when video is enabled
-    if (feature_video) {
-        if (capture_backend == WLR_SCREENCOPY && manager == nullptr) {
+    if (feature_video)
+    {
+        if (capture_backend == WLR_SCREENCOPY && manager == nullptr)
+        {
             std::cerr << "[CAPTURE] ERROR: wlr-screencopy selected but not available!\n";
             return 1;
         }
-        if (capture_backend == PIPEWIRE && !pipewire_capture_available()) {
+        if (capture_backend == PIPEWIRE && !pipewire_capture_available())
+        {
             std::cerr << "[CAPTURE] ERROR: PipeWire selected but not available!\n";
             return 1;
         }
@@ -6814,75 +7057,101 @@ int main(int argc, char **argv)
     }
 
     // Initialize capture based on backend:
-    if (feature_video) {
-        if (capture_backend == PIPEWIRE) {
+    if (feature_video)
+    {
+        if (capture_backend == PIPEWIRE)
+        {
             std::cerr << "Initializing PipeWire capture for all outputs\n";
-            
+
             pipewire_captures.resize(outputs.size());
-            
+
             // Initialize each output with its own portal session
-            for (size_t i = 0; i < outputs.size(); i++) {
+            for (size_t i = 0; i < outputs.size(); i++)
+            {
                 pipewire_captures[i] = std::make_unique<PipeWireCapture>();
-                if (!pipewire_captures[i]->init(i)) {
+                if (!pipewire_captures[i]->init(i))
+                {
                     std::cerr << "Failed to initialize PipeWire capture for output " << i << "\n";
                     return 1;
                 }
             }
-            
-            for (size_t i = 0; i < outputs.size(); i++) {
+
+            for (size_t i = 0; i < outputs.size(); i++)
+            {
                 output_mutexes.push_back(std::make_unique<std::mutex>());
                 frame_ready_cvs.push_back(std::make_unique<std::condition_variable>());
             }
             output_ready.resize(outputs.size(), false);
             output_captures.resize(outputs.size());
-        } else {
+        }
+        else
+        {
             // Original wlr-screencopy initialization
             std::cerr << "Found " << outputs.size() << " output(s)\n";
-    
+
             output_captures.resize(outputs.size());
-            for (size_t i = 0; i < outputs.size(); i++) {
+            for (size_t i = 0; i < outputs.size(); i++)
+            {
                 output_mutexes.push_back(std::make_unique<std::mutex>());
                 frame_ready_cvs.push_back(std::make_unique<std::condition_variable>());
             }
             output_ready.resize(outputs.size(), false);
         }
     }
-    
+
     // Initialize virtual input after checking protocols:
-    if (feature_input) {
+    if (feature_input)
+    {
         bool has_wlr_input = (seat && pointer_manager && keyboard_manager);
         bool initialized = false;
-        
-        if (preferred_input_backend == VirtualInputManager::AUTO) {
-            if (has_wlr_input) {
+
+        if (preferred_input_backend == VirtualInputManager::AUTO)
+        {
+            if (has_wlr_input)
+            {
                 initialized = virtual_input_mgr.init_wlr(display, seat, pointer_manager, keyboard_manager);
-                if (!initialized) std::cerr << "[INPUT] WLR init failed, trying uinput\n";
+                if (!initialized)
+                    std::cerr << "[INPUT] WLR init failed, trying uinput\n";
             }
-            if (!initialized && uinput_available()) {
+            if (!initialized && uinput_available())
+            {
                 initialized = virtual_input_mgr.init_uinput();
             }
-        } else if (preferred_input_backend == VirtualInputManager::WLR_PROTOCOLS) {
-            if (has_wlr_input) {
+        }
+        else if (preferred_input_backend == VirtualInputManager::WLR_PROTOCOLS)
+        {
+            if (has_wlr_input)
+            {
                 initialized = virtual_input_mgr.init_wlr(display, seat, pointer_manager, keyboard_manager);
-            } else {
+            }
+            else
+            {
                 std::cerr << "[INPUT] WLR protocols not available!\n";
             }
-        } else if (preferred_input_backend == VirtualInputManager::UINPUT) {
-            if (uinput_available()) {
+        }
+        else if (preferred_input_backend == VirtualInputManager::UINPUT)
+        {
+            if (uinput_available())
+            {
                 initialized = virtual_input_mgr.init_uinput();
-            } else {
+            }
+            else
+            {
                 std::cerr << "[INPUT] uinput not available!\n";
             }
         }
-        
-        if (!initialized) {
+
+        if (!initialized)
+        {
             std::cerr << "[INPUT] No virtual input backend available!\n";
             feature_input = false;
-        } else {
+        }
+        else
+        {
             std::cerr << "[INPUT] Using " << virtual_input_mgr.backend_name() << " backend\n";
         }
     }
-    
+
     // Setup config server socket (ALWAYS enabled)
     config_server_socket = socket(AF_INET, SOCK_STREAM, 0);
     all_server_sockets.push_back(config_server_socket);
@@ -7080,13 +7349,17 @@ int main(int argc, char **argv)
         wl_display_disconnect(display);
     }
 
-    if (feature_input) {
+    if (feature_input)
+    {
         virtual_input_mgr.cleanup();
     }
-    
-    if (capture_backend == PIPEWIRE) {
-        for (auto &cap : pipewire_captures) {
-            if (cap) cap->cleanup();
+
+    if (capture_backend == PIPEWIRE)
+    {
+        for (auto &cap : pipewire_captures)
+        {
+            if (cap)
+                cap->cleanup();
         }
     }
 
