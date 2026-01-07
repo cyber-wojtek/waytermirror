@@ -41,12 +41,14 @@
 #include <gbm.h>
 #include <sys/mman.h>
 #include <cstring>
-extern "C" {
-    #include <libavcodec/avcodec.h>
-    #include <libavutil/imgutils.h>
-    #include <libavutil/opt.h>
-    #include <libswscale/swscale.h>
+extern "C"
+{
+#include <libavcodec/avcodec.h>
+#include <libavutil/opt.h>
+#include <libavutil/imgutils.h>
+#include <libswscale/swscale.h>
 }
+#include <png.h>
 
 // Opus encoders/decoders
 static OpusEncoder *microphone_opus_encoder = nullptr; // For encoding microphone data to send
@@ -152,15 +154,27 @@ static bool exclusive_mode = false;
 // Output management
 static uint32_t outputs = 1;
 
-// FFmpeg decoding context
-AVCodecContext* dec_ctx = nullptr;
-AVFrame* dec_frame = nullptr;
-AVFrame* rgba_frame = nullptr;
-AVPacket* pkt = nullptr;
-SwsContext* sws = nullptr;
+struct H264Decoder
+{
+    AVCodecContext *codec_ctx = nullptr;
+    AVFrame *frame = nullptr;
+    AVFrame *rgb_frame = nullptr;
+    AVPacket *pkt = nullptr;
+    SwsContext *sws_ctx = nullptr;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    bool initialized = false;
+    int src_format = -1;
+    std::mutex mutex;
+    bool received_keyframe = false;
+    
+    // GPU acceleration
+    AVBufferRef *hw_device_ctx = nullptr;
+    enum AVPixelFormat hw_pix_fmt = AV_PIX_FMT_NONE;
+    bool use_hw = false;
+};
 
-uint8_t* rgba_buf = nullptr;
-int rgba_stride = 0;
+static H264Decoder h264_decoder;
 
 // Protocol definitions
 enum class MessageType : uint8_t
@@ -387,14 +401,15 @@ struct KMSDisplay
     uint32_t height = 0;
 
     uint32_t current_fb_id = 0;
-    uint32_t next_fb_id = 0;  // Add this
+    uint32_t next_fb_id = 0; // Add this
 
     bool mode_set = false;
 };
 
-struct ScalingLUT {
-    std::vector<uint32_t> x_map;  // Source X for each dest X
-    std::vector<uint32_t> y_map;  // Source Y for each dest Y
+struct ScalingLUT
+{
+    std::vector<uint32_t> x_map; // Source X for each dest X
+    std::vector<uint32_t> y_map; // Source Y for each dest Y
     uint32_t src_w, src_h;
     uint32_t dst_w, dst_h;
     bool valid = false;
@@ -410,7 +425,7 @@ static std::mutex kms_mutex;
 static void cleanup_kms_display()
 {
     std::lock_guard<std::mutex> lock(kms_mutex);
-    
+
     if (kms_display.current_fb_id)
     {
         drmModeRmFB(kms_display.drm_fd, kms_display.current_fb_id);
@@ -450,13 +465,14 @@ static void cleanup_kms_display()
 static bool init_kms_display()
 {
     std::lock_guard<std::mutex> lock(kms_mutex);
-    
+
     // Already initialized
-    if (kms_display.drm_fd >= 0) {
+    if (kms_display.drm_fd >= 0)
+    {
         std::cerr << "[KMS] Already initialized\n";
         return true;
     }
-    
+
     // Try common DRM device paths
     const char *drm_devices[] = {
         "/dev/dri/card0",
@@ -464,7 +480,7 @@ static bool init_kms_display()
         "/dev/dri/card2",
         "/dev/dri/card3",
         nullptr};
-    
+
     bool found = false;
     for (int i = 0; drm_devices[i]; i++)
     {
@@ -472,7 +488,7 @@ static bool init_kms_display()
         if (kms_display.drm_fd >= 0 && drmModeGetResources(kms_display.drm_fd))
         {
             std::cerr << "[KMS] Opened DRM device: " << drm_devices[i] << "\n";
-            found = true;   
+            found = true;
             break;
         }
     }
@@ -521,7 +537,8 @@ static bool init_kms_display()
             kms_display.connector_id = connector->connector_id;
             break;
         }
-        if (connector) {
+        if (connector)
+        {
             drmModeFreeConnector(connector);
             connector = nullptr;
         }
@@ -548,10 +565,11 @@ static bool init_kms_display()
 
     // Find CRTC
     drmModeEncoder *encoder = nullptr;
-    if (connector->encoder_id) {
+    if (connector->encoder_id)
+    {
         encoder = drmModeGetEncoder(kms_display.drm_fd, connector->encoder_id);
     }
-    
+
     if (encoder && encoder->crtc_id)
     {
         kms_display.crtc_id = encoder->crtc_id;
@@ -559,10 +577,11 @@ static bool init_kms_display()
     }
     else
     {
-        if (encoder) {
+        if (encoder)
+        {
             drmModeFreeEncoder(encoder);
         }
-        
+
         // Find suitable CRTC
         for (int i = 0; i < resources->count_crtcs; i++)
         {
@@ -592,7 +611,7 @@ static bool init_kms_display()
 }
 
 static void query_kms_geometry(int &width, int &height)
-{    
+{
     if (kms_display.drm_fd < 0)
     {
         if (!init_kms_display())
@@ -646,66 +665,69 @@ static uint32_t get_fb_for_bo(struct gbm_bo *bo)
 
 // SIMD-optimized RGB888 to XRGB8888 conversion
 static inline void convert_rgb_to_xrgb_simd(
-    const uint8_t* __restrict__ src_rgb,
-    uint8_t* __restrict__ dst_xrgb,
+    const uint8_t *__restrict__ src_rgb,
+    uint8_t *__restrict__ dst_xrgb,
     size_t pixel_count)
 {
     size_t i = 0;
-    
+
 #ifdef __SSSE3__
     // Process 4 pixels at a time with SSSE3
     const __m128i shuffle = _mm_setr_epi8(
-        2, 1, 0, -1,   // Pixel 0: B, G, R, X
-        5, 4, 3, -1,   // Pixel 1: B, G, R, X
-        8, 7, 6, -1,   // Pixel 2: B, G, R, X
-        11, 10, 9, -1  // Pixel 3: B, G, R, X
+        2, 1, 0, -1,  // Pixel 0: B, G, R, X
+        5, 4, 3, -1,  // Pixel 1: B, G, R, X
+        8, 7, 6, -1,  // Pixel 2: B, G, R, X
+        11, 10, 9, -1 // Pixel 3: B, G, R, X
     );
     const __m128i alpha = _mm_set1_epi32(0xFF000000);
-    
-    for (; i + 4 <= pixel_count; i += 4) {
-        __m128i src = _mm_loadu_si128((const __m128i*)(src_rgb + i * 3));
+
+    for (; i + 4 <= pixel_count; i += 4)
+    {
+        __m128i src = _mm_loadu_si128((const __m128i *)(src_rgb + i * 3));
         __m128i pix = _mm_shuffle_epi8(src, shuffle);
         pix = _mm_or_si128(pix, alpha);
-        _mm_storeu_si128((__m128i*)(dst_xrgb + i * 4), pix);
+        _mm_storeu_si128((__m128i *)(dst_xrgb + i * 4), pix);
     }
 #endif
-    
+
     // Scalar fallback for remaining pixels
-    for (; i < pixel_count; ++i) {
-        dst_xrgb[i * 4 + 0] = src_rgb[i * 3 + 2];  // B
-        dst_xrgb[i * 4 + 1] = src_rgb[i * 3 + 1];  // G
-        dst_xrgb[i * 4 + 2] = src_rgb[i * 3 + 0];  // R
-        dst_xrgb[i * 4 + 3] = 0xFF;                // X
+    for (; i < pixel_count; ++i)
+    {
+        dst_xrgb[i * 4 + 0] = src_rgb[i * 3 + 2]; // B
+        dst_xrgb[i * 4 + 1] = src_rgb[i * 3 + 1]; // G
+        dst_xrgb[i * 4 + 2] = src_rgb[i * 3 + 0]; // R
+        dst_xrgb[i * 4 + 3] = 0xFF;               // X
     }
 }
 
 // Build lookup tables for scaling (only once when dimensions change)
-static void build_scaling_lut(uint32_t src_w, uint32_t src_h, 
+static void build_scaling_lut(uint32_t src_w, uint32_t src_h,
                               uint32_t dst_w, uint32_t dst_h)
 {
-    if (scaling_lut.valid && 
+    if (scaling_lut.valid &&
         scaling_lut.src_w == src_w && scaling_lut.src_h == src_h &&
-        scaling_lut.dst_w == dst_w && scaling_lut.dst_h == dst_h) {
-        return;  // Already built
+        scaling_lut.dst_w == dst_w && scaling_lut.dst_h == dst_h)
+    {
+        return; // Already built
     }
-    
+
     scaling_lut.x_map.resize(dst_w);
     scaling_lut.y_map.resize(dst_h);
-    
-    for (uint32_t x = 0; x < dst_w; ++x) {
+
+    for (uint32_t x = 0; x < dst_w; ++x)
+    {
         scaling_lut.x_map[x] = std::min(
-            (uint32_t)(((uint64_t)x * src_w) / dst_w), 
-            src_w - 1
-        );
+            (uint32_t)(((uint64_t)x * src_w) / dst_w),
+            src_w - 1);
     }
-    
-    for (uint32_t y = 0; y < dst_h; ++y) {
+
+    for (uint32_t y = 0; y < dst_h; ++y)
+    {
         scaling_lut.y_map[y] = std::min(
             (uint32_t)(((uint64_t)y * src_h) / dst_h),
-            src_h - 1
-        );
+            src_h - 1);
     }
-    
+
     scaling_lut.src_w = src_w;
     scaling_lut.src_h = src_h;
     scaling_lut.dst_w = dst_w;
@@ -713,111 +735,38 @@ static void build_scaling_lut(uint32_t src_w, uint32_t src_h,
     scaling_lut.valid = true;
 }
 
-void init_h264_decoder(int width, int height)
-{
-    const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-    if (!codec) abort();
-
-    dec_ctx = avcodec_alloc_context3(codec);
-    dec_ctx->width = width;
-    dec_ctx->height = height;
-
-    if (avcodec_open2(dec_ctx, codec, nullptr) < 0)
-        abort();
-
-    dec_frame = av_frame_alloc();
-    rgba_frame = av_frame_alloc();
-    pkt = av_packet_alloc();
-
-    sws = sws_getContext(
-        width, height, AV_PIX_FMT_YUV420P,
-        width, height, AV_PIX_FMT_RGBA,
-        SWS_FAST_BILINEAR,
-        nullptr, nullptr, nullptr
-    );
-
-    rgba_stride = width * 4;
-    rgba_buf = (uint8_t*)av_malloc(rgba_stride * height);
-
-    av_image_fill_arrays(
-        rgba_frame->data,
-        rgba_frame->linesize,
-        rgba_buf,
-        AV_PIX_FMT_RGBA,
-        width,
-        height,
-        1
-    );
-}
-
-// H264 decode a frame and convert to RGBA
-bool decode_h264_frame(const std::vector<uint8_t>& h264_data, int width, int height, std::vector<uint8_t>& out_rgba)
-{
-    if (!dec_ctx || !dec_frame || !rgba_frame || !pkt || !sws) {
-        std::cerr << "[H264] Decoder not initialized!\n";
-        return false;
-    }
-
-    pkt->data = const_cast<uint8_t*>(h264_data.data());
-    pkt->size = h264_data.size();
-
-    int ret = avcodec_send_packet(dec_ctx, pkt);
-    if (ret < 0) {
-        std::cerr << "[H264] Error sending packet: " << av_err2str(ret) << "\n";
-        return false;
-    }
-
-    ret = avcodec_receive_frame(dec_ctx, dec_frame);
-    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-        return false;
-    } else if (ret < 0) {
-        std::cerr << "[H264] Error receiving frame: " << av_err2str(ret) << "\n";
-        return false;
-    }
-
-    // Convert to RGBA
-    sws_scale(
-        sws,
-        dec_frame->data,
-        dec_frame->linesize,
-        0,
-        height,
-        rgba_frame->data,
-        rgba_frame->linesize
-    );
-
-    // Copy RGBA data to output
-    out_rgba.resize(rgba_stride * height);
-    memcpy(out_rgba.data(), rgba_buf, rgba_stride * height);
-    return true;
-}
-
 static void render_to_kms(const std::vector<uint8_t> &data)
 {
     std::lock_guard<std::mutex> lock(kms_mutex);
-    
+
     // Validate input
-    if (data.size() < 8) {
+    if (data.size() < 8)
+    {
         std::cerr << "[KMS] Invalid data size: " << data.size() << "\n";
         return;
     }
 
-    const uint32_t img_width = *(uint32_t *)&data[0];
-    const uint32_t img_height = *(uint32_t *)&data[4];
-    
-    if (img_width == 0 || img_height == 0 || img_width > 65536 || img_height > 65536) {
+    uint32_t img_width, img_height;
+    std::memcpy(&img_width, &data[0], sizeof(uint32_t));
+    std::memcpy(&img_height, &data[4], sizeof(uint32_t));
+
+    if (img_width == 0 || img_height == 0 || img_width > 65536 || img_height > 65536)
+    {
         std::cerr << "[KMS] Invalid image dimensions: " << img_width << "x" << img_height << "\n";
         return;
     }
-    
+
     const size_t expected_size = 8ull + (size_t)img_width * img_height * 3;
-    if (data.size() != expected_size) {
+    if (data.size() != expected_size)
+    {
         std::cerr << "[KMS] Data size mismatch\n";
         return;
     }
 
-    if (kms_display.drm_fd < 0) {
-        if (!init_kms_display()) {
+    if (kms_display.drm_fd < 0)
+    {
+        if (!init_kms_display())
+        {
             std::cerr << "[KMS] Cannot render: display not initialized\n";
             return;
         }
@@ -826,15 +775,17 @@ static void render_to_kms(const std::vector<uint8_t> &data)
     const uint8_t *rgb = data.data() + 8;
 
     // Create or reuse next_bo (double buffering)
-    if (!kms_display.next_bo) {
+    if (!kms_display.next_bo)
+    {
         kms_display.next_bo = gbm_bo_create(
             kms_display.gbm_device,
             kms_display.width,
             kms_display.height,
             GBM_FORMAT_XRGB8888,
             GBM_BO_USE_SCANOUT | GBM_BO_USE_WRITE);
-        
-        if (!kms_display.next_bo) {
+
+        if (!kms_display.next_bo)
+        {
             std::cerr << "[KMS] Failed to create BO\n";
             return;
         }
@@ -843,93 +794,108 @@ static void render_to_kms(const std::vector<uint8_t> &data)
     // Map the buffer
     uint32_t map_stride = 0;
     void *map_data = nullptr;
-    void *bo_map = gbm_bo_map(kms_display.next_bo, 0, 0, 
+    void *bo_map = gbm_bo_map(kms_display.next_bo, 0, 0,
                               kms_display.width, kms_display.height,
                               GBM_BO_TRANSFER_WRITE, &map_stride, &map_data);
 
-    if (!bo_map || map_stride == 0) {
+    if (!bo_map || map_stride == 0)
+    {
         std::cerr << "[KMS] Failed to map BO\n";
         return;
     }
 
     uint8_t *fb_data = static_cast<uint8_t *>(bo_map);
-    
+
     // Get keep_aspect_ratio from client config
     bool keep_aspect_ratio = (current_config.keep_aspect_ratio != 0);
 
     uint32_t target_w, target_h;
     int off_x, off_y;
-    
+
     // Calculate target dimensions with aspect ratio handling
-    if (keep_aspect_ratio) {
+    if (keep_aspect_ratio)
+    {
         double img_aspect = (double)img_width / img_height;
         double display_aspect = (double)kms_display.width / kms_display.height;
-        
-        if (img_aspect > display_aspect) {
+
+        if (img_aspect > display_aspect)
+        {
             target_w = kms_display.width;
             target_h = (uint32_t)(kms_display.width / img_aspect);
             off_x = 0;
             off_y = (kms_display.height - target_h) / 2;
-        } else {
+        }
+        else
+        {
             target_h = kms_display.height;
             target_w = (uint32_t)(kms_display.height * img_aspect);
             off_x = (kms_display.width - target_w) / 2;
             off_y = 0;
         }
-    } else {
+    }
+    else
+    {
         target_w = kms_display.width;
         target_h = kms_display.height;
         off_x = 0;
         off_y = 0;
     }
-    
+
     // Clear letterbox areas to black if needed
-    if (keep_aspect_ratio && (off_x > 0 || off_y > 0)) {
+    if (keep_aspect_ratio && (off_x > 0 || off_y > 0))
+    {
         memset(fb_data, 0, (size_t)map_stride * kms_display.height);
     }
 
     // Fast path: No scaling needed (1:1 copy)
-    if (img_width == target_w && img_height == target_h) {
-        for (uint32_t y = 0; y < target_h; ++y) {
+    if (img_width == target_w && img_height == target_h)
+    {
+        for (uint32_t y = 0; y < target_h; ++y)
+        {
             uint32_t fb_y = off_y + y;
-            if (fb_y >= kms_display.height) continue;
-            
+            if (fb_y >= kms_display.height)
+                continue;
+
             const uint8_t *src_row = rgb + (size_t)y * img_width * 3;
             uint8_t *dst_row = fb_data + (size_t)fb_y * map_stride + (size_t)off_x * 4;
-            
+
             // Convert entire row at once with SIMD
             convert_rgb_to_xrgb_simd(src_row, dst_row, img_width);
         }
-    } 
+    }
     // Scaled rendering with lookup table
-    else {
+    else
+    {
         // Build scaling lookup tables (cached if dimensions unchanged)
         build_scaling_lut(img_width, img_height, target_w, target_h);
-        
+
         // Temporary row buffer for converted pixels
         static thread_local std::vector<uint8_t> row_buffer;
         row_buffer.resize(target_w * 4);
-        
-        for (uint32_t dst_y = 0; dst_y < target_h; ++dst_y) {
+
+        for (uint32_t dst_y = 0; dst_y < target_h; ++dst_y)
+        {
             uint32_t fb_y = off_y + dst_y;
-            if (fb_y >= kms_display.height) continue;
-            
+            if (fb_y >= kms_display.height)
+                continue;
+
             uint32_t src_y = scaling_lut.y_map[dst_y];
             const uint8_t *src_row = rgb + (size_t)src_y * img_width * 3;
             uint8_t *dst_row = fb_data + (size_t)fb_y * map_stride + (size_t)off_x * 4;
-            
+
             // Sample pixels according to lookup table
-            for (uint32_t dst_x = 0; dst_x < target_w; ++dst_x) {
+            for (uint32_t dst_x = 0; dst_x < target_w; ++dst_x)
+            {
                 uint32_t src_x = scaling_lut.x_map[dst_x];
                 const uint8_t *src_pixel = src_row + src_x * 3;
                 uint8_t *tmp_pixel = row_buffer.data() + dst_x * 4;
-                
-                tmp_pixel[0] = src_pixel[2];  // B
-                tmp_pixel[1] = src_pixel[1];  // G
-                tmp_pixel[2] = src_pixel[0];  // R
-                tmp_pixel[3] = 0xFF;          // X
+
+                tmp_pixel[0] = src_pixel[2]; // B
+                tmp_pixel[1] = src_pixel[1]; // G
+                tmp_pixel[2] = src_pixel[0]; // R
+                tmp_pixel[3] = 0xFF;         // X
             }
-            
+
             // Copy converted row to framebuffer
             memcpy(dst_row, row_buffer.data(), target_w * 4);
         }
@@ -939,27 +905,32 @@ static void render_to_kms(const std::vector<uint8_t> &data)
 
     // Get framebuffer ID (cached in gbm_bo user data)
     uint32_t fb_id = get_fb_for_bo(kms_display.next_bo);
-    if (!fb_id) {
+    if (!fb_id)
+    {
         std::cerr << "[KMS] Failed to get framebuffer ID\n";
         return;
     }
 
     // First frame: Set CRTC mode
-    if (!kms_display.mode_set) {
+    if (!kms_display.mode_set)
+    {
         int ret = drmModeSetCrtc(kms_display.drm_fd, kms_display.crtc_id,
                                  fb_id, 0, 0, &kms_display.connector_id, 1,
                                  &kms_display.mode);
-        if (ret) {
+        if (ret)
+        {
             std::cerr << "[KMS] Failed to set CRTC: " << strerror(errno) << "\n";
             return;
         }
         kms_display.mode_set = true;
-    } 
+    }
     // Subsequent frames: Page flip
-    else {
+    else
+    {
         int ret = drmModePageFlip(kms_display.drm_fd, kms_display.crtc_id,
                                   fb_id, DRM_MODE_PAGE_FLIP_EVENT, nullptr);
-        if (ret) {
+        if (ret)
+        {
             std::cerr << "[KMS] Page flip failed: " << strerror(errno) << "\n";
             return;
         }
@@ -968,7 +939,6 @@ static void render_to_kms(const std::vector<uint8_t> &data)
     // Swap buffers for double buffering
     std::swap(kms_display.current_bo, kms_display.next_bo);
 }
-
 
 // Session ID generation
 static std::string generate_uuid()
@@ -1773,7 +1743,6 @@ static void query_terminal_geometry(bool sixel, int &width, int &height)
     int rows = term.ws_row;
 
     // Reserve lines at top and bottom (typically 1 line each for UI)
-    // This prevents cutting off the top and the bottom status line
     int reserved_top = 1;
     int reserved_bottom = 1;
     int usable_rows = std::max(1, rows - reserved_top - reserved_bottom);
@@ -1809,7 +1778,7 @@ static void query_terminal_geometry(bool sixel, int &width, int &height)
             ssize_t n = read(STDIN_FILENO, response, sizeof(response) - 1);
             if (n > 0 && sscanf(response, "\033[?2;0;%d;%dS", &width, &height) == 2)
             {
-                if (width > 0 && height > 0)
+                if (width > 0 && height > 0 && width <= 16384 && height <= 16384)
                 {
                     // Account for reserved lines
                     height -= (reserved_top + reserved_bottom) * 20; // ~20px per line
@@ -1817,6 +1786,13 @@ static void query_terminal_geometry(bool sixel, int &width, int &height)
                     got_response = true;
                     std::cerr << "[CLIENT] Got geometry from sixel query: " << width << "x" << height
                               << " (reserved " << reserved_top << " top, " << reserved_bottom << " bottom)\n";
+                }
+                else
+                {
+                    std::cerr << "[CLIENT] Sixel query returned invalid dimensions: " 
+                              << width << "x" << height << ", ignoring\n";
+                    width = 0;
+                    height = 0;
                 }
             }
         }
@@ -1843,7 +1819,7 @@ static void query_terminal_geometry(bool sixel, int &width, int &height)
                     int h = 0, w = 0;
                     if (sscanf(response, "\033[4;%d;%dt", &h, &w) == 2)
                     {
-                        if (w > 0 && h > 0)
+                        if (w > 0 && h > 0 && w <= 16384 && h <= 16384)
                         {
                             width = w;
                             height = h - ((reserved_top + reserved_bottom) * 20);
@@ -1851,6 +1827,11 @@ static void query_terminal_geometry(bool sixel, int &width, int &height)
                             got_response = true;
                             std::cerr << "[CLIENT] Got geometry from XTerm query: " << width << "x" << height
                                       << " (reserved " << reserved_top << " top, " << reserved_bottom << " bottom)\n";
+                        }
+                        else
+                        {
+                            std::cerr << "[CLIENT] XTerm query returned invalid dimensions: " 
+                                      << w << "x" << h << ", ignoring\n";
                         }
                     }
                 }
@@ -1861,7 +1842,8 @@ static void query_terminal_geometry(bool sixel, int &width, int &height)
     // Method 3: Try ioctl pixel dimensions
     if (!got_response)
     {
-        if (term.ws_xpixel > 0 && term.ws_ypixel > 0)
+        if (term.ws_xpixel > 0 && term.ws_ypixel > 0 && 
+            term.ws_xpixel <= 16384 && term.ws_ypixel <= 16384)
         {
             width = term.ws_xpixel;
             height = term.ws_ypixel - ((reserved_top + reserved_bottom) * 20);
@@ -1877,15 +1859,7 @@ static void query_terminal_geometry(bool sixel, int &width, int &height)
 
     // Flush stderr to prevent mixing with terminal escape sequences
     fflush(stderr);
-
-    // Fallback: Calculate from terminal cell dimensions
-    if (!got_response || width <= 0 || height <= 0)
-    {
-        width = cols * 10;
-        height = usable_rows * 20;
-        std::cerr << "[CLIENT] Using calculated geometry: " << width << "x" << height
-                  << " (" << cols << "x" << usable_rows << " usable cells)\n";
-    }
+    fflush(stdout);
 }
 
 static bool receive_newest_frame(std::vector<uint8_t> &rendered)
@@ -3383,14 +3357,619 @@ convert_rgb_to_rgb565(
     }
 }
 
+static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts)
+{
+    const enum AVPixelFormat *p;
+    for (p = pix_fmts; *p != -1; p++) {
+        if (*p == *(enum AVPixelFormat*)ctx->opaque) {
+            return *p;
+        }
+    }
+    std::cerr << "[H264 HW] Failed to get HW surface format\n";
+    return AV_PIX_FMT_NONE;
+}
+
+static bool init_h264_decoder(H264Decoder &dec, uint32_t width, uint32_t height, 
+                               const uint8_t *extradata, size_t extradata_size,
+                               bool try_hw = false) {
+    std::lock_guard<std::mutex> lock(dec.mutex);
+    
+    bool need_reinit = !dec.initialized || (dec.width != width || dec.height != height);
+    if (dec.initialized && !need_reinit) return true;
+
+    if (dec.initialized) {
+        if (dec.codec_ctx) {
+            avcodec_flush_buffers(dec.codec_ctx);
+            avcodec_free_context(&dec.codec_ctx);
+        }
+        if (dec.frame) av_frame_free(&dec.frame);
+        if (dec.rgb_frame) av_frame_free(&dec.rgb_frame);
+        if (dec.pkt) av_packet_free(&dec.pkt);
+        if (dec.sws_ctx) sws_freeContext(dec.sws_ctx);
+        if (dec.hw_device_ctx) av_buffer_unref(&dec.hw_device_ctx);
+        dec.initialized = false;
+        dec.use_hw = false;
+    }
+
+    const AVCodec *codec = nullptr;
+    enum AVHWDeviceType hw_type = AV_HWDEVICE_TYPE_NONE;
+    
+    // Try hardware decoders first
+    if (try_hw) {
+        // Try VAAPI (Linux)
+        codec = avcodec_find_decoder_by_name("h264_vaapi");
+        if (codec) {
+            hw_type = AV_HWDEVICE_TYPE_VAAPI;
+            dec.hw_pix_fmt = AV_PIX_FMT_VAAPI;
+            std::cerr << "[H264 HW] Trying VAAPI decoder\n";
+        }
+        
+        // Try CUDA (NVIDIA)
+        if (!codec) {
+            codec = avcodec_find_decoder_by_name("h264_cuvid");
+            if (codec) {
+                hw_type = AV_HWDEVICE_TYPE_CUDA;
+                dec.hw_pix_fmt = AV_PIX_FMT_CUDA;
+                std::cerr << "[H264 HW] Trying CUDA decoder\n";
+            }
+        }
+        
+        // Try VDPAU (older NVIDIA)
+        if (!codec) {
+            codec = avcodec_find_decoder_by_name("h264_vdpau");
+            if (codec) {
+                hw_type = AV_HWDEVICE_TYPE_VDPAU;
+                dec.hw_pix_fmt = AV_PIX_FMT_VDPAU;
+                std::cerr << "[H264 HW] Trying VDPAU decoder\n";
+            }
+        }
+    }
+    
+    // Fallback to software decoder
+    if (!codec) {
+        codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+        if (!codec) {
+            std::cerr << "[H264] No decoder found\n";
+            return false;
+        }
+        std::cerr << "[H264] Using software decoder\n";
+    }
+
+    dec.codec_ctx = avcodec_alloc_context3(codec);
+    if (!dec.codec_ctx) {
+        std::cerr << "[H264] Failed to alloc context\n";
+        return false;
+    }
+
+    // Initialize hardware device context if using HW
+    if (hw_type != AV_HWDEVICE_TYPE_NONE) {
+        int ret = av_hwdevice_ctx_create(&dec.hw_device_ctx, hw_type, NULL, NULL, 0);
+        if (ret < 0) {
+            std::cerr << "[H264 HW] Failed to create device context, falling back to software\n";
+            avcodec_free_context(&dec.codec_ctx);
+            return init_h264_decoder(dec, width, height, extradata, extradata_size, false);
+        }
+        
+        dec.codec_ctx->hw_device_ctx = av_buffer_ref(dec.hw_device_ctx);
+        dec.codec_ctx->get_format = get_hw_format;
+        dec.codec_ctx->opaque = &dec.hw_pix_fmt;
+        dec.use_hw = true;
+        std::cerr << "[H264 HW] Hardware device context created\n";
+    }
+
+    // Set extradata
+    if (extradata && extradata_size > 0) {
+        dec.codec_ctx->extradata = (uint8_t *)av_malloc(extradata_size + AV_INPUT_BUFFER_PADDING_SIZE);
+        if (!dec.codec_ctx->extradata) {
+            std::cerr << "[H264] Failed to alloc extradata\n";
+            if (dec.hw_device_ctx) av_buffer_unref(&dec.hw_device_ctx);
+            avcodec_free_context(&dec.codec_ctx);
+            return false;
+        }
+        memcpy(dec.codec_ctx->extradata, extradata, extradata_size);
+        memset(dec.codec_ctx->extradata + extradata_size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
+        dec.codec_ctx->extradata_size = extradata_size;
+    }
+
+    dec.codec_ctx->width = width;
+    dec.codec_ctx->height = height;
+    dec.codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+    dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
+    dec.codec_ctx->thread_count = 1;
+    dec.codec_ctx->thread_type = 0;
+    dec.codec_ctx->time_base = AVRational{1, 60};
+    dec.codec_ctx->pkt_timebase = AVRational{1, 60};
+
+    if (avcodec_open2(dec.codec_ctx, codec, nullptr) < 0) {
+        std::cerr << "[H264] Failed to open codec\n";
+        if (dec.codec_ctx->extradata) av_free(dec.codec_ctx->extradata);
+        if (dec.hw_device_ctx) av_buffer_unref(&dec.hw_device_ctx);
+        avcodec_free_context(&dec.codec_ctx);
+        
+        // If HW failed, try software
+        if (try_hw) {
+            std::cerr << "[H264 HW] Hardware decode failed, trying software\n";
+            return init_h264_decoder(dec, width, height, extradata, extradata_size, false);
+        }
+        return false;
+    }
+
+    dec.frame = av_frame_alloc();
+    dec.rgb_frame = av_frame_alloc();
+    dec.pkt = av_packet_alloc();
+
+    if (!dec.frame || !dec.rgb_frame || !dec.pkt) {
+        std::cerr << "[H264] Failed to alloc frames/packet\n";
+        if (dec.frame) av_frame_free(&dec.frame);
+        if (dec.rgb_frame) av_frame_free(&dec.rgb_frame);
+        if (dec.pkt) av_packet_free(&dec.pkt);
+        if (dec.hw_device_ctx) av_buffer_unref(&dec.hw_device_ctx);
+        avcodec_free_context(&dec.codec_ctx);
+        return false;
+    }
+
+    dec.width = width;
+    dec.height = height;
+    dec.initialized = true;
+    
+    std::cerr << "[H264] Decoder initialized: " << width << "x" << height 
+              << (dec.use_hw ? " (HW accelerated)" : " (software)") << "\n";
+    return true;
+}
+
+static void cleanup_h264_decoder(H264Decoder &dec)
+{
+    std::lock_guard<std::mutex> lock(dec.mutex);
+    if (!dec.initialized) return;
+
+    if (dec.sws_ctx) sws_freeContext(dec.sws_ctx);
+    if (dec.pkt) av_packet_free(&dec.pkt);
+    if (dec.frame) av_frame_free(&dec.frame);
+    if (dec.rgb_frame) av_frame_free(&dec.rgb_frame); // Cleanup
+    if (dec.codec_ctx) avcodec_free_context(&dec.codec_ctx);
+
+    dec.initialized = false;
+}
+
+static bool decode_h264_to_rgb(
+    const uint8_t *h264_data,
+    const uint8_t *extradata,
+    size_t extradata_size,
+    size_t h264_size,
+    uint32_t width,
+    uint32_t height,
+    std::vector<uint8_t> &rgb_output)
+{
+    rgb_output.clear();
+
+    if (!h264_data || h264_size == 0) {
+        std::cerr << "[H264 DECODER] Invalid input data\n";
+        return false;
+    }
+
+    // Initialize/reinitialize decoder if needed
+    if (!h264_decoder.initialized || h264_decoder.width != width || h264_decoder.height != height)
+    {
+        if (!init_h264_decoder(h264_decoder, width, height, extradata, extradata_size)) {
+            std::cerr << "[H264 DECODER] Init failed\n";
+            return false;
+        }
+        h264_decoder.received_keyframe = false;
+    }
+
+    std::lock_guard<std::mutex> lock(h264_decoder.mutex);
+
+    av_packet_unref(h264_decoder.pkt);
+    
+    // Allocate new packet with proper size
+    if (av_new_packet(h264_decoder.pkt, h264_size) < 0) {
+        std::cerr << "[H264 DECODER] Failed to allocate packet\n";
+        return false;
+    }
+    
+    // Copy H.264 data
+    memcpy(h264_decoder.pkt->data, h264_data, h264_size);
+    
+    bool is_keyframe = false;
+    for (size_t i = 0; i + 4 < h264_size; i++) {
+        if (h264_data[i] == 0 && h264_data[i+1] == 0 && h264_data[i+2] == 0 && h264_data[i+3] == 1) {
+            uint8_t nal_type = h264_data[i+4] & 0x1F;
+            if (nal_type == 5 || nal_type == 7 || nal_type == 8) {  // IDR, SPS, or PPS
+                is_keyframe = true;
+                break;
+            }
+        }
+    }
+
+    if (!h264_decoder.received_keyframe && !is_keyframe) {
+        // Drop frames until we get a keyframe
+        //std::cerr << "[H264 DECODER] Dropping non-keyframe before first keyframe\n";
+        return false;
+    }
+
+    if (is_keyframe) {
+        h264_decoder.pkt->flags |= AV_PKT_FLAG_KEY;
+        h264_decoder.received_keyframe = true;
+    }
+    
+    // Send packet to decoder
+    int ret = avcodec_send_packet(h264_decoder.codec_ctx, h264_decoder.pkt);
+    if (ret < 0) {
+        if (ret == AVERROR(EAGAIN)) {
+            // Decoder needs to be drained first
+            while (avcodec_receive_frame(h264_decoder.codec_ctx, h264_decoder.frame) == 0) {
+                av_frame_unref(h264_decoder.frame);
+            }
+            // Retry sending
+            ret = avcodec_send_packet(h264_decoder.codec_ctx, h264_decoder.pkt);
+        }
+        
+        if (ret < 0 && ret != AVERROR(EAGAIN)) {
+            std::cerr << "[H264 DECODER] Send packet failed: " << ret << "\n";
+            avcodec_flush_buffers(h264_decoder.codec_ctx);
+            h264_decoder.frame->pts = 0;
+            return false;
+        }
+    }
+
+    // Receive decoded frame
+    ret = avcodec_receive_frame(h264_decoder.codec_ctx, h264_decoder.frame);
+    if (ret < 0) {
+        if (ret == AVERROR(EAGAIN)) {
+            return false;
+        }
+        std::cerr << "[H264 DECODER] Receive frame failed: " << ret << "\n";
+        avcodec_flush_buffers(h264_decoder.codec_ctx);
+        h264_decoder.frame->pts = 0;
+        h264_decoder.received_keyframe = false;
+        return false;
+    }
+
+    // If using hardware decode, transfer frame to CPU
+    AVFrame *sw_frame = nullptr;
+    if (h264_decoder.use_hw && h264_decoder.frame->format == h264_decoder.hw_pix_fmt) {
+        sw_frame = av_frame_alloc();
+        if (!sw_frame) {
+            std::cerr << "[H264 HW] Failed to allocate temp frame\n";
+            av_frame_unref(h264_decoder.frame);
+            return false;
+        }
+        
+        // Transfer data from GPU to CPU
+        if (av_hwframe_transfer_data(sw_frame, h264_decoder.frame, 0) < 0) {
+            std::cerr << "[H264 HW] Failed to transfer frame from GPU\n";
+            av_frame_free(&sw_frame);
+            av_frame_unref(h264_decoder.frame);
+            return false;
+        }
+        
+        // The transferred frame doesn't automatically inherit all properties
+        sw_frame->width = h264_decoder.frame->width;
+        sw_frame->height = h264_decoder.frame->height;
+        sw_frame->pts = h264_decoder.frame->pts;
+        sw_frame->pkt_dts = h264_decoder.frame->pkt_dts;
+        sw_frame->pict_type = h264_decoder.frame->pict_type;
+        
+        // av_hwframe_transfer_data may not set linesize properly
+        if (sw_frame->linesize[0] == 0) {
+            // Manually compute linesize based on format
+            int align = 32; // Common alignment
+            sw_frame->linesize[0] = FFALIGN(sw_frame->width, align);
+            if (sw_frame->data[1]) {  // If there's a chroma plane
+                sw_frame->linesize[1] = FFALIGN(sw_frame->width / 2, align);
+                sw_frame->linesize[2] = FFALIGN(sw_frame->width / 2, align);
+            }
+        }
+        
+        // Validate the frame before proceeding
+        if (sw_frame->linesize[0] <= 0 || !sw_frame->data[0]) {
+            std::cerr << "[H264 HW] Invalid frame data after transfer\n";
+            av_frame_free(&sw_frame);
+            av_frame_unref(h264_decoder.frame);
+            return false;
+        }
+    } else {
+        sw_frame = h264_decoder.frame;
+    }
+
+    // Update/create SWS context if needed
+    if (!h264_decoder.sws_ctx || 
+        sw_frame->width != (int)width || 
+        sw_frame->height != (int)height ||
+        h264_decoder.src_format != sw_frame->format)
+    {
+        if (h264_decoder.sws_ctx) {
+            sws_freeContext(h264_decoder.sws_ctx);
+        }
+        
+        h264_decoder.sws_ctx = sws_getContext(
+            sw_frame->width, sw_frame->height,
+            (AVPixelFormat)sw_frame->format,
+            width, height, AV_PIX_FMT_RGB24,
+            SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+
+        if (!h264_decoder.sws_ctx) {
+            std::cerr << "[H264 DECODER] Failed to create SWS context\n";
+            if (h264_decoder.use_hw && sw_frame != h264_decoder.frame) av_frame_free(&sw_frame);
+            return false;
+        }
+        h264_decoder.src_format = sw_frame->format;
+    }
+
+
+    // Allocate RGB frame buffer if needed
+    if (h264_decoder.rgb_frame->width != (int)width || 
+        h264_decoder.rgb_frame->height != (int)height || 
+        h264_decoder.rgb_frame->format != AV_PIX_FMT_RGB24)
+    {
+        av_frame_unref(h264_decoder.rgb_frame);
+        h264_decoder.rgb_frame->width = width;
+        h264_decoder.rgb_frame->height = height;
+        h264_decoder.rgb_frame->format = AV_PIX_FMT_RGB24;
+        
+        if (av_frame_get_buffer(h264_decoder.rgb_frame, 32) < 0) {
+            std::cerr << "[H264 DECODER] Failed to allocate RGB frame\n";
+            av_frame_unref(h264_decoder.frame);
+            return false;
+        }
+    }
+
+    // Make RGB frame writable
+    if (av_frame_make_writable(h264_decoder.rgb_frame) < 0) {
+        std::cerr << "[H264 DECODER] Failed to make RGB frame writable\n";
+        av_frame_unref(h264_decoder.frame);
+        return false;
+    }
+
+    // Convert YUV to RGB
+    int converted_height = sws_scale(
+        h264_decoder.sws_ctx,
+        h264_decoder.frame->data, 
+        h264_decoder.frame->linesize,
+        0, 
+        h264_decoder.frame->height,
+        h264_decoder.rgb_frame->data, 
+        h264_decoder.rgb_frame->linesize);
+    
+    if (converted_height != (int)height) {
+        std::cerr << "[H264 DECODER] SWS scale returned wrong height: " 
+                  << converted_height << " expected " << height << "\n";
+        av_frame_unref(h264_decoder.frame);
+        return false;
+    }
+
+    // Copy RGB data to output
+    rgb_output.resize(width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE);
+    
+    for (uint32_t y = 0; y < height; y++) {
+        memcpy(rgb_output.data() + (y * width * 3), 
+               h264_decoder.rgb_frame->data[0] + (y * h264_decoder.rgb_frame->linesize[0]), 
+               width * 3);
+    }
+
+    av_frame_unref(h264_decoder.frame);
+
+    if (h264_decoder.use_hw && sw_frame != h264_decoder.frame) {
+        av_frame_free(&sw_frame);
+    }
+
+    return true;
+}
+
+static void png_write_data(png_structp png_ptr, png_bytep data, png_size_t length)
+{
+    std::vector<uint8_t> *p = (std::vector<uint8_t> *)png_get_io_ptr(png_ptr);
+    p->insert(p->end(), data, data + length);
+}
+
+static std::mutex png_encode_mutex; // Add at global scope
+
+static bool encode_rgb_to_png(const uint8_t *rgb, uint32_t width, uint32_t height,
+                              std::vector<uint8_t> &png_output)
+{
+    std::lock_guard<std::mutex> lock(png_encode_mutex); // Serialize PNG encoding
+    
+    //std::cerr << "[PNG] Encoding " << width << "x" << height << " RGB to PNG...\n";
+    
+    png_output.clear();
+    //std::cerr << "[PNG] Output buffer cleared\n";
+    png_output.reserve(width * height); // Pre-allocate reasonable size
+    //std::cerr << "[PNG] Output buffer reserved\n";
+    png_structp png = nullptr;
+    png_infop info = nullptr;
+    
+    png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+    if (!png) {
+        std::cerr << "[PNG] Failed to create write struct\n";
+        return false;
+    } 
+
+    info = png_create_info_struct(png);
+    if (!info)
+    {
+        std::cerr << "[PNG] Failed to create info struct\n";
+        png_destroy_write_struct(&png, (png_infopp)nullptr);
+        return false;
+    }
+    //std::cerr << "[PNG] Write struct and info struct created\n";
+
+    // Set error handler
+    if (setjmp(png_jmpbuf(png)))
+    {
+        std::cerr << "[PNG] PNG encoding error (setjmp triggered)\n";
+        if (png) png_destroy_write_struct(&png, &info);
+        png_output.clear();
+        return false;
+    }
+    //std::cerr << "[PNG] setjmp OK\n";
+
+    // Set write callback
+    png_set_write_fn(png, &png_output, png_write_data, nullptr);
+    
+    // Set compression level (faster = less likely to corrupt)
+    png_set_compression_level(png, 1); // Fast compression
+    png_set_filter(png, 0, PNG_FILTER_NONE); // No filtering = faster
+    
+    // Set image parameters
+    png_set_IHDR(png, info, width, height,
+                 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+    
+    png_write_info(png, info);
+    //std::cerr << "[PNG] PNG info written\n";
+    
+    // Allocate row pointers on stack (safer than vector)
+    png_bytep *row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * height);
+    if (!row_pointers) {
+        std::cerr << "[PNG] Failed to allocate row pointers\n";
+        png_destroy_write_struct(&png, &info);
+        return false;
+    }
+    
+    for (uint32_t y = 0; y < height; y++)
+    {
+        row_pointers[y] = (png_bytep)(rgb + y * width * 3);
+    }
+    
+    // Write image
+    png_write_image(png, row_pointers);
+    //std::cerr << "[PNG] PNG rows written\n";
+
+    png_write_end(png, nullptr);
+    
+    // Cleanup
+    free(row_pointers);
+    png_destroy_write_struct(&png, &info);
+
+    //std::cerr << "[PNG] Encoding complete, output size: " << png_output.size() << " bytes\n";
+    return true;
+}
+
+static std::string base64_encode(const uint8_t *data, size_t len)
+{
+    static const char *base64_chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    std::string ret;
+    ret.reserve(((len + 2) / 3) * 4);
+
+    for (size_t i = 0; i < len; i += 3)
+    {
+        uint32_t val = (data[i] << 16);
+        if (i + 1 < len)
+            val |= (data[i + 1] << 8);
+        if (i + 2 < len)
+            val |= data[i + 2];
+
+        ret += base64_chars[(val >> 18) & 0x3F];
+        ret += base64_chars[(val >> 12) & 0x3F];
+        ret += (i + 1 < len) ? base64_chars[(val >> 6) & 0x3F] : '=';
+        ret += (i + 2 < len) ? base64_chars[val & 0x3F] : '=';
+    }
+
+    return ret;
+}
+
+void render_to_kitty_b64_chunked(const std::string& b64_data) {
+    const size_t chunk_size = 256'000; // 256 KB per chunk
+    size_t sent = 0;
+    
+    while (sent < b64_data.size()) {
+        size_t to_send = std::min(chunk_size, b64_data.size() - sent);
+        bool more = (sent + to_send < b64_data.size());
+        
+        if (!sent) {
+            std::cout << "\033_Gf=100,a=T,"; // Start new image
+        }
+        else {
+            std::cout << "\033_G";
+        }
+        std::cout << "m=" << (more ? "1" : "0") << ";";
+        
+        std::cout << b64_data.substr(sent, to_send) << "\033\\";
+        sent += to_send;
+    }
+}
+
 static void render_to_kitty(const std::vector<uint8_t> &data)
 {
-    static std::string kitty_sequence_prefix = "\033_Gf=24,s=" + std::to_string(data.size()) + ";"; // 24-bit RGB (_Gf=24 -> RGB, s=... -> size)
-    static std::string kitty_sequence_suffix = "\033\\";
-    std::cout << kitty_sequence_prefix;
-    std::cout.write((const char *)data.data(), data.size());
-    std::cout << kitty_sequence_suffix;
-    std::cout.flush();
+    if (data.size() < 16)
+    {
+        std::cerr << "[KITTY] Invalid data size: " << data.size() << "\n";
+        return;
+    }
+    
+    size_t offset = 0;
+    const uint32_t extradata_size = *(uint32_t *)&data[offset];
+    offset += 4;
+    
+    if (extradata_size > 1024 || offset + extradata_size + 12 > data.size())
+    {
+        std::cerr << "[KITTY] Invalid extradata_size: " << extradata_size << "\n";
+        return;
+    }
+    
+    const uint8_t *extradata = (extradata_size > 0) ? (data.data() + offset) : nullptr;
+    offset += extradata_size;
+    
+    const uint32_t width = *(uint32_t *)&data[offset];
+    offset += 4;
+    
+    const uint32_t height = *(uint32_t *)&data[offset];
+    offset += 4;
+    
+    const uint32_t compressed_size = *(uint32_t *)&data[offset];
+    offset += 4;
+    
+    if (width == 0 || height == 0 || width > 8192 || height > 8192)
+    {
+        std::cerr << "[KITTY] Invalid dimensions: " << width << "x" << height << "\n";
+        return;
+    }
+    
+    if (compressed_size == 0 || offset + compressed_size > data.size())
+    {
+        std::cerr << "[KITTY] Invalid compressed_size: " << compressed_size << "\n";
+        return;
+    }
+    
+    const uint8_t *h264_data = data.data() + offset;
+    
+    //std::cerr << "[KITTY] Decoding H.264: " << compressed_size << " bytes -> " 
+    //          << width << "x" << height << " (extradata: " << extradata_size << " bytes)\n";
+
+    // Allocate fresh buffers each time (avoid reuse issues)
+    std::vector<uint8_t> rgb_data;
+    
+    if (!decode_h264_to_rgb(h264_data, extradata, extradata_size, compressed_size, width, height, rgb_data))
+    {
+        std::cerr << "[KITTY] Failed to decode H.264 data\n";
+        return;
+    }
+    
+    size_t expected_rgb_size = (size_t)width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE;
+    if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
+    {
+        // Invalid decode result - skip this frame silently
+        return;
+    }
+    
+    //std::cerr << "[KITTY] Decoded successfully (" << rgb_data.size() << " bytes RGB), encoding to PNG...\n";
+
+    std::vector<uint8_t> png_data;
+    if (!encode_rgb_to_png(rgb_data.data(), width, height, png_data))
+    {
+        std::cerr << "[KITTY] Failed to encode PNG\n";
+        return;
+    }
+    
+    //std::cerr << "[KITTY] PNG encoded: " << png_data.size() << " bytes\n";
+
+    std::string b64_png = base64_encode(png_data.data(), png_data.size());
+
+    render_to_kitty_b64_chunked(b64_png);
+    
+    //std::cerr << "[KITTY] Frame rendered successfully\n";
 }
 
 struct FBTempBuffers
@@ -4345,14 +4924,14 @@ int main(int argc, char **argv)
         if (feature_video)
         {
             std::vector<uint8_t> rendered;
-            int new_term_width, new_term_height;
+            int new_term_width = 0, new_term_height = 0;
             get_terminal_size(new_term_width, new_term_height);
 
             // Handle terminal resize
             static int last_term_width = new_term_width;
             static int last_term_height = new_term_height;
 
-            if (new_term_width != last_term_width || new_term_height != last_term_height)
+            if ((new_term_width != last_term_width || new_term_height != last_term_height) && new_term_width > 0 && new_term_height > 0 && new_term_width < 16384 && new_term_height < 16384)
             {
                 last_term_width = new_term_width;
                 last_term_height = new_term_height;
@@ -4406,59 +4985,25 @@ int main(int argc, char **argv)
             }
             else if (!video_paused.load() && receive_newest_frame(rendered))
             {
-<<<<<<< HEAD
                 // Renderer kitty(5) - render
                 if (current_config.renderer == 5)
                 {
                     render_to_kitty(rendered);
                 }
-=======
-                // Detect H264 frame: [width][height][compressed_size][H264_data...]
-                bool is_h264 = false;
-                int h264_width = 0, h264_height = 0, h264_size = 0;
-                if (rendered.size() > 12) {
-                    h264_width = *(uint32_t*)&rendered[0];
-                    h264_height = *(uint32_t*)&rendered[4];
-                    h264_size = *(uint32_t*)&rendered[8];
-                    if (h264_size > 0 && (size_t)(12 + h264_size) == rendered.size()) {
-                        is_h264 = true;
-                    }
-                }
-
-                std::vector<uint8_t> frame_data;
-                int frame_width = screen_width.load();
-                int frame_height = screen_height.load();
-                if (is_h264) {
-                    // Initialize decoder if needed
-                    if (!dec_ctx || dec_ctx->width != h264_width || dec_ctx->height != h264_height) {
-                        init_h264_decoder(h264_width, h264_height);
-                    }
-                    std::vector<uint8_t> h264_buf(rendered.begin() + 12, rendered.end());
-                    if (decode_h264_frame(h264_buf, h264_width, h264_height, frame_data)) {
-                        frame_width = h264_width;
-                        frame_height = h264_height;
-                    } else {
-                        std::cerr << "[H264] Failed to decode frame, skipping\n";
-                        continue;
-                    }
-                } else {
-                    frame_data = rendered;
-                }
-
->>>>>>> 51578044db5a68fd8ee06cf6dc8579e9834a81e7
                 // Renderer 6 = framebuffer - write to /dev/fb0 instead of terminal
-                if (current_config.renderer == 6)
+                else if (current_config.renderer == 6)
                 {
-                    render_to_framebuffer(frame_data);
+                    render_to_framebuffer(rendered);
                 }
                 else if (current_config.renderer == 7)
                 { // KMS direct rendering mode
-                    render_to_kms(frame_data);
+                    render_to_kms(rendered);
                 }
                 else
                 {
+                    std::cerr << "[FRAME] Rendering frame, size: " << rendered.size() << " bytes\n";
                     std::cout << "\033[H" << std::flush;
-                    write(STDOUT_FILENO, frame_data.data(), frame_data.size());
+                    write(STDOUT_FILENO, rendered.data(), rendered.size());
                 }
             }
             else if (video_paused.load())
@@ -4553,6 +5098,7 @@ int main(int argc, char **argv)
 
     cleanup_kms_display();
     cleanup_framebuffer();
+    cleanup_h264_decoder(h264_decoder);
 
     std::cerr << "[EXIT] Shutdown complete.\n";
     return 0;

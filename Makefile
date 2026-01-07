@@ -1,7 +1,7 @@
 CC = gcc
 CXX = g++
-CXXFLAGS = -std=c++23 -Wall -Ofast
-CFLAGS = -Wall -Ofast
+CXXFLAGS = -std=c++23 -Wall -O3
+CFLAGS = -Wall -O3
 
 # Include directories
 INCLUDES = -I. \
@@ -13,7 +13,7 @@ INCLUDES = -I. \
 		   $(shell pkg-config --cflags libsixel)
 
 # Base libraries
-LIBS_BASE = -lwayland-client -lm -llz4 -lpthread -linput -ludev -lopus -lopusfile -lsixel -ldrm -lgbm -lavcodec -lavutil -lswscale $(shell pkg-config --libs gio-2.0)
+LIBS_BASE = -lwayland-client -lm -llz4 -lpthread -linput -ludev -lopus -lopusfile -lsixel -ldrm -lgbm -lavcodec -lavutil -lx264 -lpng -lswscale $(shell pkg-config --libs gio-2.0)
 
 # PipeWire support (default: enabled)
 # To disable: make PIPEWIRE=false
@@ -159,9 +159,9 @@ endif
 	@echo "All dependencies OK!"
 
 # Debug build
-debug: CXXFLAGS = -std=c++23 -Wall -g -O0 -DDEBUG
-debug: CFLAGS = -Wall -g -O0 -DDEBUG
-debug: clean all
+debug: CXXFLAGS = -std=c++23 -Wall -g -O0 -DDEBUG -fsanitize=address -fsanitize=undefined
+debug: CFLAGS = -Wall -g -O0 -DDEBUG -fsanitize=address -fsanitize=undefined
+debug: all
 
 # Show build configuration
 config:

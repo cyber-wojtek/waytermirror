@@ -33,7 +33,6 @@
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <linux/fb.h>
-#include <png.h>
 #include <sys/mman.h>
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
@@ -51,11 +50,9 @@
 #include <rapidjson/document.h>
 #include <opus/opus.h>
 extern "C" {
-    #include <libavcodec/avcodec.h>
-    #include <libavutil/opt.h>
-    #include <libavutil/imgutils.h>
-    #include <libswscale/swscale.h>
+    #include <x264.h>
 }
+
 
 static const uint32_t MAX_FRAME_WIDTH = 8192;
 static const uint32_t MAX_FRAME_HEIGHT = 8192;
@@ -383,14 +380,14 @@ struct ZoomState
 };
 
 struct H264Encoder {
-    AVCodecContext *codec_ctx = nullptr;
-    AVFrame *frame = nullptr;
-    AVPacket *pkt = nullptr;
-    SwsContext *sws_ctx = nullptr;
+    x264_t *encoder = nullptr;
+    x264_picture_t pic_in;
+    x264_picture_t pic_out;
     uint32_t width = 0;
     uint32_t height = 0;
     bool initialized = false;
     std::mutex mutex;
+    int frame_count = 0;
 };
 
 
@@ -3063,116 +3060,195 @@ static std::string render_hybrid(
     return out.str();
 }
 
-static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height, int quality) {
+static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height, int quality, int fps) {
     std::lock_guard<std::mutex> lock(enc.mutex);
     
     if (enc.initialized && enc.width == width && enc.height == height) {
-        return true;  // Already initialized with correct dimensions
+        return true;
     }
     
-    // Cleanup existing encoder if dimensions changed
     if (enc.initialized) {
-        if (enc.codec_ctx) avcodec_free_context(&enc.codec_ctx);
-        if (enc.frame) av_frame_free(&enc.frame);
-        if (enc.pkt) av_packet_free(&enc.pkt);
-        if (enc.sws_ctx) sws_freeContext(enc.sws_ctx);
+        if (enc.encoder) {
+            x264_encoder_close(enc.encoder);
+            enc.encoder = nullptr;
+        }
         enc.initialized = false;
     }
     
-    // Find H.264 encoder
-    const AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_H264);
-    if (!codec) {
-        std::cerr << "[H264] Encoder not found\n";
-        return false;
-    }
+    x264_param_t param;
     
-    enc.codec_ctx = avcodec_alloc_context3(codec);
-    if (!enc.codec_ctx) {
-        std::cerr << "[H264] Failed to allocate codec context\n";
-        return false;
-    }
+    // Choose preset based on quality
+    const char* preset;
     
-    // Configure encoder
-    enc.codec_ctx->width = width;
-    enc.codec_ctx->height = height;
-    enc.codec_ctx->time_base = (AVRational){1, 30};  // 30 FPS
-    enc.codec_ctx->framerate = (AVRational){30, 1};
-    enc.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-    
-    // Quality settings based on quality parameter (0-100)
-    if (quality >= 85) {
-        enc.codec_ctx->bit_rate = width * height * 8;  // ~8 bits per pixel (high quality)
-        av_opt_set(enc.codec_ctx->priv_data, "preset", "medium", 0);
-        av_opt_set(enc.codec_ctx->priv_data, "crf", "18", 0);
+    if (quality >= 80) {
+        preset = "slow";
     } else if (quality >= 60) {
-        enc.codec_ctx->bit_rate = width * height * 4;  // ~4 bits per pixel (medium)
-        av_opt_set(enc.codec_ctx->priv_data, "preset", "fast", 0);
-        av_opt_set(enc.codec_ctx->priv_data, "crf", "23", 0);
+        preset = "medium";
+    } else if (quality >= 40) {
+        preset = "fast";
+    } else if (quality >= 20) {
+        preset = "faster";
     } else {
-        enc.codec_ctx->bit_rate = width * height * 2;  // ~2 bits per pixel (low)
-        av_opt_set(enc.codec_ctx->priv_data, "preset", "ultrafast", 0);
-        av_opt_set(enc.codec_ctx->priv_data, "crf", "28", 0);
+        preset = "veryfast";
     }
     
-    // Low latency settings for real-time streaming
-    av_opt_set(enc.codec_ctx->priv_data, "tune", "zerolatency", 0);
-    enc.codec_ctx->gop_size = 30;  // I-frame every second at 30fps
-    enc.codec_ctx->max_b_frames = 0;  // No B-frames for lower latency
-    
-    if (avcodec_open2(enc.codec_ctx, codec, nullptr) < 0) {
-        std::cerr << "[H264] Failed to open codec\n";
-        avcodec_free_context(&enc.codec_ctx);
+    if (x264_param_default_preset(&param, preset, "zerolatency") < 0) {
+        std::cerr << "[H264] Failed to set preset\n";
         return false;
     }
     
-    // Allocate frame
-    enc.frame = av_frame_alloc();
-    if (!enc.frame) {
-        std::cerr << "[H264] Failed to allocate frame\n";
-        avcodec_free_context(&enc.codec_ctx);
+    // Configure basic parameters
+    param.i_threads = 1;
+    param.i_width = width;
+    param.i_height = height;
+    param.i_fps_num = fps;
+    param.i_fps_den = 1;
+    param.i_keyint_max = fps * 2;
+    param.b_repeat_headers = 1;
+    param.b_annexb = 1;
+    
+    // IMPORTANT: Set bitrate control mode
+    // We can use either CRF or ABR (average bitrate)
+    // Let's use CRF with VBV (Video Buffering Verifier) for quality control
+    
+    // Calculate target bitrate based on quality and resolution
+    // Bits per pixel approach
+    double bpp;
+    if (quality >= 80) {
+        bpp = 0.15;  // High quality: 0.15 bits per pixel
+    } else if (quality >= 60) {
+        bpp = 0.10;  // Medium-high: 0.10 bpp
+    } else if (quality >= 40) {
+        bpp = 0.07;  // Medium: 0.07 bpp
+    } else if (quality >= 20) {
+        bpp = 0.05;  // Low-medium: 0.05 bpp
+    } else {
+        bpp = 0.03;  // Low: 0.03 bpp
+    }
+    
+    int bitrate = (int)(width * height * fps * bpp / 1000);  // in kbps
+    
+    // Use CRF mode with VBV buffer for quality-based encoding
+    param.rc.i_rc_method = X264_RC_CRF;
+    
+    // Map quality to CRF (18-28 range for good quality)
+    int crf = 18 + ((100 - quality) * 10 / 100);  // 18-28 range
+    param.rc.f_rf_constant = crf;
+    
+    // Set VBV (Video Buffering Verifier) to control bitrate variance
+    param.rc.i_vbv_max_bitrate = bitrate * 2;  // Max bitrate (2x average)
+    param.rc.i_vbv_buffer_size = bitrate;      // Buffer size
+    param.rc.f_vbv_buffer_init = 0.9f;         // Initial buffer fullness
+    
+    // Set QP limits to prevent extreme quality variations
+    param.rc.i_qp_min = 10;  // Minimum QP (best quality)
+    param.rc.i_qp_max = 51;  // Maximum QP (worst quality)
+    param.rc.i_qp_step = 4;  // Maximum QP change between frames
+    
+    // Adaptive quantization
+    param.rc.i_aq_mode = X264_AQ_VARIANCE;  // Variance-based AQ
+    param.rc.f_aq_strength = 1.0f;
+    
+    // Psychovisual optimizations
+    param.analyse.b_psy = 1;
+    param.rc.f_pb_factor = 1.3f;
+    param.rc.f_ip_factor = 1.4f;
+    
+    // Enable deblocking filter
+    param.b_deblocking_filter = 1;
+    param.i_deblocking_filter_alphac0 = 0;
+    param.i_deblocking_filter_beta = 0;
+    
+    // Motion estimation settings based on quality
+    if (quality >= 60) {
+        param.analyse.i_me_method = X264_ME_UMH;  // Uneven multi-hex search
+        param.analyse.i_subpel_refine = 7;
+        param.analyse.b_mixed_references = 1;
+        param.analyse.i_me_range = 16;
+        param.analyse.i_mv_range = -1;  // Auto
+        param.analyse.b_chroma_me = 1;
+        param.analyse.i_trellis = 1;
+    } else if (quality >= 40) {
+        param.analyse.i_me_method = X264_ME_HEX;
+        param.analyse.i_subpel_refine = 6;
+        param.analyse.b_mixed_references = 1;
+        param.analyse.i_me_range = 16;
+    } else {
+        param.analyse.i_me_method = X264_ME_DIA;
+        param.analyse.i_subpel_refine = 4;
+        param.analyse.i_me_range = 16;
+    }
+    
+    // Partition decision
+    if (quality >= 60) {
+        param.analyse.inter = X264_ANALYSE_I4x4 | X264_ANALYSE_I8x8 |
+                             X264_ANALYSE_PSUB16x16 | X264_ANALYSE_BSUB16x16 |
+                             X264_ANALYSE_PSUB8x8;
+        param.analyse.intra = X264_ANALYSE_I4x4 | X264_ANALYSE_I8x8;
+    } else if (quality >= 40) {
+        param.analyse.inter = X264_ANALYSE_I4x4 | X264_ANALYSE_PSUB16x16 | X264_ANALYSE_BSUB16x16;
+        param.analyse.intra = X264_ANALYSE_I4x4;
+    }
+    
+    // B-frames for better compression at higher quality
+    if (quality >= 60) {
+        param.i_bframe = 3;
+        param.i_bframe_adaptive = X264_B_ADAPT_TRELLIS;
+    } else if (quality >= 40) {
+        param.i_bframe = 2;
+        param.i_bframe_adaptive = X264_B_ADAPT_FAST;
+    } else {
+        param.i_bframe = 0;  // No B-frames for low quality/fast encoding
+    }
+    
+    // Reference frames
+    if (quality >= 80) {
+        param.i_frame_reference = 4;
+    } else if (quality >= 60) {
+        param.i_frame_reference = 3;
+    } else if (quality >= 40) {
+        param.i_frame_reference = 2;
+    } else {
+        param.i_frame_reference = 1;
+    }
+    
+    // Profile selection
+    const char* profile;
+    if (quality >= 60) {
+        profile = "high";
+    } else if (quality >= 40) {
+        profile = "main";
+    } else {
+        profile = "baseline";
+    }
+    
+    if (x264_param_apply_profile(&param, profile) < 0) {
+        std::cerr << "[H264] Failed to apply profile\n";
         return false;
     }
     
-    enc.frame->format = enc.codec_ctx->pix_fmt;
-    enc.frame->width = width;
-    enc.frame->height = height;
-    
-    if (av_frame_get_buffer(enc.frame, 0) < 0) {
-        std::cerr << "[H264] Failed to allocate frame buffer\n";
-        av_frame_free(&enc.frame);
-        avcodec_free_context(&enc.codec_ctx);
+    enc.encoder = x264_encoder_open(&param);
+    if (!enc.encoder) {
+        std::cerr << "[H264] Failed to open encoder\n";
         return false;
     }
     
-    // Allocate packet
-    enc.pkt = av_packet_alloc();
-    if (!enc.pkt) {
-        std::cerr << "[H264] Failed to allocate packet\n";
-        av_frame_free(&enc.frame);
-        avcodec_free_context(&enc.codec_ctx);
-        return false;
-    }
-    
-    // Initialize swscale context for RGB->YUV conversion
-    enc.sws_ctx = sws_getContext(
-        width, height, AV_PIX_FMT_RGB24,
-        width, height, AV_PIX_FMT_YUV420P,
-        SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
-    
-    if (!enc.sws_ctx) {
-        std::cerr << "[H264] Failed to create swscale context\n";
-        av_packet_free(&enc.pkt);
-        av_frame_free(&enc.frame);
-        avcodec_free_context(&enc.codec_ctx);
+    if (x264_picture_alloc(&enc.pic_in, X264_CSP_I420, width, height) < 0) {
+        std::cerr << "[H264] Failed to allocate picture\n";
+        x264_encoder_close(enc.encoder);
+        enc.encoder = nullptr;
         return false;
     }
     
     enc.width = width;
     enc.height = height;
+    enc.frame_count = 0;
     enc.initialized = true;
     
     std::cerr << "[H264] Encoder initialized: " << width << "x" << height 
-              << " quality=" << quality << "\n";
+              << " preset=" << preset << " profile=" << profile 
+              << " crf=" << crf << " target_bitrate=" << bitrate << "kbps"
+              << " bpp=" << std::fixed << std::setprecision(3) << bpp << "\n";
     return true;
 }
 
@@ -3181,10 +3257,18 @@ static void cleanup_h264_encoder(H264Encoder &enc) {
     
     if (!enc.initialized) return;
     
-    if (enc.sws_ctx) sws_freeContext(enc.sws_ctx);
-    if (enc.pkt) av_packet_free(&enc.pkt);
-    if (enc.frame) av_frame_free(&enc.frame);
-    if (enc.codec_ctx) avcodec_free_context(&enc.codec_ctx);
+    // Flush encoder
+    if (enc.encoder) {
+        x264_nal_t *nals;
+        int i_nals;
+        while (x264_encoder_delayed_frames(enc.encoder)) {
+            x264_encoder_encode(enc.encoder, &nals, &i_nals, nullptr, &enc.pic_out);
+        }
+        
+        x264_picture_clean(&enc.pic_in);
+        x264_encoder_close(enc.encoder);
+        enc.encoder = nullptr;
+    }
     
     enc.initialized = false;
     std::cerr << "[H264] Encoder cleaned up\n";
@@ -3195,51 +3279,107 @@ static std::vector<uint8_t> encode_h264_frame(
     const uint8_t *rgb_data,
     uint32_t width,
     uint32_t height,
-    int quality)
+    int quality,
+    int fps)
 {
-    if (!enc.initialized || enc.width != width || enc.height != height) {
-        if (!init_h264_encoder(enc, width, height, quality)) {
+    static int loc_fps = 30;
+    static int loc_quality = 75;
+    if (!enc.initialized || enc.width != width || enc.height != height || loc_fps != fps || loc_quality != quality) {
+        loc_fps = fps;
+        loc_quality = quality;
+        cleanup_h264_encoder(enc);
+        if (!init_h264_encoder(enc, width, height, quality, fps)) {
             return {};
         }
     }
     
     std::lock_guard<std::mutex> lock(enc.mutex);
     
-    // Convert RGB24 to YUV420P
-    const uint8_t *src_data[1] = { rgb_data };
-    int src_linesize[1] = { (int)(width * 3) };
+    // Convert RGB to I420 (YUV420P) with proper floating point conversion
+    const uint8_t *rgb = rgb_data;
+    uint8_t *y = enc.pic_in.img.plane[0];
+    uint8_t *u = enc.pic_in.img.plane[1];
+    uint8_t *v = enc.pic_in.img.plane[2];
     
-    sws_scale(enc.sws_ctx, src_data, src_linesize, 0, height,
-              enc.frame->data, enc.frame->linesize);
+    int y_stride = enc.pic_in.img.i_stride[0];
+    int uv_stride = enc.pic_in.img.i_stride[1];
     
-    enc.frame->pts++;
+    // RGB to YUV conversion (ITU-R BT.601)
+    for (uint32_t j = 0; j < height; j++) {
+        for (uint32_t i = 0; i < width; i++) {
+            uint8_t r = rgb[(j * width + i) * 3 + 0];
+            uint8_t g = rgb[(j * width + i) * 3 + 1];
+            uint8_t b = rgb[(j * width + i) * 3 + 2];
+            
+            // Y = 0.299*R + 0.587*G + 0.114*B
+            float y_val = 0.299f * r + 0.587f * g + 0.114f * b;
+            y[j * y_stride + i] = (uint8_t)std::clamp(y_val, 0.0f, 255.0f);
+            
+            // Subsample U and V (every 2x2 block)
+            if ((j % 2 == 0) && (i % 2 == 0)) {
+                // Average 2x2 block for better quality
+                float r_sum = r, g_sum = g, b_sum = b;
+                int count = 1;
+                
+                if (i + 1 < width) {
+                    r_sum += rgb[(j * width + i + 1) * 3 + 0];
+                    g_sum += rgb[(j * width + i + 1) * 3 + 1];
+                    b_sum += rgb[(j * width + i + 1) * 3 + 2];
+                    count++;
+                }
+                if (j + 1 < height) {
+                    r_sum += rgb[((j + 1) * width + i) * 3 + 0];
+                    g_sum += rgb[((j + 1) * width + i) * 3 + 1];
+                    b_sum += rgb[((j + 1) * width + i) * 3 + 2];
+                    count++;
+                }
+                if (i + 1 < width && j + 1 < height) {
+                    r_sum += rgb[((j + 1) * width + i + 1) * 3 + 0];
+                    g_sum += rgb[((j + 1) * width + i + 1) * 3 + 1];
+                    b_sum += rgb[((j + 1) * width + i + 1) * 3 + 2];
+                    count++;
+                }
+                
+                r_sum /= count;
+                g_sum /= count;
+                b_sum /= count;
+                
+                // U = -0.169*R - 0.331*G + 0.500*B + 128
+                float u_val = -0.169f * r_sum - 0.331f * g_sum + 0.500f * b_sum + 128.0f;
+                // V = 0.500*R - 0.419*G - 0.081*B + 128
+                float v_val = 0.500f * r_sum - 0.419f * g_sum - 0.081f * b_sum + 128.0f;
+                
+                u[(j/2) * uv_stride + (i/2)] = (uint8_t)std::clamp(u_val, 0.0f, 255.0f);
+                v[(j/2) * uv_stride + (i/2)] = (uint8_t)std::clamp(v_val, 0.0f, 255.0f);
+            }
+        }
+    }
     
-    // Encode frame
-    int ret = avcodec_send_frame(enc.codec_ctx, enc.frame);
-    if (ret < 0) {
-        std::cerr << "[H264] Error sending frame\n";
+    enc.pic_in.i_pts = enc.frame_count++;
+    
+    // Encode
+    x264_nal_t *nals;
+    int i_nals;
+    int frame_size = x264_encoder_encode(enc.encoder, &nals, &i_nals, &enc.pic_in, &enc.pic_out);
+    
+    if (frame_size < 0) {
+        std::cerr << "[H264] Encode failed\n";
         return {};
     }
     
-    std::vector<uint8_t> encoded_data;
-    
-    while (ret >= 0) {
-        ret = avcodec_receive_packet(enc.codec_ctx, enc.pkt);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-            break;
-        } else if (ret < 0) {
-            std::cerr << "[H264] Error encoding frame\n";
-            return {};
-        }
-        
-        // Append packet data
-        encoded_data.insert(encoded_data.end(), 
-                          enc.pkt->data, 
-                          enc.pkt->data + enc.pkt->size);
-        
-        av_packet_unref(enc.pkt);
+    if (frame_size == 0) {
+        return {};
     }
     
+    // Collect all NAL units
+    std::vector<uint8_t> encoded_data;
+    for (int i = 0; i < i_nals; i++) {
+        encoded_data.insert(encoded_data.end(), 
+                          nals[i].p_payload, 
+                          nals[i].p_payload + nals[i].i_payload);
+    }
+    
+    // Stats
     static int frame_count = 0;
     static size_t total_input = 0;
     static size_t total_output = 0;
@@ -3249,8 +3389,8 @@ static std::vector<uint8_t> encode_h264_frame(
     total_output += encoded_data.size();
     
     if (frame_count % 100 == 0) {
-        double ratio = (double)total_input / total_output;
-        double saved = 100.0 * (1.0 - (double)total_output / total_input);
+        double ratio = total_output > 0 ? (double)total_input / total_output : 0;
+        double saved = total_input > 0 ? 100.0 * (1.0 - (double)total_output / total_input) : 0;
         std::cerr << "[H264] Compression | Ratio: " << std::fixed 
                   << std::setprecision(2) << ratio << "x | Saved: " 
                   << saved << "% over " << frame_count << " frames\n";
@@ -3432,7 +3572,8 @@ static std::vector<uint8_t> render_kitty(
     uint8_t quality, 
     double rotation_angle,
     PixelFormat pixel_format,
-    H264Encoder *h264_enc)
+    H264Encoder *h264_enc,
+    int fps)
 {
     if (!frame_data || frame_width == 0 || frame_height == 0)
         return {};
@@ -3466,6 +3607,10 @@ static std::vector<uint8_t> render_kitty(
         img_width = (int)(terminal_pixel_width * scale_factor);
         img_height = (int)(terminal_pixel_height * scale_factor);
     }
+
+    // Ensure img_width is divisible by 2 (required for YUV420)
+    if (img_width & 1) --img_width;
+    if (img_height & 1) --img_height;
     
     // Build RGB24 data
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
@@ -3490,18 +3635,50 @@ static std::vector<uint8_t> render_kitty(
     }
 
     std::vector<uint8_t> h264_data = encode_h264_frame(
-            *h264_enc, rgb_data.data(), img_width, img_height, quality);
+            *h264_enc, rgb_data.data(), img_width, img_height, quality, fps);
     
     if (h264_data.empty()) {
         return {};
     }
     
-    // Build header: [width][height][compressed_size][H264_data]
+    // Get SPS/PPS from encoder (extradata)
+    std::vector<uint8_t> extradata;
+    if (h264_enc->encoder) {
+        x264_nal_t *nals;
+        int i_nals;
+        
+        // Get headers (SPS/PPS)
+        int header_size = x264_encoder_headers(h264_enc->encoder, &nals, &i_nals);
+        if (header_size > 0) {
+            for (int i = 0; i < i_nals; i++) {
+                extradata.insert(extradata.end(), 
+                               nals[i].p_payload, 
+                               nals[i].p_payload + nals[i].i_payload);
+            }
+        }
+    }
+    
+    // Build header: [extradata_size (32B)][extradata (8B*)][width (32B)][height (32B)][compressed_size (32B)][H264_data (8B*)]
     std::vector<uint8_t> result;
-    result.resize(12);  // 4 + 4 + 4 bytes header
-    *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
-    *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
-    *reinterpret_cast<uint32_t*>(&result[8]) = h264_data.size();
+    size_t extradata_size = extradata.size();
+    result.resize(4 + extradata_size + 4 + 4 + 4);
+    uint8_t *ptr = result.data();
+    
+    *reinterpret_cast<uint32_t*>(ptr) = extradata_size;
+    ptr += 4;
+    
+    if (extradata_size > 0) {
+        memcpy(ptr, extradata.data(), extradata_size);
+        ptr += extradata_size;
+    }
+    
+    *reinterpret_cast<uint32_t*>(ptr) = img_width;
+    ptr += 4;
+    *reinterpret_cast<uint32_t*>(ptr) = img_height;
+    ptr += 4;
+    *reinterpret_cast<uint32_t*>(ptr) = h264_data.size();
+    ptr += 4;
+    
     result.insert(result.end(), h264_data.begin(), h264_data.end());
     return result;
 }
@@ -3522,7 +3699,8 @@ static std::vector<uint8_t> render_framebuffer(
     uint8_t quality,
     double rotation_angle,
     PixelFormat pixel_format,
-    H264Encoder *h264_enc)
+    H264Encoder *h264_enc,
+    int fps)
 {
     if (!frame_data || frame_width == 0 || frame_height == 0) {
         std::cerr << "[FRAMEBUFFER] ERROR: Invalid input\n";
@@ -3580,13 +3758,15 @@ static std::vector<uint8_t> render_framebuffer(
             rgb_data[idx + 2] = b;
         }
     }
+
+    std::vector<uint8_t> h264_data;
     
     // Use H.264 compression if encoder provided
     if (h264_enc) {
         img_width -= img_width & 1;  // ensure width is even
 
-        std::vector<uint8_t> h264_data = encode_h264_frame(
-            *h264_enc, rgb_data.data(), img_width, img_height, quality);
+        h264_data = encode_h264_frame(
+            *h264_enc, rgb_data.data(), img_width, img_height, quality, fps);
         
         if (!h264_data.empty()) {
             // Build header: [width][height][compressed_size][H264_data]
@@ -3599,20 +3779,9 @@ static std::vector<uint8_t> render_framebuffer(
             return result;
         }
         
-        std::cerr << "[H264] Encoding failed, falling back to raw\n";
+        std::cerr << "[H264] Encoding failed\n";
+
     }
-    
-    // Fallback: uncompressed RGB24
-    std::vector<uint8_t> result;
-    result.resize(8);
-    *reinterpret_cast<uint32_t*>(&result[0]) = img_width;
-    *reinterpret_cast<uint32_t*>(&result[4]) = img_height;
-    result.insert(result.end(), rgb_data.begin(), rgb_data.end());
-    
-
-
-    std::vector<uint8_t> h264_data = encode_h264_frame(
-        *h264_enc, rgb_data.data(), img_width, img_height, quality);
     
     if (h264_data.empty()) {
         return {};
@@ -3629,7 +3798,7 @@ static std::vector<uint8_t> render_framebuffer(
 }
 
 // KMS renderer - same as framebuffer here
-static std::vector<uint8_t> render_framebuffer(
+static std::vector<uint8_t> render_kms(
     const uint8_t *frame_data,
     uint32_t frame_width,
     uint32_t frame_height,
@@ -3645,7 +3814,8 @@ static std::vector<uint8_t> render_framebuffer(
     uint8_t quality,
     double rotation_angle,
     PixelFormat pixel_format,
-    H264Encoder *h264_enc)  // ADD ENCODER PARAMETER
+    H264Encoder *h264_enc,
+    int fps)
 {
     if (!frame_data || frame_width == 0 || frame_height == 0) {
         std::cerr << "[KMS] ERROR: Invalid input\n";
@@ -3686,7 +3856,6 @@ static std::vector<uint8_t> render_framebuffer(
     if (img_height <= 0) img_height = 1080;
 
     // Create RGB24 buffer
-    // Create RGB24 buffer
     std::vector<uint8_t> rgb_data(img_width * img_height * 3);
     
     for (int y = 0; y < img_height; y++) {
@@ -3707,10 +3876,8 @@ static std::vector<uint8_t> render_framebuffer(
     }
     
     // Use H.264 compression if encoder provided
-
-
     std::vector<uint8_t> h264_data = encode_h264_frame(
-        *h264_enc, rgb_data.data(), img_width, img_height, quality);
+        *h264_enc, rgb_data.data(), img_width, img_height, quality, fps);
     
     if (h264_data.empty()) {
         return {};
@@ -4201,12 +4368,6 @@ static void send_thread(int socket, std::shared_ptr<SendQueue> queue)
     }
 
     std::cerr << "[SEND] Thread stopped\n";
-}
-
-static std::string generate_client_id(const sockaddr_in &addr)
-{
-    // This is now just a fallback - actual ID comes from SessionID message
-    return std::string(inet_ntoa(addr.sin_addr)) + ":fallback";
 }
 
 static bool receive_session_id(int socket, std::string &session_id)
@@ -5538,7 +5699,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                                 config.term_pixel_width, config.term_pixel_height,
                                 mode, keep_aspect_ratio, config.scale_factor, 
                                 config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt, &conn->h264_encoder));
+                                pixel_fmt, &conn->h264_encoder, config.fps));
                         }
                         break;
                     case 6: {
@@ -5548,7 +5709,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                                 config.term_pixel_width, config.term_pixel_height,
                                 mode, keep_aspect_ratio, config.scale_factor, 
                                 config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt, &conn->h264_encoder));
+                                pixel_fmt, &conn->h264_encoder, config.fps));
                         }
                         break;
                     case 7: {
@@ -5558,7 +5719,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                                 config.term_pixel_width, config.term_pixel_height,
                                 mode, keep_aspect_ratio, config.scale_factor, 
                                 config.detail_level, config.quality, config.rotation_angle,
-                                pixel_fmt, &conn->h264_encoder));
+                                pixel_fmt, &conn->h264_encoder, config.fps));
                         }
                         break;
                     case 3:
