@@ -449,6 +449,13 @@ struct HEVCEncoder
     // Hardware acceleration
     AVBufferRef *hw_device_ctx = nullptr;
     HWEncoderType encoder_type = HWEncoderType::SOFTWARE;
+    
+    // ✅ ADD THESE PER-ENCODER STATE TRACKERS:
+    int last_fps = -1;
+    int last_quality = -1;
+    uint32_t last_width = 0;
+    uint32_t last_height = 0;
+    int frames_since_keyframe = 0;
 };
 
 struct ClientConnection
@@ -3678,33 +3685,52 @@ static std::vector<uint8_t> encode_hevc_frame(
     int quality,
     int fps)
 {
-    static int last_fps = -1;        // Track PREVIOUS values
-    static int last_quality = -1;
     SwsContext *&sws_ctx = enc.sws_ctx;
-    static uint32_t last_width = 0, last_height = 0;
-
+    
+    // Store per-encoder state, NOT static
     bool resolution_changed = (enc.width != width || enc.height != height);
-    bool quality_changed = (last_quality != quality);    // Check BEFORE updating
-    bool fps_changed = (last_fps != fps);
+    bool quality_changed = (enc.last_quality != quality);
+    bool fps_changed = (enc.last_fps != fps);
     
     if (!enc.initialized || resolution_changed || fps_changed || quality_changed)
     {
-        // NOW update the tracking variables AFTER the check
-        last_fps = fps;
-        last_quality = quality;
+        // Update stored values
+        enc.last_fps = fps;
+        enc.last_quality = quality;
+        enc.last_width = width;
+        enc.last_height = height;
 
-        // Cleanup old scaler
-        if (sws_ctx)
-        {
+        if (sws_ctx) {
             sws_freeContext(sws_ctx);
             sws_ctx = nullptr;
         }
 
         cleanup_hevc_encoder(enc);
-        if (!init_hevc_encoder(enc, width, height, quality, fps))
-        {
+        if (!init_hevc_encoder(enc, width, height, quality, fps)) {
             return {};
         }
+    }
+
+    std::lock_guard<std::mutex> lock(enc.mutex);
+
+    // Recreate scaler if needed
+    if (!sws_ctx || enc.last_width != width || enc.last_height != height)
+    {
+        if (sws_ctx)
+            sws_freeContext(sws_ctx);
+
+        sws_ctx = sws_getContext(
+            width, height, AV_PIX_FMT_RGB24,
+            width, height, AV_PIX_FMT_YUV420P,
+            SWS_BILINEAR, nullptr, nullptr, nullptr);
+
+        if (!sws_ctx) {
+            std::cerr << "[HEVC] Failed to create scaler\n";
+            return {};
+        }
+
+        enc.last_width = width;
+        enc.last_height = height;
     }
 
     std::lock_guard<std::mutex> lock(enc.mutex);
@@ -3745,6 +3771,18 @@ static std::vector<uint8_t> encode_hevc_frame(
     sws_scale(sws_ctx,
               src_data, src_linesize, 0, height,
               enc.frame->data, enc.frame->linesize);
+
+    bool force_keyframe = (enc.frames_since_keyframe >= (fps * 2)) || (enc.pts == 0);
+    
+    if (force_keyframe) {
+        enc.frame->pict_type = AV_PICTURE_TYPE_I;
+        enc.frame->key_frame = 1;
+        enc.frames_since_keyframe = 0;
+        std::cerr << "[HEVC] Forcing keyframe at pts=" << enc.pts << "\n";
+    } else {
+        enc.frame->pict_type = AV_PICTURE_TYPE_NONE;
+        enc.frame->key_frame = 0;
+    }
 
     enc.frame->pts = enc.pts;
     enc.pkt->pts = enc.pts;
