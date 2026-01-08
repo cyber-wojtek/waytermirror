@@ -71,7 +71,7 @@ Then log out and back in.
 [HOTPLUG]   - Pointer capability
 [HOTPLUG] Device added: Keyboard passthrough
 [HOTPLUG]   - Keyboard capability
-[INIT] Session ID: 8c899121-f658-48fd-860a-984d6862755b
+[INIT] Session ID: 94c8c4ac-0ddd-40f7-8d0c-81d7e805dc40
 [CONFIG] Connected to 0.0.0.0:10002
 [VIDEO] Connected to 0.0.0.0:9999
 [CLIENT] Got geometry from ioctl: 1899x960 (reserved 1 top, 1 bottom)
@@ -95,7 +95,7 @@ Render Device: CPU
 [INIT] Screen info received: 2560x1440
 
 === Waytermirror Client Started ===
-Session: 8c899121-f658-48fd-860a-984d6862755b
+Session: 94c8c4ac-0ddd-40f7-8d0c-81d7e805dc40
 Output: 1 | Resolution: 2560x1440
 Renderer: kitty | Color mode: true
 FPS: 60 | Scale: 1
@@ -119,7 +119,7 @@ Press Ctrl+Alt+Shift+H for full shortcut list
 [HEVC DECODER] Hardware device context created
 [HEVC DECODER] Hardware decoder: using internal threading
 [HEVC DECODER] Low-latency flags enabled
-[hevc_cuvid @ 0x562bdb62a200] Invalid pkt_timebase, passing timestamps as-is.
+[hevc_cuvid @ 0x558d42222200] Invalid pkt_timebase, passing timestamps as-is.
 [HEVC DECODER] ✓ Decoder initialized successfully!
 [HEVC DECODER]   Resolution: 1898x960
 [HEVC DECODER]   Hardware: YES
@@ -128,6 +128,114 @@ Press Ctrl+Alt+Shift+H for full shortcut list
 [HEVC DECODER] ========================================
 
 [HEVC DECODER] Decoder initialized/reinitialized
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
 [KITTY] Failed to decode HEVC data
 [KITTY] Failed to decode HEVC data
 [KITTY] Failed to decode HEVC data

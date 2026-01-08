@@ -3266,9 +3266,9 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
     
     // GOP size
     if (quality >= 75) {
-        ctx->gop_size = fps * 2;  // 2 second GOP
+        ctx->gop_size = 1;
     } else {
-        ctx->gop_size = fps;  // 1 second GOP
+        ctx->gop_size = 1;
     }
     
     // Profile and level
@@ -3732,7 +3732,7 @@ static std::vector<uint8_t> encode_hevc_frame(
         enc.last_width = width;
         enc.last_height = height;
     }
-    
+
     // Make frame writable
     int ret = av_frame_make_writable(enc.frame);
     if (ret < 0)
