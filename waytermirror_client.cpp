@@ -953,9 +953,6 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
     // Don't wait for complete frames in input buffer
     dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_CHUNKS;
 
-    // Optimize for real-time decoding
-    dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_SHOW_ALL; // Show all decoded frames immediately
-
     // Error concealment for network streams
     dec.codec_ctx->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
 

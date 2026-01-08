@@ -3752,8 +3752,9 @@ static std::vector<uint8_t> encode_hevc_frame(
               src_data, src_linesize, 0, height,
               enc.frame->data, enc.frame->linesize);
 
-    bool force_keyframe = (enc.frames_since_keyframe >= (fps * 2)) || (enc.pts == 0);
-    
+    bool force_keyframe = (enc.frames_since_keyframe >= fps) || (enc.pts == 0);
+    enc.frames_since_keyframe++;
+
     if (force_keyframe) {
         enc.frame->pict_type = AV_PICTURE_TYPE_I;
         enc.frames_since_keyframe = 0;
