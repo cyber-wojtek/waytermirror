@@ -3555,8 +3555,6 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
     // Error concealment for network streams
     dec.codec_ctx->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
     
-    // Skip loop filter for speed (quality trade-off)
-    // Uncomment if you need extra performance:
     // dec.codec_ctx->skip_loop_filter = AVDISCARD_ALL;
     
     std::cerr << "[HEVC DECODER] Low-latency flags enabled\n";
@@ -3565,6 +3563,7 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
     if (avcodec_open2(dec.codec_ctx, codec, nullptr) < 0)
     {
         char errbuf[256];
+        int ret = AVERROR(EINVAL);
         av_strerror(ret, errbuf, sizeof(errbuf));
         std::cerr << "[HEVC DECODER] Failed to open codec: " << errbuf << "\n";
         if (dec.codec_ctx->extradata)

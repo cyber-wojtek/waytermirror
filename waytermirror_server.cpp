@@ -439,11 +439,16 @@ struct HEVCEncoder
     AVCodecContext *codec_ctx = nullptr;
     AVFrame *frame = nullptr;
     AVPacket *pkt = nullptr;
+    SwsContext *sws_ctx = nullptr;
     uint32_t width = 0;
     uint32_t height = 0;
+    int64_t pts = 0;
     bool initialized = false;
     std::mutex mutex;
-    int64_t pts = 0;
+    
+    // Hardware acceleration
+    AVBufferRef *hw_device_ctx = nullptr;
+    HWEncoderType encoder_type = HWEncoderType::SOFTWARE;
 };
 
 struct ClientConnection
