@@ -3266,9 +3266,9 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
     
     // GOP size
     if (quality >= 75) {
-        ctx->gop_size = 1;
+        ctx->gop_size = fps;
     } else {
-        ctx->gop_size = 1;
+        ctx->gop_size = fps * 2;
     }
     
     // Profile and level
