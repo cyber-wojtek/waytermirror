@@ -1039,6 +1039,81 @@ static void cleanup_hevc_decoder(HEVCDecoder &dec)
     dec.initialized = false;
 }
 
+struct HEVCNALUnit {
+    size_t start_offset;
+    size_t header_size;  // 3 or 4 bytes
+    uint8_t nal_type;
+    bool is_keyframe;
+};
+
+static std::vector<HEVCNALUnit> parse_hevc_nal_units(const uint8_t *data, size_t size) {
+    std::vector<HEVCNALUnit> nal_units;
+    
+    if (!data || size < 4) {
+        return nal_units;
+    }
+    
+    for (size_t i = 0; i < size - 3; i++) {
+        HEVCNALUnit unit;
+        
+        // Check for 4-byte start code: 0x00 0x00 0x00 0x01
+        if (i + 4 <= size && 
+            data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1) {
+            
+            unit.start_offset = i;
+            unit.header_size = 4;
+            
+            if (i + 5 < size) {
+                // HEVC NAL unit header is 2 bytes after start code
+                // First byte: |F|Type[6 bits]|LayerId[3 bits first part]|
+                uint8_t nal_header_byte1 = data[i + 4];
+                unit.nal_type = (nal_header_byte1 >> 1) & 0x3F;
+                
+                // IDR frames: 19 (IDR_W_RADL), 20 (IDR_N_LP), 21 (CRA_NUT)
+                unit.is_keyframe = (unit.nal_type >= 19 && unit.nal_type <= 21);
+                
+                nal_units.push_back(unit);
+            }
+            
+            i += 3; // Skip ahead (loop will increment by 1)
+            continue;
+        }
+        
+        // Check for 3-byte start code: 0x00 0x00 0x01
+        if (data[i] == 0 && data[i+1] == 0 && data[i+2] == 1) {
+            
+            unit.start_offset = i;
+            unit.header_size = 3;
+            
+            if (i + 4 < size) {
+                uint8_t nal_header_byte1 = data[i + 3];
+                unit.nal_type = (nal_header_byte1 >> 1) & 0x3F;
+                
+                unit.is_keyframe = (unit.nal_type >= 19 && unit.nal_type <= 21);
+                
+                nal_units.push_back(unit);
+            }
+            
+            i += 2; // Skip ahead
+            continue;
+        }
+    }
+    
+    return nal_units;
+}
+
+static bool contains_hevc_keyframe(const uint8_t *data, size_t size) {
+    auto nal_units = parse_hevc_nal_units(data, size);
+    
+    for (const auto& unit : nal_units) {
+        if (unit.is_keyframe) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
 static bool decode_hevc_to_rgb(
     const uint8_t *hevc_data,
     const uint8_t *extradata,
@@ -1048,12 +1123,37 @@ static bool decode_hevc_to_rgb(
     uint32_t height,
     std::vector<uint8_t> &rgb_output)
 {
+    // ===== VALIDATION =====
     rgb_output.clear();
-
-    if (!hevc_data || hevc_size == 0)
-    {
+    
+    if (!hevc_data || hevc_size == 0) {
         std::cerr << "[HEVC DECODER] Invalid input data\n";
         return false;
+    }
+    
+    if (width == 0 || height == 0) {
+        std::cerr << "[HEVC DECODER] Invalid dimensions\n";
+        return false;
+    }
+    
+    // Sanity check dimensions
+    if (width > 8192 || height > 8192) {
+        std::cerr << "[HEVC DECODER] Dimensions too large: " << width << "x" << height << "\n";
+        return false;
+    }
+    
+    // Check for minimum valid packet size
+    if (hevc_size < 5) {
+        std::cerr << "[HEVC DECODER] Packet too small: " << hevc_size << " bytes\n";
+        return false;
+    }
+    
+    // Validate extradata if present
+    if (extradata && extradata_size > 0) {
+        if (extradata_size > 10000) {  // Reasonable limit
+            std::cerr << "[HEVC DECODER] Extradata too large: " << extradata_size << "\n";
+            return false;
+        }
     }
 
     // Initialize/reinitialize decoder if needed
@@ -1067,6 +1167,7 @@ static bool decode_hevc_to_rgb(
         std::cerr << "[HEVC DECODER] Decoder initialized/reinitialized\n";
     }
 
+    // Allocate RGB frame buffer if needed
     bool need_realloc =
         !hevc_decoder.rgb_frame ||
         hevc_decoder.rgb_frame->width != width ||
@@ -1085,13 +1186,23 @@ static bool decode_hevc_to_rgb(
 
         if (av_frame_get_buffer(hevc_decoder.rgb_frame, 32) < 0)
         {
-            std::cerr << "[H264 DECODER] Failed to allocate RGB frame\n";
+            std::cerr << "[HEVC DECODER] Failed to allocate RGB frame\n";
             return false;
         }
     }
 
     std::lock_guard<std::mutex> lock(hevc_decoder.mutex);
 
+    // ===== DETECT FRAME TYPE PROPERLY =====
+    bool is_keyframe = contains_hevc_keyframe(hevc_data, hevc_size);
+    
+    // Drop frames until we get first keyframe
+    if (!hevc_decoder.received_keyframe && !is_keyframe) {
+        // Silently drop - this is expected behavior
+        return false;
+    }
+
+    // ===== PREPARE PACKET =====
     av_packet_unref(hevc_decoder.pkt);
 
     // Allocate new packet with proper size
@@ -1104,51 +1215,15 @@ static bool decode_hevc_to_rgb(
     // Copy HEVC data
     memcpy(hevc_decoder.pkt->data, hevc_data, hevc_size);
 
-    bool is_keyframe = false;
-    // Check for VPS (32), SPS (33), PPS (34) or IDR (19, 20, 21) NAL units in HEVC
-    for (size_t i = 0; i + 4 < hevc_size; i++)
-    {
-        if (hevc_data[i] == 0 && hevc_data[i + 1] == 0 && hevc_data[i + 2] == 1)
-        {
-            uint8_t nal_type = (hevc_data[i + 3] >> 1) & 0x3F;        // HEVC NAL type is in bits 1-6
-            if (nal_type == 32 || nal_type == 33 || nal_type == 34 || // VPS, SPS, PPS
-                nal_type == 19 || nal_type == 20 || nal_type == 21)
-            { // IDR variants
-                is_keyframe = true;
-                hevc_decoder.received_keyframe = true;
-                break;
-            }
-        }
-        // Also check 4-byte start code
-        if (hevc_data[i] == 0 && hevc_data[i + 1] == 0 &&
-            hevc_data[i + 2] == 0 && hevc_data[i + 3] == 1)
-        {
-            uint8_t nal_type = (hevc_data[i + 4] >> 1) & 0x3F;        // HEVC NAL type is in bits 1-6
-            if (nal_type == 32 || nal_type == 33 || nal_type == 34 || // VPS, SPS, PPS
-                nal_type == 19 || nal_type == 20 || nal_type == 21)
-            { // IDR variants
-                is_keyframe = true;
-                hevc_decoder.received_keyframe = true;
-                break;
-            }
-            i++; // Skip the extra byte
-        }
-    }
-
-    if (!hevc_decoder.received_keyframe && !is_keyframe)
-    {
-        // Drop frames until we get a keyframe
-        // std::cerr << "[HEVC DECODER] Dropping non-keyframe before first keyframe\n";
-        return false;
-    }
-
-    if (is_keyframe)
-    {
+    // ===== SET PACKET FLAGS =====
+    if (is_keyframe) {
         hevc_decoder.pkt->flags |= AV_PKT_FLAG_KEY;
         hevc_decoder.received_keyframe = true;
+    } else {
+        hevc_decoder.pkt->flags &= ~AV_PKT_FLAG_KEY;
     }
 
-    // Send packet to decoder
+    // ===== SEND PACKET TO DECODER =====
     int ret = avcodec_send_packet(hevc_decoder.codec_ctx, hevc_decoder.pkt);
     if (ret < 0)
     {
@@ -1165,26 +1240,34 @@ static bool decode_hevc_to_rgb(
 
         if (ret < 0 && ret != AVERROR(EAGAIN))
         {
-            std::cerr << "[HEVC DECODER] Send packet failed: " << ret << "\n";
-            hevc_decoder.frame->pts = 0;
+            char errbuf[256];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            std::cerr << "[HEVC DECODER] Send packet failed: " << errbuf << "\n";
+            // Don't reset decoder state - it may recover
             return false;
         }
     }
 
-    // Receive decoded frame
+    // ===== RECEIVE DECODED FRAME =====
     ret = avcodec_receive_frame(hevc_decoder.codec_ctx, hevc_decoder.frame);
     if (ret < 0)
     {
         if (ret == AVERROR(EAGAIN))
         {
+            // Need more data - not an error
             return false;
         }
-        std::cerr << "[HEVC DECODER] Receive frame failed: " << ret << "\n";
-        hevc_decoder.frame->pts = 0;
-        hevc_decoder.received_keyframe = false;
+        
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[HEVC DECODER] Receive frame failed: " << errbuf << "\n";
+        
+        // Don't reset received_keyframe flag - decoder may recover on next frame
         return false;
     }
 
+    // ===== FRAME SUCCESSFULLY DECODED =====
+    
     // If using hardware decode, transfer frame to CPU
     AVFrame *sw_frame = nullptr;
     if (hevc_decoder.use_hw && hevc_decoder.frame->format == hevc_decoder.hw_pix_fmt)
@@ -1240,7 +1323,7 @@ static bool decode_hevc_to_rgb(
         sw_frame = hevc_decoder.frame;
     }
 
-    // Update/create SWS context if needed
+    // ===== UPDATE/CREATE SWS CONTEXT =====
     if (!hevc_decoder.sws_ctx ||
         sw_frame->width != (int)width ||
         sw_frame->height != (int)height ||
@@ -1262,12 +1345,13 @@ static bool decode_hevc_to_rgb(
             std::cerr << "[HEVC DECODER] Failed to create SWS context\n";
             if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
                 av_frame_free(&sw_frame);
+            av_frame_unref(hevc_decoder.frame);
             return false;
         }
         hevc_decoder.src_format = sw_frame->format;
     }
 
-    // Allocate RGB frame buffer if needed
+    // ===== ALLOCATE RGB FRAME BUFFER =====
     if (hevc_decoder.rgb_frame->width != (int)width ||
         hevc_decoder.rgb_frame->height != (int)height ||
         hevc_decoder.rgb_frame->format != AV_PIX_FMT_RGB24)
@@ -1280,6 +1364,8 @@ static bool decode_hevc_to_rgb(
         if (av_frame_get_buffer(hevc_decoder.rgb_frame, 32) < 0)
         {
             std::cerr << "[HEVC DECODER] Failed to allocate RGB frame\n";
+            if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+                av_frame_free(&sw_frame);
             av_frame_unref(hevc_decoder.frame);
             return false;
         }
@@ -1289,11 +1375,13 @@ static bool decode_hevc_to_rgb(
     if (av_frame_make_writable(hevc_decoder.rgb_frame) < 0)
     {
         std::cerr << "[HEVC DECODER] Failed to make RGB frame writable\n";
+        if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+            av_frame_free(&sw_frame);
         av_frame_unref(hevc_decoder.frame);
         return false;
     }
 
-    // Convert YUV to RGB
+    // ===== CONVERT YUV TO RGB =====
     int converted_height = sws_scale(
         hevc_decoder.sws_ctx,
         sw_frame->data,
@@ -1307,11 +1395,13 @@ static bool decode_hevc_to_rgb(
     {
         std::cerr << "[HEVC DECODER] SWS scale returned wrong height: "
                   << converted_height << " expected " << height << "\n";
+        if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+            av_frame_free(&sw_frame);
         av_frame_unref(hevc_decoder.frame);
         return false;
     }
 
-    // Copy RGB data to output
+    // ===== COPY RGB DATA TO OUTPUT =====
     rgb_output.resize(width * height * 3);
 
     for (uint32_t y = 0; y < height; y++)
@@ -1321,6 +1411,7 @@ static bool decode_hevc_to_rgb(
                width * 3);
     }
 
+    // ===== CLEANUP =====
     av_frame_unref(hevc_decoder.frame);
 
     if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
