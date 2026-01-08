@@ -1,0 +1,133 @@
+=== Client Features ===
+Video: ON
+Audio: OFF
+Input: OFF
+Microphone: OFF
+=======================
+
+
+=== WARNING ===
+Not running as root. Input devices may not be accessible.
+Run with sudo or add your user to the 'input' group:
+  sudo usermod -a -G input $USER
+Then log out and back in.
+===============
+
+[INPUT] Opened device: /dev/input/event2
+[INPUT] Opened device: /dev/input/event1
+[INPUT] Opened device: /dev/input/event0
+[INPUT] Opened device: /dev/input/event13
+[INPUT] Opened device: /dev/input/event14
+[INPUT] Opened device: /dev/input/event15
+[INPUT] Opened device: /dev/input/event16
+[INPUT] Opened device: /dev/input/event3
+[INPUT] Opened device: /dev/input/event4
+[INPUT] Opened device: /dev/input/event5
+[INPUT] Opened device: /dev/input/event6
+[INPUT] Opened device: /dev/input/event7
+[INPUT] Opened device: /dev/input/event8
+[INPUT] Opened device: /dev/input/event9
+[INPUT] Opened device: /dev/input/event10
+[INPUT] Opened device: /dev/input/event17
+[INPUT] Opened device: /dev/input/event18
+[INPUT] Opened device: /dev/input/event19
+[INPUT] Opened device: /dev/input/event20
+[INPUT] Opened device: /dev/input/event21
+[INPUT] Opened device: /dev/input/event12
+[INPUT] Opened device: /dev/input/event11
+[INPUT] Opened device: /dev/input/event23
+[INPUT] Opened device: /dev/input/event24
+[INPUT] Opened device: /dev/input/event25
+[INPUT] libinput initialized successfully
+[INPUT] Hotplug support enabled
+[INPUT] Initial devices:
+[HOTPLUG] Device added: Power Button
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: Power Button
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: Sleep Button
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries  Arctis Pro Wireless Consumer Control
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL Consumer Control
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL Mouse
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Logitech G502 HERO Gaming Mouse
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Logitech G502 HERO Gaming Mouse Keyboard
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Eee PC WMI hotkeys
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: Mouse passthrough
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Mouse passthrough (absolute)
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Keyboard passthrough
+[HOTPLUG]   - Keyboard capability
+[INIT] Session ID: 8c899121-f658-48fd-860a-984d6862755b
+[CONFIG] Connected to 0.0.0.0:10002
+[VIDEO] Connected to 0.0.0.0:9999
+[CLIENT] Got geometry from ioctl: 1899x960 (reserved 1 top, 1 bottom)
+=== Zoom Configuration ===
+Enabled: NO
+Level: 2x
+Viewport: 800x600
+Follow Mouse: YES
+Smooth Pan: YES
+==========================
+
+=== Rendering Settings ===
+Detail Level: 100 (0=smooth, 100=sharp)
+Quality: 100 (0=fast, 100=best)
+Render Device: CPU
+===========================
+
+[CONFIG] Sent: 211x50 fps=60 renderer=5 detail=100 follow_focus=0
+[INIT] Waiting for screen info from server...
+[INIT] Received screen info: 2560x1440 offset: 1920,0
+[INIT] Screen info received: 2560x1440
+
+=== Waytermirror Client Started ===
+Session: 8c899121-f658-48fd-860a-984d6862755b
+Output: 1 | Resolution: 2560x1440
+Renderer: kitty | Color mode: true
+FPS: 60 | Scale: 1
+Compression: ON
+
+=== Keyboard Shortcuts (Ctrl+Alt+Shift+Key) ===
+  Q=Quit  H=Help  I=Toggle Input  G=Toggle Grab
+  Z=Zoom  +/-=Zoom In/Out  0=Reset Zoom  Arrows=Pan
+  R=Renderer  C=Color  D/S=Detail  W/E=Quality
+  P=Pause  A=Audio Mute  M=Mic Mute  F=Focus-Follow
+Input forwarding: DISABLED (local shortcuts only)
+Press Ctrl+Alt+Shift+H for full shortcut list
+================================================
+
+[INPUT] Thread started with libinput and hotplug monitoring
+
+[HEVC DECODER] ========================================
+[HEVC DECODER] Initializing decoder for 1898x960
+[HEVC DECODER] Attempting hardware acceleration...
+[HEVC DECODER]   ✓ Found CUDA (NVIDIA) decoder
+[HEVC DECODER] Hardware device context created
+[HEVC DECODER] Hardware decoder: using internal threading
+[HEVC DECODER] Low-latency flags enabled
+[hevc_cuvid @ 0x562bdb62a200] Invalid pkt_timebase, passing timestamps as-is.
+[HEVC DECODER] ✓ Decoder initialized successfully!
+[HEVC DECODER]   Resolution: 1898x960
+[HEVC DECODER]   Hardware: YES
+[HEVC DECODER]   Threads: 1
+[HEVC DECODER]   Threading type: other
+[HEVC DECODER] ========================================
+
+[HEVC DECODER] Decoder initialized/reinitialized
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data
+[KITTY] Failed to decode HEVC data

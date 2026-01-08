@@ -40,6 +40,7 @@
 #include <drm_fourcc.h>
 #include <gbm.h>
 #include <sys/mman.h>
+#include <sixel.h>
 #include <cstring>
 extern "C"
 {
@@ -884,7 +885,20 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
             std::cerr << "[HEVC DECODER] Hardware device creation failed: " << errbuf << "\n";
             std::cerr << "[HEVC DECODER] Falling back to software decoder...\n";
             avcodec_free_context(&dec.codec_ctx);
-            return init_hevc_decoder(dec, width, height, extradata, extradata_size, false);
+            codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
+            if (!codec)
+            {
+                std::cerr << "[HEVC DECODER] ERROR: No decoder found!\n";
+                return false;
+            }
+            dec.codec_ctx = avcodec_alloc_context3(codec);
+            if (!dec.codec_ctx)
+            {
+                std::cerr << "[HEVC DECODER] Failed to alloc context\n";
+                return false;
+            }
+            hw_type = AV_HWDEVICE_TYPE_NONE;
+            dec.use_hw = false;
         }
 
         dec.codec_ctx->hw_device_ctx = av_buffer_ref(dec.hw_device_ctx);
@@ -908,7 +922,7 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
         }
         memcpy(dec.codec_ctx->extradata, extradata, extradata_size);
         memset(dec.codec_ctx->extradata + extradata_size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
-        dec.codec_ctx->extradata_size = extradata_size;
+        dec.codec_ctx->extradata_size = extradata_size; 
     }
 
     dec.codec_ctx->width = width;
@@ -944,7 +958,7 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
     // Error concealment for network streams
     dec.codec_ctx->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
     
-    // dec.codec_ctx->skip_loop_filter = AVDISCARD_ALL;
+    dec.codec_ctx->skip_loop_filter = AVDISCARD_ALL;
     
     std::cerr << "[HEVC DECODER] Low-latency flags enabled\n";
 
@@ -973,6 +987,7 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
     dec.frame = av_frame_alloc();
     dec.rgb_frame = av_frame_alloc();
     dec.pkt = av_packet_alloc();
+    dec.pkt->time_base = AVRational{1, current_config.fps > 0 ? current_config.fps : 1};
 
     if (!dec.frame || !dec.rgb_frame || !dec.pkt)
     {
@@ -1049,6 +1064,29 @@ static bool decode_hevc_to_rgb(
             return false;
         }
         std::cerr << "[HEVC DECODER] Decoder initialized/reinitialized\n";
+    }
+
+    bool need_realloc =
+        !hevc_decoder.rgb_frame ||
+        hevc_decoder.rgb_frame->width  != width ||
+        hevc_decoder.rgb_frame->height != height;
+
+    if (need_realloc)
+    {
+        if (!hevc_decoder.rgb_frame)
+            hevc_decoder.rgb_frame = av_frame_alloc();
+        else
+            av_frame_unref(hevc_decoder.rgb_frame);
+
+        hevc_decoder.rgb_frame->format = AV_PIX_FMT_RGB24;
+        hevc_decoder.rgb_frame->width  = width;
+        hevc_decoder.rgb_frame->height = height;
+
+        if (av_frame_get_buffer(hevc_decoder.rgb_frame, 32) < 0)
+        {
+            std::cerr << "[H264 DECODER] Failed to allocate RGB frame\n";
+            return false;
+        }
     }
 
     std::lock_guard<std::mutex> lock(hevc_decoder.mutex);
@@ -1211,12 +1249,12 @@ static bool decode_hevc_to_rgb(
         {
             sws_freeContext(hevc_decoder.sws_ctx);
         }
-
+        
         hevc_decoder.sws_ctx = sws_getContext(
             sw_frame->width, sw_frame->height,
             (AVPixelFormat)sw_frame->format,
             width, height, AV_PIX_FMT_RGB24,
-            SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+            SWS_BILINEAR, nullptr, nullptr, nullptr);
 
         if (!hevc_decoder.sws_ctx)
         {
@@ -1257,14 +1295,14 @@ static bool decode_hevc_to_rgb(
     // Convert YUV to RGB
     int converted_height = sws_scale(
         hevc_decoder.sws_ctx,
-        hevc_decoder.frame->data,
-        hevc_decoder.frame->linesize,
+        sw_frame->data,
+        sw_frame->linesize,
         0,
-        hevc_decoder.frame->height,
+        sw_frame->height,
         hevc_decoder.rgb_frame->data,
         hevc_decoder.rgb_frame->linesize);
 
-    if (converted_height != (int)height)
+    if (converted_height != hevc_decoder.rgb_frame->height)
     {
         std::cerr << "[HEVC DECODER] SWS scale returned wrong height: "
                   << converted_height << " expected " << height << "\n";
@@ -1273,7 +1311,7 @@ static bool decode_hevc_to_rgb(
     }
 
     // Copy RGB data to output
-    rgb_output.resize(width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE);
+    rgb_output.resize(width * height * 3);
 
     for (uint32_t y = 0; y < height; y++)
     {
@@ -1349,7 +1387,7 @@ static void render_to_kms(const std::vector<uint8_t> &data)
         return;
     }
 
-    size_t expected_rgb_size = (size_t)width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE;
+    size_t expected_rgb_size = (size_t)width * height * 3;
     if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
     {
         // Invalid decode result - skip this frame silently
@@ -3993,7 +4031,7 @@ static bool encode_rgb_to_png(const uint8_t *rgb, uint32_t width, uint32_t heigh
     // Set write callback
     png_set_write_fn(png, &png_output, png_write_data, nullptr);
 
-    // Set compression level (faster = less likely to corrupt)
+    // Set compression level
     png_set_compression_level(png, 1);       // Fast compression
     png_set_filter(png, 0, PNG_FILTER_NONE); // No filtering = faster
 
@@ -4139,7 +4177,7 @@ static void render_to_kitty(const std::vector<uint8_t> &data)
         return;
     }
 
-    size_t expected_rgb_size = (size_t)width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE;
+    size_t expected_rgb_size = (size_t)width * height * 3;
     if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
     {
         // Invalid decode result - skip this frame silently
@@ -4231,7 +4269,7 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
         return;
     }
 
-    size_t expected_rgb_size = (size_t)width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE;
+    size_t expected_rgb_size = (size_t)width * height * 3;
     if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
     {
         // Invalid decode result - skip this frame silently
@@ -4342,6 +4380,203 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
                 memcpy(dst, fbtmp.rgb565_row.data(), fb_width * 2);
             }
         }
+    }
+}
+
+static void render_to_sixel(const std::vector<uint8_t> &data)
+{
+    if (data.size() < 16)
+    {
+        std::cerr << "[SIXEL] Invalid data size: " << data.size() << "\n";
+        return;
+    }
+
+    size_t offset = 0;
+    const uint32_t extradata_size = *(uint32_t *)&data[offset];
+    offset += 4;
+
+    if (extradata_size > 1024 || offset + extradata_size + 12 > data.size())
+    {
+        std::cerr << "[SIXEL] Invalid extradata_size: " << extradata_size << "\n";
+        return;
+    }
+
+    const uint8_t *extradata = (extradata_size > 0) ? (data.data() + offset) : nullptr;
+    offset += extradata_size;
+
+    const uint32_t width = *(uint32_t *)&data[offset];
+    offset += 4;
+
+    const uint32_t height = *(uint32_t *)&data[offset];
+    offset += 4;
+
+    const uint32_t compressed_size = *(uint32_t *)&data[offset];
+    offset += 4;
+
+    if (width == 0 || height == 0 || width > 8192 || height > 8192)
+    {
+        std::cerr << "[SIXEL] Invalid dimensions: " << width << "x" << height << "\n";
+        return;
+    }
+
+    if (compressed_size == 0 || offset + compressed_size > data.size())
+    {
+        std::cerr << "[SIXEL] Invalid compressed_size: " << compressed_size << "\n";
+        return;
+    }
+
+    const uint8_t *hevc_data = data.data() + offset;
+
+    // Decode HEVC to RGB
+    std::vector<uint8_t> rgb_data;
+
+    if (!decode_hevc_to_rgb(hevc_data, extradata, extradata_size, compressed_size, 
+                            width, height, rgb_data))
+    {
+        std::cerr << "[SIXEL] Failed to decode HEVC data\n";
+        return;
+    }
+
+    size_t expected_rgb_size = (size_t)width * height * 3;
+    if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
+    {
+        // Invalid decode result - skip this frame silently
+        std::cerr << "[SIXEL] Invalid decoded size: " << rgb_data.size() 
+                  << " expected: " << expected_rgb_size << "\n";
+        return;
+    }
+
+    const uint8_t *rgb = rgb_data.data();
+
+    if (!rgb)
+    {
+        std::cerr << "[SIXEL] NULL RGB data pointer\n";
+        return;
+    }
+
+    // ===== CRITICAL FIX: Add error handling for libsixel =====
+    
+    // Use libsixel to encode
+    sixel_output_t *output = nullptr;
+    sixel_dither_t *dither = nullptr;
+    std::vector<uint8_t> output_buffer;
+    
+    // Thread-safe output callback with error checking
+    auto write_callback = [](char *data, int size, void *priv) -> int {
+        if (!data || size <= 0 || !priv) {
+            std::cerr << "[SIXEL] Invalid callback params\n";
+            return -1;
+        }
+        
+        try {
+            auto *vec = static_cast<std::vector<uint8_t>*>(priv);
+            vec->insert(vec->end(), data, data + size);
+            return size;
+        } catch (const std::exception& e) {
+            std::cerr << "[SIXEL] Callback exception: " << e.what() << "\n";
+            return -1;
+        }
+    };
+    
+    SIXELSTATUS status = sixel_output_new(&output, write_callback, 
+                                          &output_buffer, nullptr);
+
+    if (SIXEL_FAILED(status))
+    {
+        std::cerr << "[SIXEL] Failed to create output: " << status << "\n";
+        return;
+    }
+
+    // Use fast encoding for real-time performance
+    sixel_output_set_encode_policy(output, SIXEL_ENCODEPOLICY_FAST);
+
+    int palette_size = 256;
+
+    status = sixel_dither_new(&dither, palette_size, nullptr);
+    if (SIXEL_FAILED(status))
+    {
+        std::cerr << "[SIXEL] Failed to create dither: " << status << "\n";
+        sixel_output_unref(output);
+        return;
+    }
+
+    // Adjust quality based on config
+    int diffusion_type = SIXEL_DIFFUSE_NONE;
+    int sixel_quality = SIXEL_QUALITY_HIGH;
+
+    int detail_level = current_config.detail_level;
+    int quality = current_config.quality;
+
+    if (detail_level >= 90 && quality >= 85)
+    {
+        diffusion_type = SIXEL_DIFFUSE_ATKINSON;
+        sixel_quality = SIXEL_QUALITY_FULL;
+    }
+    else if (detail_level >= 40)
+    {
+        sixel_quality = SIXEL_QUALITY_HIGH;
+    }
+    else
+    {
+        sixel_quality = SIXEL_QUALITY_LOW;
+    }
+
+    sixel_dither_set_diffusion_type(dither, diffusion_type);
+
+    // ===== CRITICAL FIX: Validate buffer before passing to libsixel =====
+    size_t required_size = (size_t)width * height * 3;
+    if (rgb_data.size() < required_size)
+    {
+        std::cerr << "[SIXEL] Buffer too small for libsixel: " 
+                  << rgb_data.size() << " < " << required_size << "\n";
+        sixel_dither_unref(dither);
+        sixel_output_unref(output);
+        return;
+    }
+
+    // Initialize dither with validated buffer
+    status = sixel_dither_initialize(dither, rgb_data.data(), width, height,
+                                     SIXEL_PIXELFORMAT_RGB888,
+                                     SIXEL_LARGE_AUTO, SIXEL_REP_AUTO, sixel_quality);
+    
+    if (SIXEL_FAILED(status))
+    {
+        std::cerr << "[SIXEL] Failed to initialize dither: " << status << "\n";
+        sixel_dither_unref(dither);
+        sixel_output_unref(output);
+        return;
+    }
+
+    // Encode with error checking
+    status = sixel_encode(rgb_data.data(), width, height, SIXEL_PIXELFORMAT_RGB888,
+                          dither, output);
+
+    // Clean up resources BEFORE checking status
+    sixel_dither_unref(dither);
+    sixel_output_unref(output);
+
+    if (SIXEL_FAILED(status))
+    {
+        std::cerr << "[SIXEL] Encoding failed with status: " << status << "\n";
+        return;
+    }
+
+    if (output_buffer.empty())
+    {
+        std::cerr << "[SIXEL] Empty output buffer after encoding\n";
+        return;
+    }
+
+    // Output the sixel data to terminal with error checking
+    ssize_t written = ::write(STDOUT_FILENO, output_buffer.data(), output_buffer.size());
+    if (written < 0)
+    {
+        std::cerr << "[SIXEL] Write failed: " << strerror(errno) << "\n";
+        return;
+    }
+    else if ((size_t)written < output_buffer.size())
+    {
+        std::cerr << "[SIXEL] Partial write: " << written << "/" << output_buffer.size() << "\n";
     }
 }
 
@@ -5233,8 +5468,12 @@ int main(int argc, char **argv)
             }
             else if (!video_paused.load() && receive_newest_frame(rendered))
             {
+                if (current_config.renderer == 4)
+                { // Renderer sixel(4) - render
+                    render_to_sixel(rendered);
+                }
                 // Renderer kitty(5) - render
-                if (current_config.renderer == 5)
+                else if (current_config.renderer == 5)
                 {
                     render_to_kitty(rendered);
                 }

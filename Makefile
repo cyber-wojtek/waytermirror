@@ -1,7 +1,7 @@
 CC = gcc
 CXX = g++
-CXXFLAGS = -std=c++23 -Wall -O3
-CFLAGS = -Wall -O3
+CXXFLAGS = -std=c++23 -Wall -O3 -g
+CFLAGS = -Wall -O3 -g
 
 # Include directories
 INCLUDES = -I. \
