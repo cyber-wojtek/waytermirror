@@ -154,7 +154,7 @@ static bool exclusive_mode = false;
 // Output management
 static uint32_t outputs = 1;
 
-struct H264Decoder
+struct HEVCDecoder
 {
     AVCodecContext *codec_ctx = nullptr;
     AVFrame *frame = nullptr;
@@ -167,14 +167,14 @@ struct H264Decoder
     int src_format = -1;
     std::mutex mutex;
     bool received_keyframe = false;
-    
+
     // GPU acceleration
     AVBufferRef *hw_device_ctx = nullptr;
     enum AVPixelFormat hw_pix_fmt = AV_PIX_FMT_NONE;
     bool use_hw = false;
 };
 
-static H264Decoder h264_decoder;
+static HEVCDecoder hevc_decoder;
 
 // Protocol definitions
 enum class MessageType : uint8_t
@@ -1789,7 +1789,7 @@ static void query_terminal_geometry(bool sixel, int &width, int &height)
                 }
                 else
                 {
-                    std::cerr << "[CLIENT] Sixel query returned invalid dimensions: " 
+                    std::cerr << "[CLIENT] Sixel query returned invalid dimensions: "
                               << width << "x" << height << ", ignoring\n";
                     width = 0;
                     height = 0;
@@ -1830,7 +1830,7 @@ static void query_terminal_geometry(bool sixel, int &width, int &height)
                         }
                         else
                         {
-                            std::cerr << "[CLIENT] XTerm query returned invalid dimensions: " 
+                            std::cerr << "[CLIENT] XTerm query returned invalid dimensions: "
                                       << w << "x" << h << ", ignoring\n";
                         }
                     }
@@ -1842,7 +1842,7 @@ static void query_terminal_geometry(bool sixel, int &width, int &height)
     // Method 3: Try ioctl pixel dimensions
     if (!got_response)
     {
-        if (term.ws_xpixel > 0 && term.ws_ypixel > 0 && 
+        if (term.ws_xpixel > 0 && term.ws_ypixel > 0 &&
             term.ws_xpixel <= 16384 && term.ws_ypixel <= 16384)
         {
             width = term.ws_xpixel;
@@ -3349,109 +3349,134 @@ convert_rgb_to_rgb565(
 static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts)
 {
     const enum AVPixelFormat *p;
-    for (p = pix_fmts; *p != -1; p++) {
-        if (*p == *(enum AVPixelFormat*)ctx->opaque) {
+    for (p = pix_fmts; *p != -1; p++)
+    {
+        if (*p == *(enum AVPixelFormat *)ctx->opaque)
+        {
             return *p;
         }
     }
-    std::cerr << "[H264 HW] Failed to get HW surface format\n";
+    std::cerr << "[HEVC HW] Failed to get HW surface format\n";
     return AV_PIX_FMT_NONE;
 }
 
-static bool init_h264_decoder(H264Decoder &dec, uint32_t width, uint32_t height, 
-                               const uint8_t *extradata, size_t extradata_size,
-                               bool try_hw = false) {
+static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
+                              const uint8_t *extradata, size_t extradata_size,
+                              bool try_hw = false)
+{
     std::lock_guard<std::mutex> lock(dec.mutex);
-    
-    bool need_reinit = !dec.initialized || (dec.width != width || dec.height != height);
-    if (dec.initialized && !need_reinit) return true;
 
-    if (dec.initialized) {
-        if (dec.codec_ctx) {
+    bool need_reinit = !dec.initialized || (dec.width != width || dec.height != height);
+    if (dec.initialized && !need_reinit)
+        return true;
+
+    if (dec.initialized)
+    {
+        if (dec.codec_ctx)
+        {
             avcodec_flush_buffers(dec.codec_ctx);
             avcodec_free_context(&dec.codec_ctx);
         }
-        if (dec.frame) av_frame_free(&dec.frame);
-        if (dec.rgb_frame) av_frame_free(&dec.rgb_frame);
-        if (dec.pkt) av_packet_free(&dec.pkt);
-        if (dec.sws_ctx) sws_freeContext(dec.sws_ctx);
-        if (dec.hw_device_ctx) av_buffer_unref(&dec.hw_device_ctx);
+        if (dec.frame)
+            av_frame_free(&dec.frame);
+        if (dec.rgb_frame)
+            av_frame_free(&dec.rgb_frame);
+        if (dec.pkt)
+            av_packet_free(&dec.pkt);
+        if (dec.sws_ctx)
+            sws_freeContext(dec.sws_ctx);
+        if (dec.hw_device_ctx)
+            av_buffer_unref(&dec.hw_device_ctx);
         dec.initialized = false;
         dec.use_hw = false;
     }
 
     const AVCodec *codec = nullptr;
     enum AVHWDeviceType hw_type = AV_HWDEVICE_TYPE_NONE;
-    
+
     // Try hardware decoders first
-    if (try_hw) {
+    if (try_hw)
+    {
         // Try VAAPI (Linux)
-        codec = avcodec_find_decoder_by_name("h264_vaapi");
-        if (codec) {
+        codec = avcodec_find_decoder_by_name("hevc_vaapi");
+        if (codec)
+        {
             hw_type = AV_HWDEVICE_TYPE_VAAPI;
             dec.hw_pix_fmt = AV_PIX_FMT_VAAPI;
-            std::cerr << "[H264 HW] Trying VAAPI decoder\n";
+            std::cerr << "[HEVC HW] Trying VAAPI decoder\n";
         }
-        
+
         // Try CUDA (NVIDIA)
-        if (!codec) {
-            codec = avcodec_find_decoder_by_name("h264_cuvid");
-            if (codec) {
+        if (!codec)
+        {
+            codec = avcodec_find_decoder_by_name("hevc_cuvid");
+            if (codec)
+            {
                 hw_type = AV_HWDEVICE_TYPE_CUDA;
                 dec.hw_pix_fmt = AV_PIX_FMT_CUDA;
-                std::cerr << "[H264 HW] Trying CUDA decoder\n";
+                std::cerr << "[HEVC HW] Trying CUDA decoder\n";
             }
         }
-        
+
         // Try VDPAU (older NVIDIA)
-        if (!codec) {
-            codec = avcodec_find_decoder_by_name("h264_vdpau");
-            if (codec) {
+        if (!codec)
+        {
+            codec = avcodec_find_decoder_by_name("hevc_vdpau");
+            if (codec)
+            {
                 hw_type = AV_HWDEVICE_TYPE_VDPAU;
                 dec.hw_pix_fmt = AV_PIX_FMT_VDPAU;
-                std::cerr << "[H264 HW] Trying VDPAU decoder\n";
+                std::cerr << "[HEVC HW] Trying VDPAU decoder\n";
             }
         }
     }
-    
+
     // Fallback to software decoder
-    if (!codec) {
-        codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-        if (!codec) {
-            std::cerr << "[H264] No decoder found\n";
+    if (!codec)
+    {
+        codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
+        if (!codec)
+        {
+            std::cerr << "[HEVC] No decoder found\n";
             return false;
         }
-        std::cerr << "[H264] Using software decoder\n";
+        std::cerr << "[HEVC] Using software decoder\n";
     }
 
     dec.codec_ctx = avcodec_alloc_context3(codec);
-    if (!dec.codec_ctx) {
-        std::cerr << "[H264] Failed to alloc context\n";
+    if (!dec.codec_ctx)
+    {
+        std::cerr << "[HEVC] Failed to alloc context\n";
         return false;
     }
 
     // Initialize hardware device context if using HW
-    if (hw_type != AV_HWDEVICE_TYPE_NONE) {
+    if (hw_type != AV_HWDEVICE_TYPE_NONE)
+    {
         int ret = av_hwdevice_ctx_create(&dec.hw_device_ctx, hw_type, NULL, NULL, 0);
-        if (ret < 0) {
-            std::cerr << "[H264 HW] Failed to create device context, falling back to software\n";
+        if (ret < 0)
+        {
+            std::cerr << "[HEVC HW] Failed to create device context, falling back to software\n";
             avcodec_free_context(&dec.codec_ctx);
-            return init_h264_decoder(dec, width, height, extradata, extradata_size, false);
+            return init_hevc_decoder(dec, width, height, extradata, extradata_size, false);
         }
-        
+
         dec.codec_ctx->hw_device_ctx = av_buffer_ref(dec.hw_device_ctx);
         dec.codec_ctx->get_format = get_hw_format;
         dec.codec_ctx->opaque = &dec.hw_pix_fmt;
         dec.use_hw = true;
-        std::cerr << "[H264 HW] Hardware device context created\n";
+        std::cerr << "[HEVC HW] Hardware device context created\n";
     }
 
     // Set extradata
-    if (extradata && extradata_size > 0) {
+    if (extradata && extradata_size > 0)
+    {
         dec.codec_ctx->extradata = (uint8_t *)av_malloc(extradata_size + AV_INPUT_BUFFER_PADDING_SIZE);
-        if (!dec.codec_ctx->extradata) {
-            std::cerr << "[H264] Failed to alloc extradata\n";
-            if (dec.hw_device_ctx) av_buffer_unref(&dec.hw_device_ctx);
+        if (!dec.codec_ctx->extradata)
+        {
+            std::cerr << "[HEVC] Failed to alloc extradata\n";
+            if (dec.hw_device_ctx)
+                av_buffer_unref(&dec.hw_device_ctx);
             avcodec_free_context(&dec.codec_ctx);
             return false;
         }
@@ -3469,16 +3494,20 @@ static bool init_h264_decoder(H264Decoder &dec, uint32_t width, uint32_t height,
     dec.codec_ctx->time_base = AVRational{1, 60};
     dec.codec_ctx->pkt_timebase = AVRational{1, 60};
 
-    if (avcodec_open2(dec.codec_ctx, codec, nullptr) < 0) {
-        std::cerr << "[H264] Failed to open codec\n";
-        if (dec.codec_ctx->extradata) av_free(dec.codec_ctx->extradata);
-        if (dec.hw_device_ctx) av_buffer_unref(&dec.hw_device_ctx);
+    if (avcodec_open2(dec.codec_ctx, codec, nullptr) < 0)
+    {
+        std::cerr << "[HEVC] Failed to open codec\n";
+        if (dec.codec_ctx->extradata)
+            av_free(dec.codec_ctx->extradata);
+        if (dec.hw_device_ctx)
+            av_buffer_unref(&dec.hw_device_ctx);
         avcodec_free_context(&dec.codec_ctx);
-        
+
         // If HW failed, try software
-        if (try_hw) {
-            std::cerr << "[H264 HW] Hardware decode failed, trying software\n";
-            return init_h264_decoder(dec, width, height, extradata, extradata_size, false);
+        if (try_hw)
+        {
+            std::cerr << "[HEVC HW] Hardware decode failed, trying software\n";
+            return init_hevc_decoder(dec, width, height, extradata, extradata_size, false);
         }
         return false;
     }
@@ -3487,12 +3516,17 @@ static bool init_h264_decoder(H264Decoder &dec, uint32_t width, uint32_t height,
     dec.rgb_frame = av_frame_alloc();
     dec.pkt = av_packet_alloc();
 
-    if (!dec.frame || !dec.rgb_frame || !dec.pkt) {
-        std::cerr << "[H264] Failed to alloc frames/packet\n";
-        if (dec.frame) av_frame_free(&dec.frame);
-        if (dec.rgb_frame) av_frame_free(&dec.rgb_frame);
-        if (dec.pkt) av_packet_free(&dec.pkt);
-        if (dec.hw_device_ctx) av_buffer_unref(&dec.hw_device_ctx);
+    if (!dec.frame || !dec.rgb_frame || !dec.pkt)
+    {
+        std::cerr << "[HEVC] Failed to alloc frames/packet\n";
+        if (dec.frame)
+            av_frame_free(&dec.frame);
+        if (dec.rgb_frame)
+            av_frame_free(&dec.rgb_frame);
+        if (dec.pkt)
+            av_packet_free(&dec.pkt);
+        if (dec.hw_device_ctx)
+            av_buffer_unref(&dec.hw_device_ctx);
         avcodec_free_context(&dec.codec_ctx);
         return false;
     }
@@ -3500,255 +3534,294 @@ static bool init_h264_decoder(H264Decoder &dec, uint32_t width, uint32_t height,
     dec.width = width;
     dec.height = height;
     dec.initialized = true;
-    
-    std::cerr << "[H264] Decoder initialized: " << width << "x" << height 
+
+    std::cerr << "[HEVC] Decoder initialized: " << width << "x" << height
               << (dec.use_hw ? " (HW accelerated)" : " (software)") << "\n";
     return true;
 }
 
-static void cleanup_h264_decoder(H264Decoder &dec)
+static void cleanup_hevc_decoder(HEVCDecoder &dec)
 {
     std::lock_guard<std::mutex> lock(dec.mutex);
-    if (!dec.initialized) return;
+    if (!dec.initialized)
+        return;
 
-    if (dec.sws_ctx) sws_freeContext(dec.sws_ctx);
-    if (dec.pkt) av_packet_free(&dec.pkt);
-    if (dec.frame) av_frame_free(&dec.frame);
-    if (dec.rgb_frame) av_frame_free(&dec.rgb_frame); // Cleanup
-    if (dec.codec_ctx) avcodec_free_context(&dec.codec_ctx);
+    if (dec.sws_ctx)
+        sws_freeContext(dec.sws_ctx);
+    if (dec.pkt)
+        av_packet_free(&dec.pkt);
+    if (dec.frame)
+        av_frame_free(&dec.frame);
+    if (dec.rgb_frame)
+        av_frame_free(&dec.rgb_frame); // Cleanup
+    if (dec.codec_ctx)
+        avcodec_free_context(&dec.codec_ctx);
 
     dec.initialized = false;
 }
 
-static bool decode_h264_to_rgb(
-    const uint8_t *h264_data,
+static bool decode_hevc_to_rgb(
+    const uint8_t *hevc_data,
     const uint8_t *extradata,
     size_t extradata_size,
-    size_t h264_size,
+    size_t hevc_size,
     uint32_t width,
     uint32_t height,
     std::vector<uint8_t> &rgb_output)
 {
     rgb_output.clear();
 
-    if (!h264_data || h264_size == 0) {
-        std::cerr << "[H264 DECODER] Invalid input data\n";
+    if (!hevc_data || hevc_size == 0)
+    {
+        std::cerr << "[H265 DECODER] Invalid input data\n";
         return false;
     }
 
     // Initialize/reinitialize decoder if needed
-    if (!h264_decoder.initialized || h264_decoder.width != width || h264_decoder.height != height)
+    if (!hevc_decoder.initialized || hevc_decoder.width != width || hevc_decoder.height != height)
     {
-        if (!init_h264_decoder(h264_decoder, width, height, extradata, extradata_size)) {
-            std::cerr << "[H264 DECODER] Init failed\n";
+        if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size))
+        {
+            std::cerr << "[H265 DECODER] Init failed\n";
             return false;
         }
     }
 
-    std::lock_guard<std::mutex> lock(h264_decoder.mutex);
+    std::lock_guard<std::mutex> lock(hevc_decoder.mutex);
 
-    av_packet_unref(h264_decoder.pkt);
-    
+    av_packet_unref(hevc_decoder.pkt);
+
     // Allocate new packet with proper size
-    if (av_new_packet(h264_decoder.pkt, h264_size) < 0) {
-        std::cerr << "[H264 DECODER] Failed to allocate packet\n";
+    if (av_new_packet(hevc_decoder.pkt, hevc_size) < 0)
+    {
+        std::cerr << "[H265 DECODER] Failed to allocate packet\n";
         return false;
     }
-    
+
     // Copy H.264 data
-    memcpy(h264_decoder.pkt->data, h264_data, h264_size);
-    
+    memcpy(hevc_decoder.pkt->data, hevc_data, hevc_size);
+
     bool is_keyframe = false;
-    // Check for SPS (7) or PPS (8) or IDR (5)
-    for (size_t i = 0; i + 4 < h264_size; i++) {
-        if (h264_data[i] == 0 && h264_data[i+1] == 0 && h264_data[i+2] == 1) {
-            uint8_t nal_type = h264_data[i+3] & 0x1F;
-            if (nal_type == 5 || nal_type == 7 || nal_type == 8) {
+    // Check for VPS (32), SPS (33), PPS (34) or IDR (19, 20, 21) NAL units in HEVC
+    for (size_t i = 0; i + 4 < hevc_size; i++)
+    {
+        if (hevc_data[i] == 0 && hevc_data[i + 1] == 0 && hevc_data[i + 2] == 1)
+        {
+            uint8_t nal_type = (hevc_data[i + 3] >> 1) & 0x3F;        // HEVC NAL type is in bits 1-6
+            if (nal_type == 32 || nal_type == 33 || nal_type == 34 || // VPS, SPS, PPS
+                nal_type == 19 || nal_type == 20 || nal_type == 21)
+            { // IDR variants
                 is_keyframe = true;
-                h264_decoder.received_keyframe = true;
+                hevc_decoder.received_keyframe = true;
                 break;
             }
         }
         // Also check 4-byte start code
-        if (h264_data[i] == 0 && h264_data[i+1] == 0 && 
-            h264_data[i+2] == 0 && h264_data[i+3] == 1) {
-            uint8_t nal_type = h264_data[i+4] & 0x1F;
-            if (nal_type == 5 || nal_type == 7 || nal_type == 8) {
+        if (hevc_data[i] == 0 && hevc_data[i + 1] == 0 &&
+            hevc_data[i + 2] == 0 && hevc_data[i + 3] == 1)
+        {
+            uint8_t nal_type = (hevc_data[i + 4] >> 1) & 0x3F;        // HEVC NAL type is in bits 1-6
+            if (nal_type == 32 || nal_type == 33 || nal_type == 34 || // VPS, SPS, PPS
+                nal_type == 19 || nal_type == 20 || nal_type == 21)
+            { // IDR variants
                 is_keyframe = true;
-                h264_decoder.received_keyframe = true;
+                hevc_decoder.received_keyframe = true;
                 break;
             }
             i++; // Skip the extra byte
         }
     }
 
-    if (!h264_decoder.received_keyframe && !is_keyframe) {
+    if (!hevc_decoder.received_keyframe && !is_keyframe)
+    {
         // Drop frames until we get a keyframe
-        //std::cerr << "[H264 DECODER] Dropping non-keyframe before first keyframe\n";
+        // std::cerr << "[H265 DECODER] Dropping non-keyframe before first keyframe\n";
         return false;
     }
 
-    if (is_keyframe) {
-        h264_decoder.pkt->flags |= AV_PKT_FLAG_KEY;
-        h264_decoder.received_keyframe = true;
+    if (is_keyframe)
+    {
+        hevc_decoder.pkt->flags |= AV_PKT_FLAG_KEY;
+        hevc_decoder.received_keyframe = true;
     }
-    
+
     // Send packet to decoder
-    int ret = avcodec_send_packet(h264_decoder.codec_ctx, h264_decoder.pkt);
-    if (ret < 0) {
-        if (ret == AVERROR(EAGAIN)) {
+    int ret = avcodec_send_packet(hevc_decoder.codec_ctx, hevc_decoder.pkt);
+    if (ret < 0)
+    {
+        if (ret == AVERROR(EAGAIN))
+        {
             // Decoder needs to be drained first
-            while (avcodec_receive_frame(h264_decoder.codec_ctx, h264_decoder.frame) == 0) {
-                av_frame_unref(h264_decoder.frame);
+            while (avcodec_receive_frame(hevc_decoder.codec_ctx, hevc_decoder.frame) == 0)
+            {
+                av_frame_unref(hevc_decoder.frame);
             }
             // Retry sending
-            ret = avcodec_send_packet(h264_decoder.codec_ctx, h264_decoder.pkt);
+            ret = avcodec_send_packet(hevc_decoder.codec_ctx, hevc_decoder.pkt);
         }
-        
-        if (ret < 0 && ret != AVERROR(EAGAIN)) {
-            std::cerr << "[H264 DECODER] Send packet failed: " << ret << "\n";
-            h264_decoder.frame->pts = 0;
+
+        if (ret < 0 && ret != AVERROR(EAGAIN))
+        {
+            std::cerr << "[H265 DECODER] Send packet failed: " << ret << "\n";
+            hevc_decoder.frame->pts = 0;
             return false;
         }
     }
 
     // Receive decoded frame
-    ret = avcodec_receive_frame(h264_decoder.codec_ctx, h264_decoder.frame);
-    if (ret < 0) {
-        if (ret == AVERROR(EAGAIN)) {
+    ret = avcodec_receive_frame(hevc_decoder.codec_ctx, hevc_decoder.frame);
+    if (ret < 0)
+    {
+        if (ret == AVERROR(EAGAIN))
+        {
             return false;
         }
-        std::cerr << "[H264 DECODER] Receive frame failed: " << ret << "\n";
-        h264_decoder.frame->pts = 0;
-        h264_decoder.received_keyframe = false;
+        std::cerr << "[H265 DECODER] Receive frame failed: " << ret << "\n";
+        hevc_decoder.frame->pts = 0;
+        hevc_decoder.received_keyframe = false;
         return false;
     }
 
     // If using hardware decode, transfer frame to CPU
     AVFrame *sw_frame = nullptr;
-    if (h264_decoder.use_hw && h264_decoder.frame->format == h264_decoder.hw_pix_fmt) {
+    if (hevc_decoder.use_hw && hevc_decoder.frame->format == hevc_decoder.hw_pix_fmt)
+    {
         sw_frame = av_frame_alloc();
-        if (!sw_frame) {
-            std::cerr << "[H264 HW] Failed to allocate temp frame\n";
-            av_frame_unref(h264_decoder.frame);
+        if (!sw_frame)
+        {
+            std::cerr << "[HEVC HW] Failed to allocate temp frame\n";
+            av_frame_unref(hevc_decoder.frame);
             return false;
         }
-        
+
         // Transfer data from GPU to CPU
-        if (av_hwframe_transfer_data(sw_frame, h264_decoder.frame, 0) < 0) {
-            std::cerr << "[H264 HW] Failed to transfer frame from GPU\n";
+        if (av_hwframe_transfer_data(sw_frame, hevc_decoder.frame, 0) < 0)
+        {
+            std::cerr << "[HEVC HW] Failed to transfer frame from GPU\n";
             av_frame_free(&sw_frame);
-            av_frame_unref(h264_decoder.frame);
+            av_frame_unref(hevc_decoder.frame);
             return false;
         }
-        
+
         // The transferred frame doesn't automatically inherit all properties
-        sw_frame->width = h264_decoder.frame->width;
-        sw_frame->height = h264_decoder.frame->height;
-        sw_frame->pts = h264_decoder.frame->pts;
-        sw_frame->pkt_dts = h264_decoder.frame->pkt_dts;
-        sw_frame->pict_type = h264_decoder.frame->pict_type;
-        
+        sw_frame->width = hevc_decoder.frame->width;
+        sw_frame->height = hevc_decoder.frame->height;
+        sw_frame->pts = hevc_decoder.frame->pts;
+        sw_frame->pkt_dts = hevc_decoder.frame->pkt_dts;
+        sw_frame->pict_type = hevc_decoder.frame->pict_type;
+
         // av_hwframe_transfer_data may not set linesize properly
-        if (sw_frame->linesize[0] == 0) {
+        if (sw_frame->linesize[0] == 0)
+        {
             // Manually compute linesize based on format
             int align = 32; // Common alignment
             sw_frame->linesize[0] = FFALIGN(sw_frame->width, align);
-            if (sw_frame->data[1]) {  // If there's a chroma plane
+            if (sw_frame->data[1])
+            { // If there's a chroma plane
                 sw_frame->linesize[1] = FFALIGN(sw_frame->width / 2, align);
                 sw_frame->linesize[2] = FFALIGN(sw_frame->width / 2, align);
             }
         }
-        
+
         // Validate the frame before proceeding
-        if (sw_frame->linesize[0] <= 0 || !sw_frame->data[0]) {
-            std::cerr << "[H264 HW] Invalid frame data after transfer\n";
+        if (sw_frame->linesize[0] <= 0 || !sw_frame->data[0])
+        {
+            std::cerr << "[HEVC HW] Invalid frame data after transfer\n";
             av_frame_free(&sw_frame);
-            av_frame_unref(h264_decoder.frame);
+            av_frame_unref(hevc_decoder.frame);
             return false;
         }
-    } else {
-        sw_frame = h264_decoder.frame;
+    }
+    else
+    {
+        sw_frame = hevc_decoder.frame;
     }
 
     // Update/create SWS context if needed
-    if (!h264_decoder.sws_ctx || 
-        sw_frame->width != (int)width || 
+    if (!hevc_decoder.sws_ctx ||
+        sw_frame->width != (int)width ||
         sw_frame->height != (int)height ||
-        h264_decoder.src_format != sw_frame->format)
+        hevc_decoder.src_format != sw_frame->format)
     {
-        if (h264_decoder.sws_ctx) {
-            sws_freeContext(h264_decoder.sws_ctx);
+        if (hevc_decoder.sws_ctx)
+        {
+            sws_freeContext(hevc_decoder.sws_ctx);
         }
-        
-        h264_decoder.sws_ctx = sws_getContext(
+
+        hevc_decoder.sws_ctx = sws_getContext(
             sw_frame->width, sw_frame->height,
             (AVPixelFormat)sw_frame->format,
             width, height, AV_PIX_FMT_RGB24,
             SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
 
-        if (!h264_decoder.sws_ctx) {
-            std::cerr << "[H264 DECODER] Failed to create SWS context\n";
-            if (h264_decoder.use_hw && sw_frame != h264_decoder.frame) av_frame_free(&sw_frame);
+        if (!hevc_decoder.sws_ctx)
+        {
+            std::cerr << "[H265 DECODER] Failed to create SWS context\n";
+            if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+                av_frame_free(&sw_frame);
             return false;
         }
-        h264_decoder.src_format = sw_frame->format;
+        hevc_decoder.src_format = sw_frame->format;
     }
 
-
     // Allocate RGB frame buffer if needed
-    if (h264_decoder.rgb_frame->width != (int)width || 
-        h264_decoder.rgb_frame->height != (int)height || 
-        h264_decoder.rgb_frame->format != AV_PIX_FMT_RGB24)
+    if (hevc_decoder.rgb_frame->width != (int)width ||
+        hevc_decoder.rgb_frame->height != (int)height ||
+        hevc_decoder.rgb_frame->format != AV_PIX_FMT_RGB24)
     {
-        av_frame_unref(h264_decoder.rgb_frame);
-        h264_decoder.rgb_frame->width = width;
-        h264_decoder.rgb_frame->height = height;
-        h264_decoder.rgb_frame->format = AV_PIX_FMT_RGB24;
-        
-        if (av_frame_get_buffer(h264_decoder.rgb_frame, 32) < 0) {
-            std::cerr << "[H264 DECODER] Failed to allocate RGB frame\n";
-            av_frame_unref(h264_decoder.frame);
+        av_frame_unref(hevc_decoder.rgb_frame);
+        hevc_decoder.rgb_frame->width = width;
+        hevc_decoder.rgb_frame->height = height;
+        hevc_decoder.rgb_frame->format = AV_PIX_FMT_RGB24;
+
+        if (av_frame_get_buffer(hevc_decoder.rgb_frame, 32) < 0)
+        {
+            std::cerr << "[H265 DECODER] Failed to allocate RGB frame\n";
+            av_frame_unref(hevc_decoder.frame);
             return false;
         }
     }
 
     // Make RGB frame writable
-    if (av_frame_make_writable(h264_decoder.rgb_frame) < 0) {
-        std::cerr << "[H264 DECODER] Failed to make RGB frame writable\n";
-        av_frame_unref(h264_decoder.frame);
+    if (av_frame_make_writable(hevc_decoder.rgb_frame) < 0)
+    {
+        std::cerr << "[H265 DECODER] Failed to make RGB frame writable\n";
+        av_frame_unref(hevc_decoder.frame);
         return false;
     }
 
     // Convert YUV to RGB
     int converted_height = sws_scale(
-        h264_decoder.sws_ctx,
-        h264_decoder.frame->data, 
-        h264_decoder.frame->linesize,
-        0, 
-        h264_decoder.frame->height,
-        h264_decoder.rgb_frame->data, 
-        h264_decoder.rgb_frame->linesize);
-    
-    if (converted_height != (int)height) {
-        std::cerr << "[H264 DECODER] SWS scale returned wrong height: " 
+        hevc_decoder.sws_ctx,
+        hevc_decoder.frame->data,
+        hevc_decoder.frame->linesize,
+        0,
+        hevc_decoder.frame->height,
+        hevc_decoder.rgb_frame->data,
+        hevc_decoder.rgb_frame->linesize);
+
+    if (converted_height != (int)height)
+    {
+        std::cerr << "[H265 DECODER] SWS scale returned wrong height: "
                   << converted_height << " expected " << height << "\n";
-        av_frame_unref(h264_decoder.frame);
+        av_frame_unref(hevc_decoder.frame);
         return false;
     }
 
     // Copy RGB data to output
     rgb_output.resize(width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE);
-    
-    for (uint32_t y = 0; y < height; y++) {
-        memcpy(rgb_output.data() + (y * width * 3), 
-               h264_decoder.rgb_frame->data[0] + (y * h264_decoder.rgb_frame->linesize[0]), 
+
+    for (uint32_t y = 0; y < height; y++)
+    {
+        memcpy(rgb_output.data() + (y * width * 3),
+               hevc_decoder.rgb_frame->data[0] + (y * hevc_decoder.rgb_frame->linesize[0]),
                width * 3);
     }
 
-    av_frame_unref(h264_decoder.frame);
+    av_frame_unref(hevc_decoder.frame);
 
-    if (h264_decoder.use_hw && sw_frame != h264_decoder.frame) {
+    if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+    {
         av_frame_free(&sw_frame);
     }
 
@@ -3767,80 +3840,83 @@ static bool encode_rgb_to_png(const uint8_t *rgb, uint32_t width, uint32_t heigh
                               std::vector<uint8_t> &png_output)
 {
     std::lock_guard<std::mutex> lock(png_encode_mutex); // Serialize PNG encoding
-    
-    //std::cerr << "[PNG] Encoding " << width << "x" << height << " RGB to PNG...\n";
-    
+
+    // std::cerr << "[PNG] Encoding " << width << "x" << height << " RGB to PNG...\n";
+
     png_output.clear();
-    //std::cerr << "[PNG] Output buffer cleared\n";
+    // std::cerr << "[PNG] Output buffer cleared\n";
     png_output.reserve(width * height); // Pre-allocate reasonable size
-    //std::cerr << "[PNG] Output buffer reserved\n";
+    // std::cerr << "[PNG] Output buffer reserved\n";
     png_structp png = nullptr;
     png_infop info = nullptr;
-    
+
     png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
-    if (!png) {
+    if (!png)
+    {
         std::cerr << "[PNG] Failed to create write struct\n";
         return false;
-    } 
+    }
 
     info = png_create_info_struct(png);
     if (!info)
     {
         std::cerr << "[PNG] Failed to create info struct\n";
-        png_destroy_write_struct(&png, (png_infopp)nullptr);
+        png_destroy_write_struct(&png, (png_infopp) nullptr);
         return false;
     }
-    //std::cerr << "[PNG] Write struct and info struct created\n";
+    // std::cerr << "[PNG] Write struct and info struct created\n";
 
     // Set error handler
     if (setjmp(png_jmpbuf(png)))
     {
         std::cerr << "[PNG] PNG encoding error (setjmp triggered)\n";
-        if (png) png_destroy_write_struct(&png, &info);
+        if (png)
+            png_destroy_write_struct(&png, &info);
         png_output.clear();
         return false;
     }
-    //std::cerr << "[PNG] setjmp OK\n";
+    // std::cerr << "[PNG] setjmp OK\n";
 
     // Set write callback
     png_set_write_fn(png, &png_output, png_write_data, nullptr);
-    
+
     // Set compression level (faster = less likely to corrupt)
-    png_set_compression_level(png, 1); // Fast compression
+    png_set_compression_level(png, 1);       // Fast compression
     png_set_filter(png, 0, PNG_FILTER_NONE); // No filtering = faster
-    
+
     // Set image parameters
     png_set_IHDR(png, info, width, height,
                  8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-    
+
     png_write_info(png, info);
-    //std::cerr << "[PNG] PNG info written\n";
-    
+    // std::cerr << "[PNG] PNG info written\n";
+
     // Allocate row pointers on stack (safer than vector)
     png_bytep *row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * height);
-    if (!row_pointers) {
+    if (!row_pointers)
+    {
         std::cerr << "[PNG] Failed to allocate row pointers\n";
         png_destroy_write_struct(&png, &info);
         return false;
     }
-    
+
     for (uint32_t y = 0; y < height; y++)
     {
         row_pointers[y] = (png_bytep)(rgb + y * width * 3);
     }
-    
+
     // Write image
     png_write_image(png, row_pointers);
-    //std::cerr << "[PNG] PNG rows written\n";
+    // std::cerr << "[PNG] PNG rows written\n";
 
     png_write_end(png, nullptr);
-    
+
     // Cleanup
     free(row_pointers);
     png_destroy_write_struct(&png, &info);
 
-    //std::cerr << "[PNG] Encoding complete, output size: " << png_output.size() << " bytes\n";
+    // std::cerr << "[PNG] Encoding complete, output size: " << png_output.size() << " bytes\n";
     return true;
 }
 
@@ -3869,22 +3945,26 @@ static std::string base64_encode(const uint8_t *data, size_t len)
     return ret;
 }
 
-void render_to_kitty_b64_chunked(const std::string& b64_data) {
+void render_to_kitty_b64_chunked(const std::string &b64_data)
+{
     const size_t chunk_size = 256'000; // 256 KB per chunk
     size_t sent = 0;
-    
-    while (sent < b64_data.size()) {
+
+    while (sent < b64_data.size())
+    {
         size_t to_send = std::min(chunk_size, b64_data.size() - sent);
         bool more = (sent + to_send < b64_data.size());
-        
-        if (!sent) {
+
+        if (!sent)
+        {
             std::cout << "\033_Gf=100,a=T,"; // Start new image
         }
-        else {
+        else
+        {
             std::cout << "\033_G";
         }
         std::cout << "m=" << (more ? "1" : "0") << ";";
-        
+
         std::cout << b64_data.substr(sent, to_send) << "\033\\";
         sent += to_send;
     }
@@ -3897,63 +3977,63 @@ static void render_to_kitty(const std::vector<uint8_t> &data)
         std::cerr << "[KITTY] Invalid data size: " << data.size() << "\n";
         return;
     }
-    
+
     size_t offset = 0;
     const uint32_t extradata_size = *(uint32_t *)&data[offset];
     offset += 4;
-    
+
     if (extradata_size > 1024 || offset + extradata_size + 12 > data.size())
     {
         std::cerr << "[KITTY] Invalid extradata_size: " << extradata_size << "\n";
         return;
     }
-    
+
     const uint8_t *extradata = (extradata_size > 0) ? (data.data() + offset) : nullptr;
     offset += extradata_size;
-    
+
     const uint32_t width = *(uint32_t *)&data[offset];
     offset += 4;
-    
+
     const uint32_t height = *(uint32_t *)&data[offset];
     offset += 4;
-    
+
     const uint32_t compressed_size = *(uint32_t *)&data[offset];
     offset += 4;
-    
+
     if (width == 0 || height == 0 || width > 8192 || height > 8192)
     {
         std::cerr << "[KITTY] Invalid dimensions: " << width << "x" << height << "\n";
         return;
     }
-    
+
     if (compressed_size == 0 || offset + compressed_size > data.size())
     {
         std::cerr << "[KITTY] Invalid compressed_size: " << compressed_size << "\n";
         return;
     }
-    
-    const uint8_t *h264_data = data.data() + offset;
-    
-    //std::cerr << "[KITTY] Decoding H.264: " << compressed_size << " bytes -> " 
-    //          << width << "x" << height << " (extradata: " << extradata_size << " bytes)\n";
+
+    const uint8_t *hevc_data = data.data() + offset;
+
+    // std::cerr << "[KITTY] Decoding H.264: " << compressed_size << " bytes -> "
+    //           << width << "x" << height << " (extradata: " << extradata_size << " bytes)\n";
 
     // Allocate fresh buffers each time (avoid reuse issues)
     std::vector<uint8_t> rgb_data;
-    
-    if (!decode_h264_to_rgb(h264_data, extradata, extradata_size, compressed_size, width, height, rgb_data))
+
+    if (!decode_hevc_to_rgb(hevc_data, extradata, extradata_size, compressed_size, width, height, rgb_data))
     {
         std::cerr << "[KITTY] Failed to decode H.264 data\n";
         return;
     }
-    
+
     size_t expected_rgb_size = (size_t)width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE;
     if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
     {
         // Invalid decode result - skip this frame silently
         return;
     }
-    
-    //std::cerr << "[KITTY] Decoded successfully (" << rgb_data.size() << " bytes RGB), encoding to PNG...\n";
+
+    // std::cerr << "[KITTY] Decoded successfully (" << rgb_data.size() << " bytes RGB), encoding to PNG...\n";
 
     std::vector<uint8_t> png_data;
     if (!encode_rgb_to_png(rgb_data.data(), width, height, png_data))
@@ -3961,14 +4041,14 @@ static void render_to_kitty(const std::vector<uint8_t> &data)
         std::cerr << "[KITTY] Failed to encode PNG\n";
         return;
     }
-    
-    //std::cerr << "[KITTY] PNG encoded: " << png_data.size() << " bytes\n";
+
+    // std::cerr << "[KITTY] PNG encoded: " << png_data.size() << " bytes\n";
 
     std::string b64_png = base64_encode(png_data.data(), png_data.size());
 
     render_to_kitty_b64_chunked(b64_png);
-    
-    //std::cerr << "[KITTY] Frame rendered successfully\n";
+
+    // std::cerr << "[KITTY] Frame rendered successfully\n";
 }
 
 struct FBTempBuffers
@@ -3989,55 +4069,55 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
         std::cerr << "[FRAMEBUFFER] Invalid data size: " << data.size() << "\n";
         return;
     }
-    
+
     size_t offset = 0;
     const uint32_t extradata_size = *(uint32_t *)&data[offset];
     offset += 4;
-    
+
     if (extradata_size > 1024 || offset + extradata_size + 12 > data.size())
     {
         std::cerr << "[FRAMEBUFFER] Invalid extradata_size: " << extradata_size << "\n";
         return;
     }
-    
+
     const uint8_t *extradata = (extradata_size > 0) ? (data.data() + offset) : nullptr;
     offset += extradata_size;
-    
+
     const uint32_t width = *(uint32_t *)&data[offset];
     offset += 4;
-    
+
     const uint32_t height = *(uint32_t *)&data[offset];
     offset += 4;
-    
+
     const uint32_t compressed_size = *(uint32_t *)&data[offset];
     offset += 4;
-    
+
     if (width == 0 || height == 0 || width > 8192 || height > 8192)
     {
         std::cerr << "[FRAMEBUFFER] Invalid dimensions: " << width << "x" << height << "\n";
         return;
     }
-    
+
     if (compressed_size == 0 || offset + compressed_size > data.size())
     {
         std::cerr << "[FRAMEBUFFER] Invalid compressed_size: " << compressed_size << "\n";
         return;
     }
-    
-    const uint8_t *h264_data = data.data() + offset;
-    
-    //std::cerr << "[FRAMEBUFFER] Decoding H.264: " << compressed_size << " bytes -> " 
-    //          << width << "x" << height << " (extradata: " << extradata_size << " bytes)\n";
+
+    const uint8_t *hevc_data = data.data() + offset;
+
+    // std::cerr << "[FRAMEBUFFER] Decoding H.264: " << compressed_size << " bytes -> "
+    //           << width << "x" << height << " (extradata: " << extradata_size << " bytes)\n";
 
     // Allocate fresh buffers each time (avoid reuse issues)
     std::vector<uint8_t> rgb_data;
-    
-    if (!decode_h264_to_rgb(h264_data, extradata, extradata_size, compressed_size, width, height, rgb_data))
+
+    if (!decode_hevc_to_rgb(hevc_data, extradata, extradata_size, compressed_size, width, height, rgb_data))
     {
         std::cerr << "[FRAMEBUFFER] Failed to decode H.264 data\n";
         return;
     }
-    
+
     size_t expected_rgb_size = (size_t)width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE;
     if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
     {
@@ -5153,7 +5233,7 @@ int main(int argc, char **argv)
 
     cleanup_kms_display();
     cleanup_framebuffer();
-    cleanup_h264_decoder(h264_decoder);
+    cleanup_hevc_decoder(hevc_decoder);
 
     std::cerr << "[EXIT] Shutdown complete.\n";
     return 0;
