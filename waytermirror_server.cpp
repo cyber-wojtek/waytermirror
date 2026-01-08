@@ -3198,12 +3198,7 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
     enc.codec_ctx->max_b_frames = 0; // No B-frames for low latency
     
     // Bitrate calculation
-    double bpp;
-    if (quality >= 80) bpp = 0.25;
-    else if (quality >= 60) bpp = 0.18;
-    else if (quality >= 40) bpp = 0.12;
-    else if (quality >= 20) bpp = 0.08;
-    else bpp = 0.05;
+    double bpp = 1;
     
     int bitrate = (int)(width * height * fps * bpp);
     
@@ -3560,8 +3555,7 @@ static std::vector<uint8_t> render_sixel(
 
     sixel_output_set_encode_policy(output, SIXEL_ENCODEPOLICY_FAST);
 
-    int palette_size = (quality >= 70) ? 256 : (quality >= 40) ? 128
-                                                               : 64;
+    int palette_size = 256;
 
     status = sixel_dither_new(&dither, palette_size, nullptr);
     if (SIXEL_FAILED(status))
