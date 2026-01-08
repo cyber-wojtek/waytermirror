@@ -3573,7 +3573,7 @@ static bool decode_hevc_to_rgb(
 
     if (!hevc_data || hevc_size == 0)
     {
-        std::cerr << "[H265 DECODER] Invalid input data\n";
+        std::cerr << "[HEVC DECODER] Invalid input data\n";
         return false;
     }
 
@@ -3582,7 +3582,7 @@ static bool decode_hevc_to_rgb(
     {
         if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size))
         {
-            std::cerr << "[H265 DECODER] Init failed\n";
+            std::cerr << "[HEVC DECODER] Init failed\n";
             return false;
         }
     }
@@ -3594,11 +3594,11 @@ static bool decode_hevc_to_rgb(
     // Allocate new packet with proper size
     if (av_new_packet(hevc_decoder.pkt, hevc_size) < 0)
     {
-        std::cerr << "[H265 DECODER] Failed to allocate packet\n";
+        std::cerr << "[HEVC DECODER] Failed to allocate packet\n";
         return false;
     }
 
-    // Copy H.264 data
+    // Copy HEVC data
     memcpy(hevc_decoder.pkt->data, hevc_data, hevc_size);
 
     bool is_keyframe = false;
@@ -3635,7 +3635,7 @@ static bool decode_hevc_to_rgb(
     if (!hevc_decoder.received_keyframe && !is_keyframe)
     {
         // Drop frames until we get a keyframe
-        // std::cerr << "[H265 DECODER] Dropping non-keyframe before first keyframe\n";
+        // std::cerr << "[HEVC DECODER] Dropping non-keyframe before first keyframe\n";
         return false;
     }
 
@@ -3662,7 +3662,7 @@ static bool decode_hevc_to_rgb(
 
         if (ret < 0 && ret != AVERROR(EAGAIN))
         {
-            std::cerr << "[H265 DECODER] Send packet failed: " << ret << "\n";
+            std::cerr << "[HEVC DECODER] Send packet failed: " << ret << "\n";
             hevc_decoder.frame->pts = 0;
             return false;
         }
@@ -3676,7 +3676,7 @@ static bool decode_hevc_to_rgb(
         {
             return false;
         }
-        std::cerr << "[H265 DECODER] Receive frame failed: " << ret << "\n";
+        std::cerr << "[HEVC DECODER] Receive frame failed: " << ret << "\n";
         hevc_decoder.frame->pts = 0;
         hevc_decoder.received_keyframe = false;
         return false;
@@ -3756,7 +3756,7 @@ static bool decode_hevc_to_rgb(
 
         if (!hevc_decoder.sws_ctx)
         {
-            std::cerr << "[H265 DECODER] Failed to create SWS context\n";
+            std::cerr << "[HEVC DECODER] Failed to create SWS context\n";
             if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
                 av_frame_free(&sw_frame);
             return false;
@@ -3776,7 +3776,7 @@ static bool decode_hevc_to_rgb(
 
         if (av_frame_get_buffer(hevc_decoder.rgb_frame, 32) < 0)
         {
-            std::cerr << "[H265 DECODER] Failed to allocate RGB frame\n";
+            std::cerr << "[HEVC DECODER] Failed to allocate RGB frame\n";
             av_frame_unref(hevc_decoder.frame);
             return false;
         }
@@ -3785,7 +3785,7 @@ static bool decode_hevc_to_rgb(
     // Make RGB frame writable
     if (av_frame_make_writable(hevc_decoder.rgb_frame) < 0)
     {
-        std::cerr << "[H265 DECODER] Failed to make RGB frame writable\n";
+        std::cerr << "[HEVC DECODER] Failed to make RGB frame writable\n";
         av_frame_unref(hevc_decoder.frame);
         return false;
     }
@@ -3802,7 +3802,7 @@ static bool decode_hevc_to_rgb(
 
     if (converted_height != (int)height)
     {
-        std::cerr << "[H265 DECODER] SWS scale returned wrong height: "
+        std::cerr << "[HEVC DECODER] SWS scale returned wrong height: "
                   << converted_height << " expected " << height << "\n";
         av_frame_unref(hevc_decoder.frame);
         return false;
@@ -4014,7 +4014,7 @@ static void render_to_kitty(const std::vector<uint8_t> &data)
 
     const uint8_t *hevc_data = data.data() + offset;
 
-    // std::cerr << "[KITTY] Decoding H.264: " << compressed_size << " bytes -> "
+    // std::cerr << "[KITTY] Decoding HEVC: " << compressed_size << " bytes -> "
     //           << width << "x" << height << " (extradata: " << extradata_size << " bytes)\n";
 
     // Allocate fresh buffers each time (avoid reuse issues)
@@ -4022,7 +4022,7 @@ static void render_to_kitty(const std::vector<uint8_t> &data)
 
     if (!decode_hevc_to_rgb(hevc_data, extradata, extradata_size, compressed_size, width, height, rgb_data))
     {
-        std::cerr << "[KITTY] Failed to decode H.264 data\n";
+        std::cerr << "[KITTY] Failed to decode HEVC data\n";
         return;
     }
 
@@ -4106,7 +4106,7 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
 
     const uint8_t *hevc_data = data.data() + offset;
 
-    // std::cerr << "[FRAMEBUFFER] Decoding H.264: " << compressed_size << " bytes -> "
+    // std::cerr << "[FRAMEBUFFER] Decoding HEVC: " << compressed_size << " bytes -> "
     //           << width << "x" << height << " (extradata: " << extradata_size << " bytes)\n";
 
     // Allocate fresh buffers each time (avoid reuse issues)
@@ -4114,7 +4114,7 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
 
     if (!decode_hevc_to_rgb(hevc_data, extradata, extradata_size, compressed_size, width, height, rgb_data))
     {
-        std::cerr << "[FRAMEBUFFER] Failed to decode H.264 data\n";
+        std::cerr << "[FRAMEBUFFER] Failed to decode HEVC data\n";
         return;
     }
 
