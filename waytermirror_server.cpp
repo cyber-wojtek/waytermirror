@@ -3226,7 +3226,7 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
     av_opt_set(enc.codec_ctx->priv_data, "8x8dct", "1", 0);
     
     // Threading
-    enc.codec_ctx->thread_count = 4; // Use multiple threads for encoding
+    enc.codec_ctx->thread_count = 0; // Use multiple threads for encoding
     enc.codec_ctx->thread_type = FF_THREAD_FRAME;
     
     // Rate control
@@ -3255,7 +3255,7 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
     av_opt_set(enc.codec_ctx->priv_data, "refs", "3", 0);
     
     // Deblocking (disable for sharp screen content)
-    av_opt_set_int(enc.codec_ctx->priv_data, "deblock", -1, 0); // Light deblocking
+    av_opt_set_int(enc.codec_ctx->priv_data, "deblock", 0, 0); // Light deblocking
     
     // Open codec
     int ret = avcodec_open2(enc.codec_ctx, codec, nullptr);
