@@ -884,7 +884,6 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
             av_strerror(ret, errbuf, sizeof(errbuf));
             std::cerr << "[HEVC DECODER] Hardware device creation failed: " << errbuf << "\n";
             std::cerr << "[HEVC DECODER] Falling back to software decoder...\n";
-            avcodec_free_context(&dec.codec_ctx);
             codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
             if (!codec)
             {
