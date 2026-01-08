@@ -3198,7 +3198,7 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
     enc.codec_ctx->max_b_frames = 0; // No B-frames for low latency
     
     // Bitrate calculation
-    double bpp = 1;
+    double bpp = 0.1 + (quality / 100.0 * 1.9);
     
     int bitrate = (int)(width * height * fps * bpp);
     
@@ -3872,6 +3872,7 @@ static std::vector<uint8_t> render_framebuffer(
 }
 
 // KMS renderer - same as framebuffer here
+
 static std::vector<uint8_t> render_kms(
     const uint8_t *frame_data,
     uint32_t frame_width,
