@@ -3171,11 +3171,11 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
         enc.initialized = false;
     }
 
-    // Find encoder
-    const AVCodec *codec = avcodec_find_encoder_by_name("libx264rgb");
+    // Use standard H.264 encoder
+    const AVCodec *codec = avcodec_find_encoder_by_name("libx264");
     if (!codec)
     {
-        std::cerr << "[H264] libx264rgb encoder not found\n";
+        std::cerr << "[H264] libx264 encoder not found\n";
         return false;
     }
 
@@ -3191,64 +3191,72 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
     enc.codec_ctx->height = height;
     enc.codec_ctx->time_base = {1, fps};
     enc.codec_ctx->framerate = {fps, 1};
-    enc.codec_ctx->pix_fmt = AV_PIX_FMT_RGB24;
+    enc.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P; 
     
-    // CRITICAL: Long GOP with intra-refresh
-    enc.codec_ctx->gop_size = 250; // Much longer - intra-refresh handles resilience
+    // GOP settings optimized for screen content
+    enc.codec_ctx->gop_size = fps * 2; // 2 second GOP for screen content
     enc.codec_ctx->max_b_frames = 0; // No B-frames for low latency
+    enc.codec_ctx->keyint_min = fps; // Minimum keyframe interval
     
-    // Bitrate calculation
-    double bpp = 0.1 + (quality / 100.0 * 1.9);
+    // Quality-based encoding (CRF mode)
+    // CRF: 0=lossless, 23=default, 51=worst
+    // Map quality 0-100 to CRF 28-18 (28=low quality, 18=high quality)
+    int crf = 28 - (quality * 10) / 100;
+    crf = std::clamp(crf, 18, 28);
     
-    int bitrate = (int)(width * height * fps * bpp);
+    // Use CRF mode with buffer constraints for consistency
+    char crf_str[8];
+    snprintf(crf_str, sizeof(crf_str), "%d", crf);
+    av_opt_set(enc.codec_ctx->priv_data, "crf", crf_str, 0);
     
-    // CRITICAL: Proper CBR rate control
-    enc.codec_ctx->bit_rate = bitrate;
-    enc.codec_ctx->rc_max_rate = bitrate;
-    enc.codec_ctx->rc_buffer_size = bitrate / fps; // Single-frame VBV for low latency
-    
-    // Preset selection
+    // Preset selection based on quality
     const char *preset;
-    if (quality >= 80) preset = "medium"; // Reduced from "slow"
+    if (quality >= 80) preset = "medium";
     else if (quality >= 60) preset = "fast";
     else if (quality >= 40) preset = "faster";
     else preset = "veryfast";
     
-    // CRITICAL: Low-latency settings
+    // Tune for screen content
     av_opt_set(enc.codec_ctx->priv_data, "preset", preset, 0);
     av_opt_set(enc.codec_ctx->priv_data, "tune", "zerolatency", 0);
-    av_opt_set_int(enc.codec_ctx->priv_data, "sliced-threads", 0, 0);
-    av_opt_set_int(enc.codec_ctx->priv_data, "rc-lookahead", 0, 0);
-    av_opt_set_int(enc.codec_ctx->priv_data, "bframes", 0, 0);
-    av_opt_set_int(enc.codec_ctx->priv_data, "b-adapt", 0, 0);
-    av_opt_set_int(enc.codec_ctx->priv_data, "frame-threads", 1, 0);
-        
-    // Profile
-    const char *profile = "high444"; // Keep for RGB
-    av_opt_set(enc.codec_ctx->priv_data, "profile", profile, 0);
-    
-    // Quality settings
-    if (quality >= 40)
-    {
-        av_opt_set(enc.codec_ctx->priv_data, "me_method", "umh", 0);
-        av_opt_set_int(enc.codec_ctx->priv_data, "me_range", 16, 0); // Reduced from 24
-        av_opt_set_int(enc.codec_ctx->priv_data, "subq", 6, 0); // Reduced from 7
-    }
     
     // Screen content optimization
-    av_opt_set_int(enc.codec_ctx->priv_data, "aq-mode", 2, 0);
-    av_opt_set(enc.codec_ctx->priv_data, "aq-strength", "1.0", 0);
-    av_opt_set_int(enc.codec_ctx->priv_data, "deblock", 0, 0);
-    av_opt_set_int(enc.codec_ctx->priv_data, "coder", 1, 0);
+    av_opt_set_int(enc.codec_ctx->priv_data, "sc_threshold", 40, 0); // Scene change detection
+    av_opt_set(enc.codec_ctx->priv_data, "mixed-refs", "1", 0);
+    av_opt_set(enc.codec_ctx->priv_data, "8x8dct", "1", 0);
     
-    // Partitions
+    // Threading
+    enc.codec_ctx->thread_count = 4; // Use multiple threads for encoding
+    enc.codec_ctx->thread_type = FF_THREAD_FRAME;
+    
+    // Rate control
+    av_opt_set_int(enc.codec_ctx->priv_data, "rc-lookahead", 10, 0);
+    
+    // Profile for compatibility
+    av_opt_set(enc.codec_ctx->priv_data, "profile", "high", 0);
+    
+    // Additional quality settings for higher quality levels
+    if (quality >= 60)
+    {
+        av_opt_set(enc.codec_ctx->priv_data, "me_method", "umh", 0);
+        av_opt_set_int(enc.codec_ctx->priv_data, "me_range", 24, 0);
+        av_opt_set_int(enc.codec_ctx->priv_data, "subq", 7, 0);
+    }
+    
+    // Screen content tools
+    av_opt_set_int(enc.codec_ctx->priv_data, "aq-mode", 2, 0);
+    av_opt_set(enc.codec_ctx->priv_data, "aq-strength", "1.2", 0);
+    
+    // Partitions for better compression
     if (quality >= 60)
         av_opt_set(enc.codec_ctx->priv_data, "partitions", "p8x8,b8x8,i8x8,i4x4", 0);
     
-
-    av_opt_set(enc.codec_ctx->priv_data, "refs", "1", 0);
-    av_opt_set(enc.codec_ctx->priv_data, "intra-refresh", "1", 0);
-
+    // References
+    av_opt_set(enc.codec_ctx->priv_data, "refs", "3", 0);
+    
+    // Deblocking (disable for sharp screen content)
+    av_opt_set_int(enc.codec_ctx->priv_data, "deblock", -1, 0); // Light deblocking
+    
     // Open codec
     int ret = avcodec_open2(enc.codec_ctx, codec, nullptr);
     if (ret < 0)
@@ -3300,11 +3308,10 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
     enc.initialized = true;
 
     std::cerr << "[H264] Encoder initialized: " << width << "x" << height
-              << " preset=" << preset << " profile=" << profile
-              << " bitrate=" << (bitrate / 1000) << "kbps"
-              << " bpp=" << std::fixed << std::setprecision(3) << bpp
+              << " preset=" << preset << " profile=high"
+              << " CRF=" << crf
               << " gop=" << enc.codec_ctx->gop_size
-              << " refs=1\n";
+              << " refs=3\n";
     return true;
 }
 
@@ -3344,6 +3351,7 @@ static void cleanup_h264_encoder(H264Encoder &enc)
     std::cerr << "[H264] FFmpeg encoder cleaned up\n";
 }
 
+
 static std::vector<uint8_t> encode_h264_frame(
     H264Encoder &enc,
     const uint8_t *rgb_data,
@@ -3354,10 +3362,22 @@ static std::vector<uint8_t> encode_h264_frame(
 {
     static int loc_fps = 30;
     static int loc_quality = 75;
-    if (!enc.initialized || enc.width != width || enc.height != height || loc_fps != fps || loc_quality != quality)
+    static SwsContext *sws_ctx = nullptr;
+    static uint32_t last_width = 0, last_height = 0;
+    
+    if (!enc.initialized || enc.width != width || enc.height != height || 
+        loc_fps != fps || loc_quality != quality)
     {
         loc_fps = fps;
         loc_quality = quality;
+        
+        // Cleanup old scaler
+        if (sws_ctx)
+        {
+            sws_freeContext(sws_ctx);
+            sws_ctx = nullptr;
+        }
+        
         cleanup_h264_encoder(enc);
         if (!init_h264_encoder(enc, width, height, quality, fps))
         {
@@ -3367,6 +3387,26 @@ static std::vector<uint8_t> encode_h264_frame(
 
     std::lock_guard<std::mutex> lock(enc.mutex);
 
+    // Recreate scaler if dimensions changed
+    if (!sws_ctx || last_width != width || last_height != height)
+    {
+        if (sws_ctx) sws_freeContext(sws_ctx);
+        
+        sws_ctx = sws_getContext(
+            width, height, AV_PIX_FMT_RGB24,
+            width, height, AV_PIX_FMT_YUV420P,
+            SWS_BILINEAR, nullptr, nullptr, nullptr);
+        
+        if (!sws_ctx)
+        {
+            std::cerr << "[H264] Failed to create scaler\n";
+            return {};
+        }
+        
+        last_width = width;
+        last_height = height;
+    }
+
     // Make frame writable
     int ret = av_frame_make_writable(enc.frame);
     if (ret < 0)
@@ -3375,14 +3415,13 @@ static std::vector<uint8_t> encode_h264_frame(
         return {};
     }
 
-    // Copy RGB data directly (no color conversion needed with x264rgb!)
-    // The input is RGB24, which matches our encoder's pixel format
-    for (uint32_t y = 0; y < height; y++)
-    {
-        memcpy(enc.frame->data[0] + y * enc.frame->linesize[0],
-               rgb_data + y * width * 3,
-               width * 3);
-    }
+    // Convert RGB24 to YUV420P
+    const uint8_t *src_data[1] = { rgb_data };
+    int src_linesize[1] = { (int)(width * 3) };
+    
+    sws_scale(sws_ctx,
+              src_data, src_linesize, 0, height,
+              enc.frame->data, enc.frame->linesize);
 
     enc.frame->pts = enc.pts;
     enc.pkt->pts = enc.pts;
