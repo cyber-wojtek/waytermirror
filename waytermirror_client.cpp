@@ -752,7 +752,7 @@ static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelF
 
 static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
                               const uint8_t *extradata, size_t extradata_size,
-                              bool try_hw = true)  // Changed default to true
+                              bool try_hw = true) // Changed default to true
 {
     std::lock_guard<std::mutex> lock(dec.mutex);
 
@@ -791,7 +791,7 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
     if (try_hw)
     {
         std::cerr << "[HEVC DECODER] Attempting hardware acceleration...\n";
-        
+
         // Try CUDA (NVIDIA) - Usually fastest
         codec = avcodec_find_decoder_by_name("hevc_cuvid");
         if (codec)
@@ -899,11 +899,13 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
             hw_type = AV_HWDEVICE_TYPE_NONE;
             dec.use_hw = false;
         }
-
-        dec.codec_ctx->hw_device_ctx = av_buffer_ref(dec.hw_device_ctx);
-        dec.codec_ctx->get_format = get_hw_format;
-        dec.codec_ctx->opaque = &dec.hw_pix_fmt;
-        dec.use_hw = true;
+        else
+        {
+            dec.codec_ctx->hw_device_ctx = av_buffer_ref(dec.hw_device_ctx);
+            dec.codec_ctx->get_format = get_hw_format;
+            dec.codec_ctx->opaque = &dec.hw_pix_fmt;
+            dec.use_hw = true;
+        }
         std::cerr << "[HEVC DECODER] Hardware device context created\n";
     }
 
@@ -921,19 +923,19 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
         }
         memcpy(dec.codec_ctx->extradata, extradata, extradata_size);
         memset(dec.codec_ctx->extradata + extradata_size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
-        dec.codec_ctx->extradata_size = extradata_size; 
+        dec.codec_ctx->extradata_size = extradata_size;
     }
 
     dec.codec_ctx->width = width;
     dec.codec_ctx->height = height;
-    
-    if (hw_type == AV_HWDEVICE_TYPE_NONE)  // Software decoder
+
+    if (hw_type == AV_HWDEVICE_TYPE_NONE) // Software decoder
     {
         // Use all available CPU cores
-        dec.codec_ctx->thread_count = 0;  // 0 = auto-detect CPU count
-        
+        dec.codec_ctx->thread_count = 0; // 0 = auto-detect CPU count
+
         dec.codec_ctx->thread_type = FF_THREAD_SLICE;
-        
+
         std::cerr << "[HEVC DECODER] Multi-threading enabled: auto CPU count, slice threading\n";
     }
     else
@@ -943,22 +945,22 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
         dec.codec_ctx->thread_type = 0;
         std::cerr << "[HEVC DECODER] Hardware decoder: using internal threading\n";
     }
-    
+
     // Low delay flags for streaming
     dec.codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
     dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
-    
+
     // Don't wait for complete frames in input buffer
     dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_CHUNKS;
-    
+
     // Optimize for real-time decoding
-    dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_SHOW_ALL;  // Show all decoded frames immediately
-    
+    dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_SHOW_ALL; // Show all decoded frames immediately
+
     // Error concealment for network streams
     dec.codec_ctx->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
-    
+
     dec.codec_ctx->skip_loop_filter = AVDISCARD_ALL;
-    
+
     std::cerr << "[HEVC DECODER] Low-latency flags enabled\n";
 
     // Open codec
@@ -1013,7 +1015,7 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
     std::cerr << "[HEVC DECODER]   Threads: " << (dec.codec_ctx->thread_count == 0 ? "AUTO" : std::to_string(dec.codec_ctx->thread_count)) << "\n";
     std::cerr << "[HEVC DECODER]   Threading type: " << (dec.codec_ctx->thread_type == FF_THREAD_SLICE ? "SLICE (low latency)" : "other") << "\n";
     std::cerr << "[HEVC DECODER] ========================================\n\n";
-    
+
     return true;
 }
 
@@ -1067,7 +1069,7 @@ static bool decode_hevc_to_rgb(
 
     bool need_realloc =
         !hevc_decoder.rgb_frame ||
-        hevc_decoder.rgb_frame->width  != width ||
+        hevc_decoder.rgb_frame->width != width ||
         hevc_decoder.rgb_frame->height != height;
 
     if (need_realloc)
@@ -1078,7 +1080,7 @@ static bool decode_hevc_to_rgb(
             av_frame_unref(hevc_decoder.rgb_frame);
 
         hevc_decoder.rgb_frame->format = AV_PIX_FMT_RGB24;
-        hevc_decoder.rgb_frame->width  = width;
+        hevc_decoder.rgb_frame->width = width;
         hevc_decoder.rgb_frame->height = height;
 
         if (av_frame_get_buffer(hevc_decoder.rgb_frame, 32) < 0)
@@ -1248,7 +1250,7 @@ static bool decode_hevc_to_rgb(
         {
             sws_freeContext(hevc_decoder.sws_ctx);
         }
-        
+
         hevc_decoder.sws_ctx = sws_getContext(
             sw_frame->width, sw_frame->height,
             (AVPixelFormat)sw_frame->format,
@@ -4429,7 +4431,7 @@ static void render_to_sixel(const std::vector<uint8_t> &data)
     // Decode HEVC to RGB
     std::vector<uint8_t> rgb_data;
 
-    if (!decode_hevc_to_rgb(hevc_data, extradata, extradata_size, compressed_size, 
+    if (!decode_hevc_to_rgb(hevc_data, extradata, extradata_size, compressed_size,
                             width, height, rgb_data))
     {
         std::cerr << "[SIXEL] Failed to decode HEVC data\n";
@@ -4440,7 +4442,7 @@ static void render_to_sixel(const std::vector<uint8_t> &data)
     if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
     {
         // Invalid decode result - skip this frame silently
-        std::cerr << "[SIXEL] Invalid decoded size: " << rgb_data.size() 
+        std::cerr << "[SIXEL] Invalid decoded size: " << rgb_data.size()
                   << " expected: " << expected_rgb_size << "\n";
         return;
     }
@@ -4454,30 +4456,35 @@ static void render_to_sixel(const std::vector<uint8_t> &data)
     }
 
     // ===== CRITICAL FIX: Add error handling for libsixel =====
-    
+
     // Use libsixel to encode
     sixel_output_t *output = nullptr;
     sixel_dither_t *dither = nullptr;
     std::vector<uint8_t> output_buffer;
-    
+
     // Thread-safe output callback with error checking
-    auto write_callback = [](char *data, int size, void *priv) -> int {
-        if (!data || size <= 0 || !priv) {
+    auto write_callback = [](char *data, int size, void *priv) -> int
+    {
+        if (!data || size <= 0 || !priv)
+        {
             std::cerr << "[SIXEL] Invalid callback params\n";
             return -1;
         }
-        
-        try {
-            auto *vec = static_cast<std::vector<uint8_t>*>(priv);
+
+        try
+        {
+            auto *vec = static_cast<std::vector<uint8_t> *>(priv);
             vec->insert(vec->end(), data, data + size);
             return size;
-        } catch (const std::exception& e) {
+        }
+        catch (const std::exception &e)
+        {
             std::cerr << "[SIXEL] Callback exception: " << e.what() << "\n";
             return -1;
         }
     };
-    
-    SIXELSTATUS status = sixel_output_new(&output, write_callback, 
+
+    SIXELSTATUS status = sixel_output_new(&output, write_callback,
                                           &output_buffer, nullptr);
 
     if (SIXEL_FAILED(status))
@@ -4526,7 +4533,7 @@ static void render_to_sixel(const std::vector<uint8_t> &data)
     size_t required_size = (size_t)width * height * 3;
     if (rgb_data.size() < required_size)
     {
-        std::cerr << "[SIXEL] Buffer too small for libsixel: " 
+        std::cerr << "[SIXEL] Buffer too small for libsixel: "
                   << rgb_data.size() << " < " << required_size << "\n";
         sixel_dither_unref(dither);
         sixel_output_unref(output);
@@ -4537,7 +4544,7 @@ static void render_to_sixel(const std::vector<uint8_t> &data)
     status = sixel_dither_initialize(dither, rgb_data.data(), width, height,
                                      SIXEL_PIXELFORMAT_RGB888,
                                      SIXEL_LARGE_AUTO, SIXEL_REP_AUTO, sixel_quality);
-    
+
     if (SIXEL_FAILED(status))
     {
         std::cerr << "[SIXEL] Failed to initialize dither: " << status << "\n";
