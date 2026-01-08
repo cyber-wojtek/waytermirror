@@ -2362,17 +2362,6 @@ static void cycle_output()
     send_client_config(current_config);
 }
 
-static void set_renderer(uint8_t renderer)
-{
-    std::lock_guard<std::mutex> lock(config_mutex);
-    current_config.renderer = renderer;
-    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel"};
-    int idx = std::min((int)renderer, 4);
-    std::cerr << "[RENDERER] Switched to: " << names[idx] << "\n";
-    get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
-    send_client_config(current_config);
-}
-
 static void print_shortcuts_help()
 {
     std::lock_guard<std::mutex> lock(config_mutex);
