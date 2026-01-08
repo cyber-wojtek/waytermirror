@@ -3448,12 +3448,8 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
         enc.initialized = false;
     }
 
-    // Calculate bitrate based on resolution and quality
-    // Base: 1080p@60fps = 20Mbps, scale accordingly
-    int64_t base_bitrate = 20000000; // 20 Mbps for 1080p
-    int64_t bitrate = (int64_t)(base_bitrate * (width * height) / (1920.0 * 1080.0) * 
-                                (quality / 50.0));
-    bitrate = std::max(bitrate, (int64_t)5000000);   // Min 5 Mbps
+    int64_t bitrate = (int64_t)(width / 100.0 * height * fps * std::max(quality, 1) * 1); // Approx formula ()
+
     bitrate = std::min(bitrate, (int64_t)100000000); // Max 100 Mbps
 
     std::cerr << "\n[HEVC] ========================================\n";
@@ -3556,6 +3552,8 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
         }
         return false;
     }
+
+    enc.pts = 0;
 
     // Allocate frame
     enc.frame = av_frame_alloc();

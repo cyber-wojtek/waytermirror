@@ -735,31 +735,624 @@ static void build_scaling_lut(uint32_t src_w, uint32_t src_h,
     scaling_lut.valid = true;
 }
 
+static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts)
+{
+    const enum AVPixelFormat *p;
+    for (p = pix_fmts; *p != -1; p++)
+    {
+        if (*p == *(enum AVPixelFormat *)ctx->opaque)
+        {
+            return *p;
+        }
+    }
+    std::cerr << "[HEVC HW] Failed to get HW surface format\n";
+    return AV_PIX_FMT_NONE;
+}
+
+static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
+                              const uint8_t *extradata, size_t extradata_size,
+                              bool try_hw = true)  // Changed default to true
+{
+    std::lock_guard<std::mutex> lock(dec.mutex);
+
+    bool need_reinit = !dec.initialized || (dec.width != width || dec.height != height);
+    if (dec.initialized && !need_reinit)
+        return true;
+
+    if (dec.initialized)
+    {
+        if (dec.codec_ctx)
+        {
+            avcodec_flush_buffers(dec.codec_ctx);
+            avcodec_free_context(&dec.codec_ctx);
+        }
+        if (dec.frame)
+            av_frame_free(&dec.frame);
+        if (dec.rgb_frame)
+            av_frame_free(&dec.rgb_frame);
+        if (dec.pkt)
+            av_packet_free(&dec.pkt);
+        if (dec.sws_ctx)
+            sws_freeContext(dec.sws_ctx);
+        if (dec.hw_device_ctx)
+            av_buffer_unref(&dec.hw_device_ctx);
+        dec.initialized = false;
+        dec.use_hw = false;
+    }
+
+    std::cerr << "\n[HEVC DECODER] ========================================\n";
+    std::cerr << "[HEVC DECODER] Initializing decoder for " << width << "x" << height << "\n";
+
+    const AVCodec *codec = nullptr;
+    enum AVHWDeviceType hw_type = AV_HWDEVICE_TYPE_NONE;
+
+    // Try hardware decoders first (if requested)
+    if (try_hw)
+    {
+        std::cerr << "[HEVC DECODER] Attempting hardware acceleration...\n";
+        
+        // Try CUDA (NVIDIA) - Usually fastest
+        codec = avcodec_find_decoder_by_name("hevc_cuvid");
+        if (codec)
+        {
+            hw_type = AV_HWDEVICE_TYPE_CUDA;
+            dec.hw_pix_fmt = AV_PIX_FMT_CUDA;
+            std::cerr << "[HEVC DECODER]   ✓ Found CUDA (NVIDIA) decoder\n";
+        }
+
+        // Try VAAPI (Linux Intel/AMD)
+        if (!codec)
+        {
+            codec = avcodec_find_decoder_by_name("hevc_vaapi");
+            if (codec)
+            {
+                hw_type = AV_HWDEVICE_TYPE_VAAPI;
+                dec.hw_pix_fmt = AV_PIX_FMT_VAAPI;
+                std::cerr << "[HEVC DECODER]   ✓ Found VAAPI (Intel/AMD) decoder\n";
+            }
+        }
+
+        // Try QSV (Intel QuickSync)
+        if (!codec)
+        {
+            codec = avcodec_find_decoder_by_name("hevc_qsv");
+            if (codec)
+            {
+                hw_type = AV_HWDEVICE_TYPE_QSV;
+                dec.hw_pix_fmt = AV_PIX_FMT_QSV;
+                std::cerr << "[HEVC DECODER]   ✓ Found QuickSync (Intel) decoder\n";
+            }
+        }
+
+        // Try VDPAU (older NVIDIA)
+        if (!codec)
+        {
+            codec = avcodec_find_decoder_by_name("hevc_vdpau");
+            if (codec)
+            {
+                hw_type = AV_HWDEVICE_TYPE_VDPAU;
+                dec.hw_pix_fmt = AV_PIX_FMT_VDPAU;
+                std::cerr << "[HEVC DECODER]   ✓ Found VDPAU (NVIDIA legacy) decoder\n";
+            }
+        }
+
+        // Try VideoToolbox (macOS)
+        if (!codec)
+        {
+            codec = avcodec_find_decoder_by_name("hevc_videotoolbox");
+            if (codec)
+            {
+                hw_type = AV_HWDEVICE_TYPE_VIDEOTOOLBOX;
+                dec.hw_pix_fmt = AV_PIX_FMT_VIDEOTOOLBOX;
+                std::cerr << "[HEVC DECODER]   ✓ Found VideoToolbox (macOS) decoder\n";
+            }
+        }
+
+        if (!codec)
+        {
+            std::cerr << "[HEVC DECODER]   ✗ No hardware decoder available\n";
+        }
+    }
+
+    // Fallback to software decoder
+    if (!codec)
+    {
+        codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
+        if (!codec)
+        {
+            std::cerr << "[HEVC DECODER] ERROR: No decoder found!\n";
+            return false;
+        }
+        std::cerr << "[HEVC DECODER] Using software decoder (multi-threaded)\n";
+    }
+
+    dec.codec_ctx = avcodec_alloc_context3(codec);
+    if (!dec.codec_ctx)
+    {
+        std::cerr << "[HEVC DECODER] Failed to alloc context\n";
+        return false;
+    }
+
+    // Initialize hardware device context if using HW
+    if (hw_type != AV_HWDEVICE_TYPE_NONE)
+    {
+        int ret = av_hwdevice_ctx_create(&dec.hw_device_ctx, hw_type, NULL, NULL, 0);
+        if (ret < 0)
+        {
+            char errbuf[256];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            std::cerr << "[HEVC DECODER] Hardware device creation failed: " << errbuf << "\n";
+            std::cerr << "[HEVC DECODER] Falling back to software decoder...\n";
+            avcodec_free_context(&dec.codec_ctx);
+            return init_hevc_decoder(dec, width, height, extradata, extradata_size, false);
+        }
+
+        dec.codec_ctx->hw_device_ctx = av_buffer_ref(dec.hw_device_ctx);
+        dec.codec_ctx->get_format = get_hw_format;
+        dec.codec_ctx->opaque = &dec.hw_pix_fmt;
+        dec.use_hw = true;
+        std::cerr << "[HEVC DECODER] Hardware device context created\n";
+    }
+
+    // Set extradata (SPS/PPS)
+    if (extradata && extradata_size > 0)
+    {
+        dec.codec_ctx->extradata = (uint8_t *)av_malloc(extradata_size + AV_INPUT_BUFFER_PADDING_SIZE);
+        if (!dec.codec_ctx->extradata)
+        {
+            std::cerr << "[HEVC DECODER] Failed to alloc extradata\n";
+            if (dec.hw_device_ctx)
+                av_buffer_unref(&dec.hw_device_ctx);
+            avcodec_free_context(&dec.codec_ctx);
+            return false;
+        }
+        memcpy(dec.codec_ctx->extradata, extradata, extradata_size);
+        memset(dec.codec_ctx->extradata + extradata_size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
+        dec.codec_ctx->extradata_size = extradata_size;
+    }
+
+    dec.codec_ctx->width = width;
+    dec.codec_ctx->height = height;
+    
+    if (hw_type == AV_HWDEVICE_TYPE_NONE)  // Software decoder
+    {
+        // Use all available CPU cores
+        dec.codec_ctx->thread_count = 0;  // 0 = auto-detect CPU count
+        
+        dec.codec_ctx->thread_type = FF_THREAD_SLICE;
+        
+        std::cerr << "[HEVC DECODER] Multi-threading enabled: auto CPU count, slice threading\n";
+    }
+    else
+    {
+        // Hardware decoders typically handle threading internally
+        dec.codec_ctx->thread_count = 1;
+        dec.codec_ctx->thread_type = 0;
+        std::cerr << "[HEVC DECODER] Hardware decoder: using internal threading\n";
+    }
+    
+    // Low delay flags for streaming
+    dec.codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+    dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
+    
+    // Don't wait for complete frames in input buffer
+    dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_CHUNKS;
+    
+    // Optimize for real-time decoding
+    dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_SHOW_ALL;  // Show all decoded frames immediately
+    
+    // Error concealment for network streams
+    dec.codec_ctx->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
+    
+    // dec.codec_ctx->skip_loop_filter = AVDISCARD_ALL;
+    
+    std::cerr << "[HEVC DECODER] Low-latency flags enabled\n";
+
+    // Open codec
+    if (avcodec_open2(dec.codec_ctx, codec, nullptr) < 0)
+    {
+        char errbuf[256];
+        int ret = AVERROR(EINVAL);
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[HEVC DECODER] Failed to open codec: " << errbuf << "\n";
+        if (dec.codec_ctx->extradata)
+            av_free(dec.codec_ctx->extradata);
+        if (dec.hw_device_ctx)
+            av_buffer_unref(&dec.hw_device_ctx);
+        avcodec_free_context(&dec.codec_ctx);
+
+        // If HW failed, try software
+        if (try_hw)
+        {
+            std::cerr << "[HEVC DECODER] Hardware decode failed, trying software\n";
+            return init_hevc_decoder(dec, width, height, extradata, extradata_size, false);
+        }
+        return false;
+    }
+
+    dec.frame = av_frame_alloc();
+    dec.rgb_frame = av_frame_alloc();
+    dec.pkt = av_packet_alloc();
+
+    if (!dec.frame || !dec.rgb_frame || !dec.pkt)
+    {
+        std::cerr << "[HEVC DECODER] Failed to alloc frames/packet\n";
+        if (dec.frame)
+            av_frame_free(&dec.frame);
+        if (dec.rgb_frame)
+            av_frame_free(&dec.rgb_frame);
+        if (dec.pkt)
+            av_packet_free(&dec.pkt);
+        if (dec.hw_device_ctx)
+            av_buffer_unref(&dec.hw_device_ctx);
+        avcodec_free_context(&dec.codec_ctx);
+        return false;
+    }
+
+    dec.width = width;
+    dec.height = height;
+    dec.initialized = true;
+
+    std::cerr << "[HEVC DECODER] ✓ Decoder initialized successfully!\n";
+    std::cerr << "[HEVC DECODER]   Resolution: " << width << "x" << height << "\n";
+    std::cerr << "[HEVC DECODER]   Hardware: " << (dec.use_hw ? "YES" : "NO") << "\n";
+    std::cerr << "[HEVC DECODER]   Threads: " << (dec.codec_ctx->thread_count == 0 ? "AUTO" : std::to_string(dec.codec_ctx->thread_count)) << "\n";
+    std::cerr << "[HEVC DECODER]   Threading type: " << (dec.codec_ctx->thread_type == FF_THREAD_SLICE ? "SLICE (low latency)" : "other") << "\n";
+    std::cerr << "[HEVC DECODER] ========================================\n\n";
+    
+    return true;
+}
+
+static void cleanup_hevc_decoder(HEVCDecoder &dec)
+{
+    std::lock_guard<std::mutex> lock(dec.mutex);
+    if (!dec.initialized)
+        return;
+
+    if (dec.sws_ctx)
+        sws_freeContext(dec.sws_ctx);
+    if (dec.pkt)
+        av_packet_free(&dec.pkt);
+    if (dec.frame)
+        av_frame_free(&dec.frame);
+    if (dec.rgb_frame)
+        av_frame_free(&dec.rgb_frame); // Cleanup
+    if (dec.codec_ctx)
+        avcodec_free_context(&dec.codec_ctx);
+
+    dec.initialized = false;
+}
+
+static bool decode_hevc_to_rgb(
+    const uint8_t *hevc_data,
+    const uint8_t *extradata,
+    size_t extradata_size,
+    size_t hevc_size,
+    uint32_t width,
+    uint32_t height,
+    std::vector<uint8_t> &rgb_output)
+{
+    rgb_output.clear();
+
+    if (!hevc_data || hevc_size == 0)
+    {
+        std::cerr << "[HEVC DECODER] Invalid input data\n";
+        return false;
+    }
+
+    // Initialize/reinitialize decoder if needed
+    if (!hevc_decoder.initialized || hevc_decoder.width != width || hevc_decoder.height != height)
+    {
+        if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size))
+        {
+            std::cerr << "[HEVC DECODER] Init failed\n";
+            return false;
+        }
+        std::cerr << "[HEVC DECODER] Decoder initialized/reinitialized\n";
+    }
+
+    std::lock_guard<std::mutex> lock(hevc_decoder.mutex);
+
+    av_packet_unref(hevc_decoder.pkt);
+
+    // Allocate new packet with proper size
+    if (av_new_packet(hevc_decoder.pkt, hevc_size) < 0)
+    {
+        std::cerr << "[HEVC DECODER] Failed to allocate packet\n";
+        return false;
+    }
+
+    // Copy HEVC data
+    memcpy(hevc_decoder.pkt->data, hevc_data, hevc_size);
+
+    bool is_keyframe = false;
+    // Check for VPS (32), SPS (33), PPS (34) or IDR (19, 20, 21) NAL units in HEVC
+    for (size_t i = 0; i + 4 < hevc_size; i++)
+    {
+        if (hevc_data[i] == 0 && hevc_data[i + 1] == 0 && hevc_data[i + 2] == 1)
+        {
+            uint8_t nal_type = (hevc_data[i + 3] >> 1) & 0x3F;        // HEVC NAL type is in bits 1-6
+            if (nal_type == 32 || nal_type == 33 || nal_type == 34 || // VPS, SPS, PPS
+                nal_type == 19 || nal_type == 20 || nal_type == 21)
+            { // IDR variants
+                is_keyframe = true;
+                hevc_decoder.received_keyframe = true;
+                break;
+            }
+        }
+        // Also check 4-byte start code
+        if (hevc_data[i] == 0 && hevc_data[i + 1] == 0 &&
+            hevc_data[i + 2] == 0 && hevc_data[i + 3] == 1)
+        {
+            uint8_t nal_type = (hevc_data[i + 4] >> 1) & 0x3F;        // HEVC NAL type is in bits 1-6
+            if (nal_type == 32 || nal_type == 33 || nal_type == 34 || // VPS, SPS, PPS
+                nal_type == 19 || nal_type == 20 || nal_type == 21)
+            { // IDR variants
+                is_keyframe = true;
+                hevc_decoder.received_keyframe = true;
+                break;
+            }
+            i++; // Skip the extra byte
+        }
+    }
+
+    if (!hevc_decoder.received_keyframe && !is_keyframe)
+    {
+        // Drop frames until we get a keyframe
+        // std::cerr << "[HEVC DECODER] Dropping non-keyframe before first keyframe\n";
+        return false;
+    }
+
+    if (is_keyframe)
+    {
+        hevc_decoder.pkt->flags |= AV_PKT_FLAG_KEY;
+        hevc_decoder.received_keyframe = true;
+    }
+
+    // Send packet to decoder
+    int ret = avcodec_send_packet(hevc_decoder.codec_ctx, hevc_decoder.pkt);
+    if (ret < 0)
+    {
+        if (ret == AVERROR(EAGAIN))
+        {
+            // Decoder needs to be drained first
+            while (avcodec_receive_frame(hevc_decoder.codec_ctx, hevc_decoder.frame) == 0)
+            {
+                av_frame_unref(hevc_decoder.frame);
+            }
+            // Retry sending
+            ret = avcodec_send_packet(hevc_decoder.codec_ctx, hevc_decoder.pkt);
+        }
+
+        if (ret < 0 && ret != AVERROR(EAGAIN))
+        {
+            std::cerr << "[HEVC DECODER] Send packet failed: " << ret << "\n";
+            hevc_decoder.frame->pts = 0;
+            return false;
+        }
+    }
+
+    // Receive decoded frame
+    ret = avcodec_receive_frame(hevc_decoder.codec_ctx, hevc_decoder.frame);
+    if (ret < 0)
+    {
+        if (ret == AVERROR(EAGAIN))
+        {
+            return false;
+        }
+        std::cerr << "[HEVC DECODER] Receive frame failed: " << ret << "\n";
+        hevc_decoder.frame->pts = 0;
+        hevc_decoder.received_keyframe = false;
+        return false;
+    }
+
+    // If using hardware decode, transfer frame to CPU
+    AVFrame *sw_frame = nullptr;
+    if (hevc_decoder.use_hw && hevc_decoder.frame->format == hevc_decoder.hw_pix_fmt)
+    {
+        sw_frame = av_frame_alloc();
+        if (!sw_frame)
+        {
+            std::cerr << "[HEVC HW] Failed to allocate temp frame\n";
+            av_frame_unref(hevc_decoder.frame);
+            return false;
+        }
+
+        // Transfer data from GPU to CPU
+        if (av_hwframe_transfer_data(sw_frame, hevc_decoder.frame, 0) < 0)
+        {
+            std::cerr << "[HEVC HW] Failed to transfer frame from GPU\n";
+            av_frame_free(&sw_frame);
+            av_frame_unref(hevc_decoder.frame);
+            return false;
+        }
+
+        // The transferred frame doesn't automatically inherit all properties
+        sw_frame->width = hevc_decoder.frame->width;
+        sw_frame->height = hevc_decoder.frame->height;
+        sw_frame->pts = hevc_decoder.frame->pts;
+        sw_frame->pkt_dts = hevc_decoder.frame->pkt_dts;
+        sw_frame->pict_type = hevc_decoder.frame->pict_type;
+
+        // av_hwframe_transfer_data may not set linesize properly
+        if (sw_frame->linesize[0] == 0)
+        {
+            // Manually compute linesize based on format
+            int align = 32; // Common alignment
+            sw_frame->linesize[0] = FFALIGN(sw_frame->width, align);
+            if (sw_frame->data[1])
+            { // If there's a chroma plane
+                sw_frame->linesize[1] = FFALIGN(sw_frame->width / 2, align);
+                sw_frame->linesize[2] = FFALIGN(sw_frame->width / 2, align);
+            }
+        }
+
+        // Validate the frame before proceeding
+        if (sw_frame->linesize[0] <= 0 || !sw_frame->data[0])
+        {
+            std::cerr << "[HEVC HW] Invalid frame data after transfer\n";
+            av_frame_free(&sw_frame);
+            av_frame_unref(hevc_decoder.frame);
+            return false;
+        }
+    }
+    else
+    {
+        sw_frame = hevc_decoder.frame;
+    }
+
+    // Update/create SWS context if needed
+    if (!hevc_decoder.sws_ctx ||
+        sw_frame->width != (int)width ||
+        sw_frame->height != (int)height ||
+        hevc_decoder.src_format != sw_frame->format)
+    {
+        if (hevc_decoder.sws_ctx)
+        {
+            sws_freeContext(hevc_decoder.sws_ctx);
+        }
+
+        hevc_decoder.sws_ctx = sws_getContext(
+            sw_frame->width, sw_frame->height,
+            (AVPixelFormat)sw_frame->format,
+            width, height, AV_PIX_FMT_RGB24,
+            SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+
+        if (!hevc_decoder.sws_ctx)
+        {
+            std::cerr << "[HEVC DECODER] Failed to create SWS context\n";
+            if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+                av_frame_free(&sw_frame);
+            return false;
+        }
+        hevc_decoder.src_format = sw_frame->format;
+    }
+
+    // Allocate RGB frame buffer if needed
+    if (hevc_decoder.rgb_frame->width != (int)width ||
+        hevc_decoder.rgb_frame->height != (int)height ||
+        hevc_decoder.rgb_frame->format != AV_PIX_FMT_RGB24)
+    {
+        av_frame_unref(hevc_decoder.rgb_frame);
+        hevc_decoder.rgb_frame->width = width;
+        hevc_decoder.rgb_frame->height = height;
+        hevc_decoder.rgb_frame->format = AV_PIX_FMT_RGB24;
+
+        if (av_frame_get_buffer(hevc_decoder.rgb_frame, 32) < 0)
+        {
+            std::cerr << "[HEVC DECODER] Failed to allocate RGB frame\n";
+            av_frame_unref(hevc_decoder.frame);
+            return false;
+        }
+    }
+
+    // Make RGB frame writable
+    if (av_frame_make_writable(hevc_decoder.rgb_frame) < 0)
+    {
+        std::cerr << "[HEVC DECODER] Failed to make RGB frame writable\n";
+        av_frame_unref(hevc_decoder.frame);
+        return false;
+    }
+
+    // Convert YUV to RGB
+    int converted_height = sws_scale(
+        hevc_decoder.sws_ctx,
+        hevc_decoder.frame->data,
+        hevc_decoder.frame->linesize,
+        0,
+        hevc_decoder.frame->height,
+        hevc_decoder.rgb_frame->data,
+        hevc_decoder.rgb_frame->linesize);
+
+    if (converted_height != (int)height)
+    {
+        std::cerr << "[HEVC DECODER] SWS scale returned wrong height: "
+                  << converted_height << " expected " << height << "\n";
+        av_frame_unref(hevc_decoder.frame);
+        return false;
+    }
+
+    // Copy RGB data to output
+    rgb_output.resize(width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE);
+
+    for (uint32_t y = 0; y < height; y++)
+    {
+        memcpy(rgb_output.data() + (y * width * 3),
+               hevc_decoder.rgb_frame->data[0] + (y * hevc_decoder.rgb_frame->linesize[0]),
+               width * 3);
+    }
+
+    av_frame_unref(hevc_decoder.frame);
+
+    if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+    {
+        av_frame_free(&sw_frame);
+    }
+
+    return true;
+}
+
 static void render_to_kms(const std::vector<uint8_t> &data)
 {
     std::lock_guard<std::mutex> lock(kms_mutex);
-
-    // Validate input
-    if (data.size() < 8)
+    if (data.size() < 16)
     {
         std::cerr << "[KMS] Invalid data size: " << data.size() << "\n";
         return;
     }
 
-    uint32_t img_width, img_height;
-    std::memcpy(&img_width, &data[0], sizeof(uint32_t));
-    std::memcpy(&img_height, &data[4], sizeof(uint32_t));
+    size_t offset = 0;
+    const uint32_t extradata_size = *(uint32_t *)&data[offset];
+    offset += 4;
 
-    if (img_width == 0 || img_height == 0 || img_width > 65536 || img_height > 65536)
+    if (extradata_size > 1024 || offset + extradata_size + 12 > data.size())
     {
-        std::cerr << "[KMS] Invalid image dimensions: " << img_width << "x" << img_height << "\n";
+        std::cerr << "[KMS] Invalid extradata_size: " << extradata_size << "\n";
         return;
     }
 
-    const size_t expected_size = 8ull + (size_t)img_width * img_height * 3;
-    if (data.size() != expected_size)
+    const uint8_t *extradata = (extradata_size > 0) ? (data.data() + offset) : nullptr;
+    offset += extradata_size;
+
+    const uint32_t width = *(uint32_t *)&data[offset];
+    offset += 4;
+
+    const uint32_t height = *(uint32_t *)&data[offset];
+    offset += 4;
+
+    const uint32_t compressed_size = *(uint32_t *)&data[offset];
+    offset += 4;
+
+    if (width == 0 || height == 0 || width > 8192 || height > 8192)
     {
-        std::cerr << "[KMS] Data size mismatch\n";
+        std::cerr << "[KMS] Invalid dimensions: " << width << "x" << height << "\n";
+        return;
+    }
+
+    if (compressed_size == 0 || offset + compressed_size > data.size())
+    {
+        std::cerr << "[KMS] Invalid compressed_size: " << compressed_size << "\n";
+        return;
+    }
+
+    const uint8_t *hevc_data = data.data() + offset;
+
+    // std::cerr << "[KMS] Decoding HEVC: " << compressed_size << " bytes -> "
+    //           << width << "x" << height << " (extradata: " << extradata_size << " bytes)\n";
+
+    // Allocate fresh buffers each time (avoid reuse issues)
+    std::vector<uint8_t> rgb_data;
+
+    if (!decode_hevc_to_rgb(hevc_data, extradata, extradata_size, compressed_size, width, height, rgb_data))
+    {
+        std::cerr << "[KMS] Failed to decode HEVC data\n";
+        return;
+    }
+
+    size_t expected_rgb_size = (size_t)width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE;
+    if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
+    {
+        // Invalid decode result - skip this frame silently
         return;
     }
 
@@ -772,7 +1365,9 @@ static void render_to_kms(const std::vector<uint8_t> &data)
         }
     }
 
-    const uint8_t *rgb = data.data() + 8;
+    const uint8_t *rgb = rgb_data.data();
+    const uint32_t img_width = width;
+    const uint32_t img_height = height;
 
     // Create or reuse next_bo (double buffering)
     if (!kms_display.next_bo)
@@ -3344,562 +3939,6 @@ convert_rgb_to_rgb565(
     {
         dst[i] = ((rgb[0] >> 3) << 11) | ((rgb[1] >> 2) << 5) | (rgb[2] >> 3);
     }
-}
-
-static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts)
-{
-    const enum AVPixelFormat *p;
-    for (p = pix_fmts; *p != -1; p++)
-    {
-        if (*p == *(enum AVPixelFormat *)ctx->opaque)
-        {
-            return *p;
-        }
-    }
-    std::cerr << "[HEVC HW] Failed to get HW surface format\n";
-    return AV_PIX_FMT_NONE;
-}
-
-static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
-                              const uint8_t *extradata, size_t extradata_size,
-                              bool try_hw = true)  // Changed default to true
-{
-    std::lock_guard<std::mutex> lock(dec.mutex);
-
-    bool need_reinit = !dec.initialized || (dec.width != width || dec.height != height);
-    if (dec.initialized && !need_reinit)
-        return true;
-
-    if (dec.initialized)
-    {
-        if (dec.codec_ctx)
-        {
-            avcodec_flush_buffers(dec.codec_ctx);
-            avcodec_free_context(&dec.codec_ctx);
-        }
-        if (dec.frame)
-            av_frame_free(&dec.frame);
-        if (dec.rgb_frame)
-            av_frame_free(&dec.rgb_frame);
-        if (dec.pkt)
-            av_packet_free(&dec.pkt);
-        if (dec.sws_ctx)
-            sws_freeContext(dec.sws_ctx);
-        if (dec.hw_device_ctx)
-            av_buffer_unref(&dec.hw_device_ctx);
-        dec.initialized = false;
-        dec.use_hw = false;
-    }
-
-    std::cerr << "\n[HEVC DECODER] ========================================\n";
-    std::cerr << "[HEVC DECODER] Initializing decoder for " << width << "x" << height << "\n";
-
-    const AVCodec *codec = nullptr;
-    enum AVHWDeviceType hw_type = AV_HWDEVICE_TYPE_NONE;
-
-    // Try hardware decoders first (if requested)
-    if (try_hw)
-    {
-        std::cerr << "[HEVC DECODER] Attempting hardware acceleration...\n";
-        
-        // Try CUDA (NVIDIA) - Usually fastest
-        codec = avcodec_find_decoder_by_name("hevc_cuvid");
-        if (codec)
-        {
-            hw_type = AV_HWDEVICE_TYPE_CUDA;
-            dec.hw_pix_fmt = AV_PIX_FMT_CUDA;
-            std::cerr << "[HEVC DECODER]   ✓ Found CUDA (NVIDIA) decoder\n";
-        }
-
-        // Try VAAPI (Linux Intel/AMD)
-        if (!codec)
-        {
-            codec = avcodec_find_decoder_by_name("hevc_vaapi");
-            if (codec)
-            {
-                hw_type = AV_HWDEVICE_TYPE_VAAPI;
-                dec.hw_pix_fmt = AV_PIX_FMT_VAAPI;
-                std::cerr << "[HEVC DECODER]   ✓ Found VAAPI (Intel/AMD) decoder\n";
-            }
-        }
-
-        // Try QSV (Intel QuickSync)
-        if (!codec)
-        {
-            codec = avcodec_find_decoder_by_name("hevc_qsv");
-            if (codec)
-            {
-                hw_type = AV_HWDEVICE_TYPE_QSV;
-                dec.hw_pix_fmt = AV_PIX_FMT_QSV;
-                std::cerr << "[HEVC DECODER]   ✓ Found QuickSync (Intel) decoder\n";
-            }
-        }
-
-        // Try VDPAU (older NVIDIA)
-        if (!codec)
-        {
-            codec = avcodec_find_decoder_by_name("hevc_vdpau");
-            if (codec)
-            {
-                hw_type = AV_HWDEVICE_TYPE_VDPAU;
-                dec.hw_pix_fmt = AV_PIX_FMT_VDPAU;
-                std::cerr << "[HEVC DECODER]   ✓ Found VDPAU (NVIDIA legacy) decoder\n";
-            }
-        }
-
-        // Try VideoToolbox (macOS)
-        if (!codec)
-        {
-            codec = avcodec_find_decoder_by_name("hevc_videotoolbox");
-            if (codec)
-            {
-                hw_type = AV_HWDEVICE_TYPE_VIDEOTOOLBOX;
-                dec.hw_pix_fmt = AV_PIX_FMT_VIDEOTOOLBOX;
-                std::cerr << "[HEVC DECODER]   ✓ Found VideoToolbox (macOS) decoder\n";
-            }
-        }
-
-        if (!codec)
-        {
-            std::cerr << "[HEVC DECODER]   ✗ No hardware decoder available\n";
-        }
-    }
-
-    // Fallback to software decoder
-    if (!codec)
-    {
-        codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
-        if (!codec)
-        {
-            std::cerr << "[HEVC DECODER] ERROR: No decoder found!\n";
-            return false;
-        }
-        std::cerr << "[HEVC DECODER] Using software decoder (multi-threaded)\n";
-    }
-
-    dec.codec_ctx = avcodec_alloc_context3(codec);
-    if (!dec.codec_ctx)
-    {
-        std::cerr << "[HEVC DECODER] Failed to alloc context\n";
-        return false;
-    }
-
-    // Initialize hardware device context if using HW
-    if (hw_type != AV_HWDEVICE_TYPE_NONE)
-    {
-        int ret = av_hwdevice_ctx_create(&dec.hw_device_ctx, hw_type, NULL, NULL, 0);
-        if (ret < 0)
-        {
-            char errbuf[256];
-            av_strerror(ret, errbuf, sizeof(errbuf));
-            std::cerr << "[HEVC DECODER] Hardware device creation failed: " << errbuf << "\n";
-            std::cerr << "[HEVC DECODER] Falling back to software decoder...\n";
-            avcodec_free_context(&dec.codec_ctx);
-            return init_hevc_decoder(dec, width, height, extradata, extradata_size, false);
-        }
-
-        dec.codec_ctx->hw_device_ctx = av_buffer_ref(dec.hw_device_ctx);
-        dec.codec_ctx->get_format = get_hw_format;
-        dec.codec_ctx->opaque = &dec.hw_pix_fmt;
-        dec.use_hw = true;
-        std::cerr << "[HEVC DECODER] Hardware device context created\n";
-    }
-
-    // Set extradata (SPS/PPS)
-    if (extradata && extradata_size > 0)
-    {
-        dec.codec_ctx->extradata = (uint8_t *)av_malloc(extradata_size + AV_INPUT_BUFFER_PADDING_SIZE);
-        if (!dec.codec_ctx->extradata)
-        {
-            std::cerr << "[HEVC DECODER] Failed to alloc extradata\n";
-            if (dec.hw_device_ctx)
-                av_buffer_unref(&dec.hw_device_ctx);
-            avcodec_free_context(&dec.codec_ctx);
-            return false;
-        }
-        memcpy(dec.codec_ctx->extradata, extradata, extradata_size);
-        memset(dec.codec_ctx->extradata + extradata_size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
-        dec.codec_ctx->extradata_size = extradata_size;
-    }
-
-    dec.codec_ctx->width = width;
-    dec.codec_ctx->height = height;
-    
-    if (hw_type == AV_HWDEVICE_TYPE_NONE)  // Software decoder
-    {
-        // Use all available CPU cores
-        dec.codec_ctx->thread_count = 0;  // 0 = auto-detect CPU count
-        
-        dec.codec_ctx->thread_type = FF_THREAD_SLICE;
-        
-        std::cerr << "[HEVC DECODER] Multi-threading enabled: auto CPU count, slice threading\n";
-    }
-    else
-    {
-        // Hardware decoders typically handle threading internally
-        dec.codec_ctx->thread_count = 1;
-        dec.codec_ctx->thread_type = 0;
-        std::cerr << "[HEVC DECODER] Hardware decoder: using internal threading\n";
-    }
-    
-    // Low delay flags for streaming
-    dec.codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-    dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
-    
-    // Don't wait for complete frames in input buffer
-    dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_CHUNKS;
-    
-    // Optimize for real-time decoding
-    dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_SHOW_ALL;  // Show all decoded frames immediately
-    
-    // Error concealment for network streams
-    dec.codec_ctx->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
-    
-    // dec.codec_ctx->skip_loop_filter = AVDISCARD_ALL;
-    
-    std::cerr << "[HEVC DECODER] Low-latency flags enabled\n";
-
-    // Open codec
-    if (avcodec_open2(dec.codec_ctx, codec, nullptr) < 0)
-    {
-        char errbuf[256];
-        int ret = AVERROR(EINVAL);
-        av_strerror(ret, errbuf, sizeof(errbuf));
-        std::cerr << "[HEVC DECODER] Failed to open codec: " << errbuf << "\n";
-        if (dec.codec_ctx->extradata)
-            av_free(dec.codec_ctx->extradata);
-        if (dec.hw_device_ctx)
-            av_buffer_unref(&dec.hw_device_ctx);
-        avcodec_free_context(&dec.codec_ctx);
-
-        // If HW failed, try software
-        if (try_hw)
-        {
-            std::cerr << "[HEVC DECODER] Hardware decode failed, trying software\n";
-            return init_hevc_decoder(dec, width, height, extradata, extradata_size, false);
-        }
-        return false;
-    }
-
-    dec.frame = av_frame_alloc();
-    dec.rgb_frame = av_frame_alloc();
-    dec.pkt = av_packet_alloc();
-
-    if (!dec.frame || !dec.rgb_frame || !dec.pkt)
-    {
-        std::cerr << "[HEVC DECODER] Failed to alloc frames/packet\n";
-        if (dec.frame)
-            av_frame_free(&dec.frame);
-        if (dec.rgb_frame)
-            av_frame_free(&dec.rgb_frame);
-        if (dec.pkt)
-            av_packet_free(&dec.pkt);
-        if (dec.hw_device_ctx)
-            av_buffer_unref(&dec.hw_device_ctx);
-        avcodec_free_context(&dec.codec_ctx);
-        return false;
-    }
-
-    dec.width = width;
-    dec.height = height;
-    dec.initialized = true;
-
-    std::cerr << "[HEVC DECODER] ✓ Decoder initialized successfully!\n";
-    std::cerr << "[HEVC DECODER]   Resolution: " << width << "x" << height << "\n";
-    std::cerr << "[HEVC DECODER]   Hardware: " << (dec.use_hw ? "YES" : "NO") << "\n";
-    std::cerr << "[HEVC DECODER]   Threads: " << (dec.codec_ctx->thread_count == 0 ? "AUTO" : std::to_string(dec.codec_ctx->thread_count)) << "\n";
-    std::cerr << "[HEVC DECODER]   Threading type: " << (dec.codec_ctx->thread_type == FF_THREAD_SLICE ? "SLICE (low latency)" : "other") << "\n";
-    std::cerr << "[HEVC DECODER] ========================================\n\n";
-    
-    return true;
-}
-
-static void cleanup_hevc_decoder(HEVCDecoder &dec)
-{
-    std::lock_guard<std::mutex> lock(dec.mutex);
-    if (!dec.initialized)
-        return;
-
-    if (dec.sws_ctx)
-        sws_freeContext(dec.sws_ctx);
-    if (dec.pkt)
-        av_packet_free(&dec.pkt);
-    if (dec.frame)
-        av_frame_free(&dec.frame);
-    if (dec.rgb_frame)
-        av_frame_free(&dec.rgb_frame); // Cleanup
-    if (dec.codec_ctx)
-        avcodec_free_context(&dec.codec_ctx);
-
-    dec.initialized = false;
-}
-
-static bool decode_hevc_to_rgb(
-    const uint8_t *hevc_data,
-    const uint8_t *extradata,
-    size_t extradata_size,
-    size_t hevc_size,
-    uint32_t width,
-    uint32_t height,
-    std::vector<uint8_t> &rgb_output)
-{
-    rgb_output.clear();
-
-    if (!hevc_data || hevc_size == 0)
-    {
-        std::cerr << "[HEVC DECODER] Invalid input data\n";
-        return false;
-    }
-
-    // Initialize/reinitialize decoder if needed
-    if (!hevc_decoder.initialized || hevc_decoder.width != width || hevc_decoder.height != height)
-    {
-        if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size))
-        {
-            std::cerr << "[HEVC DECODER] Init failed\n";
-            return false;
-        }
-    }
-
-    std::lock_guard<std::mutex> lock(hevc_decoder.mutex);
-
-    av_packet_unref(hevc_decoder.pkt);
-
-    // Allocate new packet with proper size
-    if (av_new_packet(hevc_decoder.pkt, hevc_size) < 0)
-    {
-        std::cerr << "[HEVC DECODER] Failed to allocate packet\n";
-        return false;
-    }
-
-    // Copy HEVC data
-    memcpy(hevc_decoder.pkt->data, hevc_data, hevc_size);
-
-    bool is_keyframe = false;
-    // Check for VPS (32), SPS (33), PPS (34) or IDR (19, 20, 21) NAL units in HEVC
-    for (size_t i = 0; i + 4 < hevc_size; i++)
-    {
-        if (hevc_data[i] == 0 && hevc_data[i + 1] == 0 && hevc_data[i + 2] == 1)
-        {
-            uint8_t nal_type = (hevc_data[i + 3] >> 1) & 0x3F;        // HEVC NAL type is in bits 1-6
-            if (nal_type == 32 || nal_type == 33 || nal_type == 34 || // VPS, SPS, PPS
-                nal_type == 19 || nal_type == 20 || nal_type == 21)
-            { // IDR variants
-                is_keyframe = true;
-                hevc_decoder.received_keyframe = true;
-                break;
-            }
-        }
-        // Also check 4-byte start code
-        if (hevc_data[i] == 0 && hevc_data[i + 1] == 0 &&
-            hevc_data[i + 2] == 0 && hevc_data[i + 3] == 1)
-        {
-            uint8_t nal_type = (hevc_data[i + 4] >> 1) & 0x3F;        // HEVC NAL type is in bits 1-6
-            if (nal_type == 32 || nal_type == 33 || nal_type == 34 || // VPS, SPS, PPS
-                nal_type == 19 || nal_type == 20 || nal_type == 21)
-            { // IDR variants
-                is_keyframe = true;
-                hevc_decoder.received_keyframe = true;
-                break;
-            }
-            i++; // Skip the extra byte
-        }
-    }
-
-    if (!hevc_decoder.received_keyframe && !is_keyframe)
-    {
-        // Drop frames until we get a keyframe
-        // std::cerr << "[HEVC DECODER] Dropping non-keyframe before first keyframe\n";
-        return false;
-    }
-
-    if (is_keyframe)
-    {
-        hevc_decoder.pkt->flags |= AV_PKT_FLAG_KEY;
-        hevc_decoder.received_keyframe = true;
-    }
-
-    // Send packet to decoder
-    int ret = avcodec_send_packet(hevc_decoder.codec_ctx, hevc_decoder.pkt);
-    if (ret < 0)
-    {
-        if (ret == AVERROR(EAGAIN))
-        {
-            // Decoder needs to be drained first
-            while (avcodec_receive_frame(hevc_decoder.codec_ctx, hevc_decoder.frame) == 0)
-            {
-                av_frame_unref(hevc_decoder.frame);
-            }
-            // Retry sending
-            ret = avcodec_send_packet(hevc_decoder.codec_ctx, hevc_decoder.pkt);
-        }
-
-        if (ret < 0 && ret != AVERROR(EAGAIN))
-        {
-            std::cerr << "[HEVC DECODER] Send packet failed: " << ret << "\n";
-            hevc_decoder.frame->pts = 0;
-            return false;
-        }
-    }
-
-    // Receive decoded frame
-    ret = avcodec_receive_frame(hevc_decoder.codec_ctx, hevc_decoder.frame);
-    if (ret < 0)
-    {
-        if (ret == AVERROR(EAGAIN))
-        {
-            return false;
-        }
-        std::cerr << "[HEVC DECODER] Receive frame failed: " << ret << "\n";
-        hevc_decoder.frame->pts = 0;
-        hevc_decoder.received_keyframe = false;
-        return false;
-    }
-
-    // If using hardware decode, transfer frame to CPU
-    AVFrame *sw_frame = nullptr;
-    if (hevc_decoder.use_hw && hevc_decoder.frame->format == hevc_decoder.hw_pix_fmt)
-    {
-        sw_frame = av_frame_alloc();
-        if (!sw_frame)
-        {
-            std::cerr << "[HEVC HW] Failed to allocate temp frame\n";
-            av_frame_unref(hevc_decoder.frame);
-            return false;
-        }
-
-        // Transfer data from GPU to CPU
-        if (av_hwframe_transfer_data(sw_frame, hevc_decoder.frame, 0) < 0)
-        {
-            std::cerr << "[HEVC HW] Failed to transfer frame from GPU\n";
-            av_frame_free(&sw_frame);
-            av_frame_unref(hevc_decoder.frame);
-            return false;
-        }
-
-        // The transferred frame doesn't automatically inherit all properties
-        sw_frame->width = hevc_decoder.frame->width;
-        sw_frame->height = hevc_decoder.frame->height;
-        sw_frame->pts = hevc_decoder.frame->pts;
-        sw_frame->pkt_dts = hevc_decoder.frame->pkt_dts;
-        sw_frame->pict_type = hevc_decoder.frame->pict_type;
-
-        // av_hwframe_transfer_data may not set linesize properly
-        if (sw_frame->linesize[0] == 0)
-        {
-            // Manually compute linesize based on format
-            int align = 32; // Common alignment
-            sw_frame->linesize[0] = FFALIGN(sw_frame->width, align);
-            if (sw_frame->data[1])
-            { // If there's a chroma plane
-                sw_frame->linesize[1] = FFALIGN(sw_frame->width / 2, align);
-                sw_frame->linesize[2] = FFALIGN(sw_frame->width / 2, align);
-            }
-        }
-
-        // Validate the frame before proceeding
-        if (sw_frame->linesize[0] <= 0 || !sw_frame->data[0])
-        {
-            std::cerr << "[HEVC HW] Invalid frame data after transfer\n";
-            av_frame_free(&sw_frame);
-            av_frame_unref(hevc_decoder.frame);
-            return false;
-        }
-    }
-    else
-    {
-        sw_frame = hevc_decoder.frame;
-    }
-
-    // Update/create SWS context if needed
-    if (!hevc_decoder.sws_ctx ||
-        sw_frame->width != (int)width ||
-        sw_frame->height != (int)height ||
-        hevc_decoder.src_format != sw_frame->format)
-    {
-        if (hevc_decoder.sws_ctx)
-        {
-            sws_freeContext(hevc_decoder.sws_ctx);
-        }
-
-        hevc_decoder.sws_ctx = sws_getContext(
-            sw_frame->width, sw_frame->height,
-            (AVPixelFormat)sw_frame->format,
-            width, height, AV_PIX_FMT_RGB24,
-            SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
-
-        if (!hevc_decoder.sws_ctx)
-        {
-            std::cerr << "[HEVC DECODER] Failed to create SWS context\n";
-            if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
-                av_frame_free(&sw_frame);
-            return false;
-        }
-        hevc_decoder.src_format = sw_frame->format;
-    }
-
-    // Allocate RGB frame buffer if needed
-    if (hevc_decoder.rgb_frame->width != (int)width ||
-        hevc_decoder.rgb_frame->height != (int)height ||
-        hevc_decoder.rgb_frame->format != AV_PIX_FMT_RGB24)
-    {
-        av_frame_unref(hevc_decoder.rgb_frame);
-        hevc_decoder.rgb_frame->width = width;
-        hevc_decoder.rgb_frame->height = height;
-        hevc_decoder.rgb_frame->format = AV_PIX_FMT_RGB24;
-
-        if (av_frame_get_buffer(hevc_decoder.rgb_frame, 32) < 0)
-        {
-            std::cerr << "[HEVC DECODER] Failed to allocate RGB frame\n";
-            av_frame_unref(hevc_decoder.frame);
-            return false;
-        }
-    }
-
-    // Make RGB frame writable
-    if (av_frame_make_writable(hevc_decoder.rgb_frame) < 0)
-    {
-        std::cerr << "[HEVC DECODER] Failed to make RGB frame writable\n";
-        av_frame_unref(hevc_decoder.frame);
-        return false;
-    }
-
-    // Convert YUV to RGB
-    int converted_height = sws_scale(
-        hevc_decoder.sws_ctx,
-        hevc_decoder.frame->data,
-        hevc_decoder.frame->linesize,
-        0,
-        hevc_decoder.frame->height,
-        hevc_decoder.rgb_frame->data,
-        hevc_decoder.rgb_frame->linesize);
-
-    if (converted_height != (int)height)
-    {
-        std::cerr << "[HEVC DECODER] SWS scale returned wrong height: "
-                  << converted_height << " expected " << height << "\n";
-        av_frame_unref(hevc_decoder.frame);
-        return false;
-    }
-
-    // Copy RGB data to output
-    rgb_output.resize(width * height * 3 + AV_INPUT_BUFFER_PADDING_SIZE);
-
-    for (uint32_t y = 0; y < height; y++)
-    {
-        memcpy(rgb_output.data() + (y * width * 3),
-               hevc_decoder.rgb_frame->data[0] + (y * hevc_decoder.rgb_frame->linesize[0]),
-               width * 3);
-    }
-
-    av_frame_unref(hevc_decoder.frame);
-
-    if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
-    {
-        av_frame_free(&sw_frame);
-    }
-
-    return true;
 }
 
 static void png_write_data(png_structp png_ptr, png_bytep data, png_size_t length)
