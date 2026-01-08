@@ -3162,24 +3162,16 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
         return true;
     }
 
+    // Cleanup if reinitializing
     if (enc.initialized)
     {
-        if (enc.codec_ctx)
-        {
-            avcodec_free_context(&enc.codec_ctx);
-        }
-        if (enc.frame)
-        {
-            av_frame_free(&enc.frame);
-        }
-        if (enc.pkt)
-        {
-            av_packet_free(&enc.pkt);
-        }
+        if (enc.codec_ctx) avcodec_free_context(&enc.codec_ctx);
+        if (enc.frame) av_frame_free(&enc.frame);
+        if (enc.pkt) av_packet_free(&enc.pkt);
         enc.initialized = false;
     }
 
-    // Find the x264rgb encoder
+    // Find encoder
     const AVCodec *codec = avcodec_find_encoder_by_name("libx264rgb");
     if (!codec)
     {
@@ -3194,120 +3186,73 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
         return false;
     }
 
-    // Set basic parameters
+    // Basic parameters
     enc.codec_ctx->width = width;
     enc.codec_ctx->height = height;
     enc.codec_ctx->time_base = {1, fps};
     enc.codec_ctx->framerate = {fps, 1};
-    enc.codec_ctx->gop_size = 10; // Keyframe every 10 frames
-    enc.codec_ctx->max_b_frames = 0;           // Start with 0 for low latency
-    enc.codec_ctx->pix_fmt = AV_PIX_FMT_RGB24; // x264rgb uses RGB24
-    enc.codec_ctx->bit_rate = 0;
-    enc.codec_ctx->rc_max_rate = 0;
-    enc.codec_ctx->rc_buffer_size = 0;
-
-    // Choose preset based on quality
-    const char *preset;
-    if (quality >= 80)
-    {
-        preset = "slow";
-        enc.codec_ctx->max_b_frames = 3;
-    }
-    else if (quality >= 60)
-    {
-        preset = "medium";
-        enc.codec_ctx->max_b_frames = 2;
-    }
-    else if (quality >= 40)
-    {
-        preset = "fast";
-        enc.codec_ctx->max_b_frames = 1;
-    }
-    else if (quality >= 20)
-    {
-        preset = "faster";
-    }
-    else
-    {
-        preset = "veryfast";
-    }
-
-    // Calculate target bitrate based on quality and resolution
-    // Increased multipliers for better quality with screen content
+    enc.codec_ctx->pix_fmt = AV_PIX_FMT_RGB24;
+    
+    // CRITICAL: Long GOP with intra-refresh
+    enc.codec_ctx->gop_size = 250; // Much longer - intra-refresh handles resilience
+    enc.codec_ctx->max_b_frames = 0; // No B-frames for low latency
+    
+    // Bitrate calculation
     double bpp;
-    if (quality >= 80)
-    {
-        bpp = 0.25; // High quality: increased from 0.15
-    }
-    else if (quality >= 60)
-    {
-        bpp = 0.18; // Medium-high: increased from 0.10
-    }
-    else if (quality >= 40)
-    {
-        bpp = 0.12; // Medium: increased from 0.07
-    }
-    else if (quality >= 20)
-    {
-        bpp = 0.08; // Low-medium: increased from 0.05
-    }
-    else
-    {
-        bpp = 0.05; // Low: increased from 0.03
-    }
-
-    int bitrate = (int)(width * height * fps * bpp); // in bps
-    int crf = 10 + (int)((100 - quality) * 0.2); // CRF from 10 (best) to 30 (worst)
-
-    av_opt_set(enc.codec_ctx->priv_data, "qp", "0", 0);
-
-    // Set x264rgb-specific options
+    if (quality >= 80) bpp = 0.25;
+    else if (quality >= 60) bpp = 0.18;
+    else if (quality >= 40) bpp = 0.12;
+    else if (quality >= 20) bpp = 0.08;
+    else bpp = 0.05;
+    
+    int bitrate = (int)(width * height * fps * bpp);
+    
+    // CRITICAL: Proper CBR rate control
+    enc.codec_ctx->bit_rate = bitrate;
+    enc.codec_ctx->rc_max_rate = bitrate;
+    enc.codec_ctx->rc_buffer_size = bitrate / fps; // Single-frame VBV for low latency
+    
+    // Preset selection
+    const char *preset;
+    if (quality >= 80) preset = "medium"; // Reduced from "slow"
+    else if (quality >= 60) preset = "fast";
+    else if (quality >= 40) preset = "faster";
+    else preset = "veryfast";
+    
+    // CRITICAL: Low-latency settings
     av_opt_set(enc.codec_ctx->priv_data, "preset", preset, 0);
     av_opt_set(enc.codec_ctx->priv_data, "tune", "zerolatency", 0);
+    av_opt_set_int(enc.codec_ctx->priv_data, "sliced-threads", 0, 0);
+    av_opt_set_int(enc.codec_ctx->priv_data, "rc-lookahead", 0, 0);
+    av_opt_set_int(enc.codec_ctx->priv_data, "bframes", 0, 0);
+    av_opt_set_int(enc.codec_ctx->priv_data, "b-adapt", 0, 0);
+    av_opt_set_int(enc.codec_ctx->priv_data, "frame-threads", 1, 0);
+        
+    // Profile
+    const char *profile = "high444"; // Keep for RGB
+    av_opt_set(enc.codec_ctx->priv_data, "profile", profile, 0);
     
-
-    // Enable better motion estimation and analysis
+    // Quality settings
     if (quality >= 40)
     {
-        av_opt_set(enc.codec_ctx->priv_data, "me_method", "umh", 0); // Better motion estimation
-        av_opt_set_int(enc.codec_ctx->priv_data, "me_range", 24, 0); // Increased search range
-        av_opt_set_int(enc.codec_ctx->priv_data, "subq", 7, 0);      // Better subpixel refinement
+        av_opt_set(enc.codec_ctx->priv_data, "me_method", "umh", 0);
+        av_opt_set_int(enc.codec_ctx->priv_data, "me_range", 16, 0); // Reduced from 24
+        av_opt_set_int(enc.codec_ctx->priv_data, "subq", 6, 0); // Reduced from 7
     }
-
-    // Increase reference frames for better compression
-    if (quality >= 60)
-    {
-        av_opt_set_int(enc.codec_ctx->priv_data, "refs", 5, 0); // More reference frames
-    }
-    else if (quality >= 40)
-    {
-        av_opt_set_int(enc.codec_ctx->priv_data, "refs", 3, 0);
-    }
-
-    // Profile selection - x264rgb requires high444 profile for 4:4:4 RGB encoding
-    // baseline and main profiles don't support 4:4:4 chroma subsampling
-    const char *profile = "high444"; // Always use high444 for RGB encoding
-    av_opt_set(enc.codec_ctx->priv_data, "profile", profile, 0);
-
-    // Optimize for screen content (sharp edges, text, etc.)
-    av_opt_set_int(enc.codec_ctx->priv_data, "aq-mode", 2, 0); // Variance AQ for better quality distribution
+    
+    // Screen content optimization
+    av_opt_set_int(enc.codec_ctx->priv_data, "aq-mode", 2, 0);
     av_opt_set(enc.codec_ctx->priv_data, "aq-strength", "1.0", 0);
-
-    // Deblocking filter - helps with blocking artifacts
-    av_opt_set_int(enc.codec_ctx->priv_data, "deblock", 0, 0); // 0:0 for balanced filtering
-
-    // Enable CABAC for better compression (disabled in baseline, but we're using high444)
-    av_opt_set_int(enc.codec_ctx->priv_data, "coder", 1, 0); // CABAC
-
-    // Partitions for better quality
+    av_opt_set_int(enc.codec_ctx->priv_data, "deblock", 0, 0);
+    av_opt_set_int(enc.codec_ctx->priv_data, "coder", 1, 0);
+    
+    // Partitions
     if (quality >= 60)
-    {
-        av_opt_set(enc.codec_ctx->priv_data, "partitions", "all", 0);
-    }
-    else if (quality >= 40)
-    {
         av_opt_set(enc.codec_ctx->priv_data, "partitions", "p8x8,b8x8,i8x8,i4x4", 0);
-    }
+    
+
+    av_opt_set(enc.codec_ctx->priv_data, "refs", "1", 0);
+    av_opt_set(enc.codec_ctx->priv_data, "intra-refresh", "1", 0);
 
     // Open codec
     int ret = avcodec_open2(enc.codec_ctx, codec, nullptr);
@@ -3359,10 +3304,12 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
     enc.pts = 0;
     enc.initialized = true;
 
-    std::cerr << "[H264] FFmpeg encoder initialized: " << width << "x" << height
+    std::cerr << "[H264] Encoder initialized: " << width << "x" << height
               << " preset=" << preset << " profile=" << profile
-              << " target_bitrate=" << (bitrate / 1000) << "kbps"
-              << " bpp=" << std::fixed << std::setprecision(3) << bpp << "\n";
+              << " bitrate=" << (bitrate / 1000) << "kbps"
+              << " bpp=" << std::fixed << std::setprecision(3) << bpp
+              << " gop=" << enc.codec_ctx->gop_size
+              << " refs=1\n";
     return true;
 }
 
@@ -3889,12 +3836,37 @@ static std::vector<uint8_t> render_framebuffer(
 
         if (!h264_data.empty())
         {
-            // Build header: [width][height][compressed_size][H264_data]
+            // Get SPS/PPS from encoder (extradata)
+            std::vector<uint8_t> extradata;
+            if (h264_enc->codec_ctx && h264_enc->codec_ctx->extradata)
+            {
+                extradata.insert(extradata.end(),
+                                h264_enc->codec_ctx->extradata,
+                                h264_enc->codec_ctx->extradata + h264_enc->codec_ctx->extradata_size);
+            }
+
+            // Build header: [extradata_size (32B)][extradata (8B*)][width (32B)][height (32B)][compressed_size (32B)][H264_data (8B*)]
             std::vector<uint8_t> result;
-            result.resize(12); // 4 + 4 + 4 bytes header
-            *reinterpret_cast<uint32_t *>(&result[0]) = img_width;
-            *reinterpret_cast<uint32_t *>(&result[4]) = img_height;
-            *reinterpret_cast<uint32_t *>(&result[8]) = h264_data.size();
+            size_t extradata_size = extradata.size();
+            result.resize(4 + extradata_size + 4 + 4 + 4);
+            uint8_t *ptr = result.data();
+
+            *reinterpret_cast<uint32_t *>(ptr) = extradata_size;
+            ptr += 4;
+
+            if (extradata_size > 0)
+            {
+                memcpy(ptr, extradata.data(), extradata_size);
+                ptr += extradata_size;
+            }
+
+            *reinterpret_cast<uint32_t *>(ptr) = img_width;
+            ptr += 4;
+            *reinterpret_cast<uint32_t *>(ptr) = img_height;
+            ptr += 4;
+            *reinterpret_cast<uint32_t *>(ptr) = h264_data.size();
+            ptr += 4;
+
             result.insert(result.end(), h264_data.begin(), h264_data.end());
             return result;
         }
@@ -3902,44 +3874,7 @@ static std::vector<uint8_t> render_framebuffer(
         std::cerr << "[H264] Encoding failed\n";
     }
 
-    if (h264_data.empty())
-    {
-        return {};
-    }
-
-        // Get SPS/PPS from encoder (extradata)
-    std::vector<uint8_t> extradata;
-    if (h264_enc->codec_ctx && h264_enc->codec_ctx->extradata)
-    {
-        extradata.insert(extradata.end(),
-                         h264_enc->codec_ctx->extradata,
-                         h264_enc->codec_ctx->extradata + h264_enc->codec_ctx->extradata_size);
-    }
-
-    // Build header: [extradata_size (32B)][extradata (8B*)][width (32B)][height (32B)][compressed_size (32B)][H264_data (8B*)]
-    std::vector<uint8_t> result;
-    size_t extradata_size = extradata.size();
-    result.resize(4 + extradata_size + 4 + 4 + 4);
-    uint8_t *ptr = result.data();
-
-    *reinterpret_cast<uint32_t *>(ptr) = extradata_size;
-    ptr += 4;
-
-    if (extradata_size > 0)
-    {
-        memcpy(ptr, extradata.data(), extradata_size);
-        ptr += extradata_size;
-    }
-
-    *reinterpret_cast<uint32_t *>(ptr) = img_width;
-    ptr += 4;
-    *reinterpret_cast<uint32_t *>(ptr) = img_height;
-    ptr += 4;
-    *reinterpret_cast<uint32_t *>(ptr) = h264_data.size();
-    ptr += 4;
-    
-    result.insert(result.end(), h264_data.begin(), h264_data.end());
-    return result;
+    return {};
 }
 
 // KMS renderer - same as framebuffer here
@@ -3964,7 +3899,6 @@ static std::vector<uint8_t> render_kms(
 {
     if (!frame_data || frame_width == 0 || frame_height == 0)
     {
-        std::cerr << "[KMS] ERROR: Invalid input\n";
         std::cerr << "[KMS] ERROR: Invalid input\n";
         return {};
     }
@@ -4033,23 +3967,57 @@ static std::vector<uint8_t> render_kms(
         }
     }
 
-    // Use H.264 compression if encoder provided
-    std::vector<uint8_t> h264_data = encode_h264_frame(
-        *h264_enc, rgb_data.data(), img_width, img_height, quality, fps);
+    std::vector<uint8_t> h264_data;
 
-    if (h264_data.empty())
+    // Use H.264 compression if encoder provided
+    if (h264_enc)
     {
-        return {};
+        img_width -= img_width & 1; // ensure width is even
+
+        h264_data = encode_h264_frame(
+            *h264_enc, rgb_data.data(), img_width, img_height, quality, fps);
+
+        if (!h264_data.empty())
+        {
+            // Get SPS/PPS from encoder (extradata)
+            std::vector<uint8_t> extradata;
+            if (h264_enc->codec_ctx && h264_enc->codec_ctx->extradata)
+            {
+                extradata.insert(extradata.end(),
+                                h264_enc->codec_ctx->extradata,
+                                h264_enc->codec_ctx->extradata + h264_enc->codec_ctx->extradata_size);
+            }
+
+            // Build header: [extradata_size (32B)][extradata (8B*)][width (32B)][height (32B)][compressed_size (32B)][H264_data (8B*)]
+            std::vector<uint8_t> result;
+            size_t extradata_size = extradata.size();
+            result.resize(4 + extradata_size + 4 + 4 + 4);
+            uint8_t *ptr = result.data();
+
+            *reinterpret_cast<uint32_t *>(ptr) = extradata_size;
+            ptr += 4;
+
+            if (extradata_size > 0)
+            {
+                memcpy(ptr, extradata.data(), extradata_size);
+                ptr += extradata_size;
+            }
+
+            *reinterpret_cast<uint32_t *>(ptr) = img_width;
+            ptr += 4;
+            *reinterpret_cast<uint32_t *>(ptr) = img_height;
+            ptr += 4;
+            *reinterpret_cast<uint32_t *>(ptr) = h264_data.size();
+            ptr += 4;
+
+            result.insert(result.end(), h264_data.begin(), h264_data.end());
+            return result;
+        }
+
+        std::cerr << "[H264] Encoding failed\n";
     }
 
-    // Build header: [width][height][compressed_size][H264_data]
-    std::vector<uint8_t> result;
-    result.resize(12); // 4 + 4 + 4 bytes header
-    *reinterpret_cast<uint32_t *>(&result[0]) = img_width;
-    *reinterpret_cast<uint32_t *>(&result[4]) = img_height;
-    *reinterpret_cast<uint32_t *>(&result[8]) = h264_data.size();
-    result.insert(result.end(), h264_data.begin(), h264_data.end());
-    return result;
+    return {};
 }
 
 template <typename TW, typename TH, typename TS>
