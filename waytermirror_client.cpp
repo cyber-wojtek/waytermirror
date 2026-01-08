@@ -1338,7 +1338,7 @@ static bool decode_hevc_to_rgb(
             sw_frame->width, sw_frame->height,
             (AVPixelFormat)sw_frame->format,
             width, height, AV_PIX_FMT_RGB24,
-            SWS_BILINEAR, nullptr, nullptr, nullptr);
+            SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
 
         if (!hevc_decoder.sws_ctx)
         {
