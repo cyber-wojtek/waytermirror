@@ -3732,30 +3732,7 @@ static std::vector<uint8_t> encode_hevc_frame(
         enc.last_width = width;
         enc.last_height = height;
     }
-
-    std::lock_guard<std::mutex> lock(enc.mutex);
-
-    // Recreate scaler if dimensions changed
-    if (!sws_ctx || last_width != width || last_height != height)
-    {
-        if (sws_ctx)
-            sws_freeContext(sws_ctx);
-
-        sws_ctx = sws_getContext(
-            width, height, AV_PIX_FMT_RGB24,
-            width, height, AV_PIX_FMT_YUV420P,
-            SWS_BILINEAR, nullptr, nullptr, nullptr);
-
-        if (!sws_ctx)
-        {
-            std::cerr << "[HEVC] Failed to create scaler\n";
-            return {};
-        }
-
-        last_width = width;
-        last_height = height;
-    }
-
+    
     // Make frame writable
     int ret = av_frame_make_writable(enc.frame);
     if (ret < 0)
@@ -3776,12 +3753,10 @@ static std::vector<uint8_t> encode_hevc_frame(
     
     if (force_keyframe) {
         enc.frame->pict_type = AV_PICTURE_TYPE_I;
-        enc.frame->key_frame = 1;
         enc.frames_since_keyframe = 0;
         std::cerr << "[HEVC] Forcing keyframe at pts=" << enc.pts << "\n";
     } else {
         enc.frame->pict_type = AV_PICTURE_TYPE_NONE;
-        enc.frame->key_frame = 0;
     }
 
     enc.frame->pts = enc.pts;
