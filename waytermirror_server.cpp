@@ -3214,7 +3214,8 @@ static bool init_h264_encoder(H264Encoder &enc, uint32_t width, uint32_t height,
     if (quality >= 80) preset = "medium";
     else if (quality >= 60) preset = "fast";
     else if (quality >= 40) preset = "faster";
-    else preset = "veryfast";
+    else if (quality >= 20) preset = "veryfast";
+    else preset = "ultrafast";
     
     // Tune for screen content
     av_opt_set(enc.codec_ctx->priv_data, "preset", preset, 0);
