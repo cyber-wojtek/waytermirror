@@ -3270,9 +3270,6 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
     } else {
         ctx->gop_size = fps * 2;
     }
-
-    // Set 1st frame as IDR
-    av_opt_set(ctx->priv_data, "idr_interval", "1", 0);
     
     // Profile and level
     ctx->profile = AV_PROFILE_HEVC_MAIN;
