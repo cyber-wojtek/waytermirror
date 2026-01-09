@@ -274,12 +274,12 @@ static std::string exec_command(const char *cmd)
 {
     std::array<char, 128> buffer;
     std::string result;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
-    if (!pipe)
+    std::unique_ptr<FILE, decltype(&pclose)> pipe_(popen(cmd, "r"), pclose);
+    if (!pipe_)
     {
         return "";
     }
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
+    while (fgets(buffer.data(), buffer.size(), pipe_.get()) != nullptr)
     {
         result += buffer.data();
     }
