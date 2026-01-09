@@ -3574,8 +3574,8 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
         // If hardware failed and this wasn't software, try software fallback
         if (selected_type != HWEncoderType::SOFTWARE) {
             std::cerr << "[HEVC] Hardware encoder failed, trying software fallback...\n";
-            // Remove hardware encoder from list and retry
-            // (In practice, you might want to implement a more robust fallback)
+            select = HWEncoderType::SOFTWARE;
+            config_ok = configure_software(enc.codec_ctx, quality, fps, bitrate);
         }
         return false;
     }
