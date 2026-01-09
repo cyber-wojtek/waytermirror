@@ -1567,60 +1567,64 @@ static bool decode_hevc_to_rgb(
 static void render_to_kms(const std::vector<uint8_t> &data)
 {
     std::lock_guard<std::mutex> lock(kms_mutex);
-    if (data.size() < 16)
-    {
-        std::cerr << "[KMS] Invalid data size: " << data.size() << "\n";
+    if (data.size() < sizeof(HEVCFrameHeader)) {
+        std::cerr << "[SIXEL] Packet too small\n";
         return;
     }
 
-    size_t offset = 0;
-    const uint32_t extradata_size = *(uint32_t *)&data[offset];
-    offset += 4;
-
-    if (extradata_size > 1024 || offset + extradata_size + 12 > data.size())
-    {
-        std::cerr << "[KMS] Invalid extradata_size: " << extradata_size << "\n";
+    HEVCFrameHeader header;
+    memcpy(&header, data.data(), sizeof(header));
+    
+    if (header.width == 0 || header.height == 0 || 
+        header.width > 8192 || header.height > 8192) {
+        std::cerr << "[SIXEL] Invalid dimensions\n";
+        return;
+    }
+    
+    size_t expected_size = sizeof(header) + header.extradata_size + header.compressed_size;
+    if (data.size() < expected_size) {
+        std::cerr << "[SIXEL] Truncated packet\n";
         return;
     }
 
-    const uint8_t *extradata = (extradata_size > 0) ? (data.data() + offset) : nullptr;
-    offset += extradata_size;
-
-    const uint32_t width = *(uint32_t *)&data[offset];
-    offset += 4;
-
-    const uint32_t height = *(uint32_t *)&data[offset];
-    offset += 4;
-
-    const uint32_t compressed_size = *(uint32_t *)&data[offset];
-    offset += 4;
-
-    if (width == 0 || height == 0 || width > 8192 || height > 8192)
-    {
-        std::cerr << "[KMS] Invalid dimensions: " << width << "x" << height << "\n";
-        return;
+    // Check sequence
+    uint32_t expected = hevc_decoder.expected_sequence.load();
+    if (header.sequence_number != expected && expected != 0) {
+        uint32_t dropped = header.sequence_number - expected;
+        hevc_decoder.total_drops.fetch_add(dropped);
+        
+        std::cerr << "[HEVC] SEQ GAP: expected " << expected 
+                  << " got " << header.sequence_number 
+                  << " (dropped " << dropped << ", total " 
+                  << hevc_decoder.total_drops.load() << ")\n";
+        
+        MessageType msg = MessageType::REQUESTED_KEYFRAME;
+        send(config_socket, &msg, sizeof(msg), MSG_NOSIGNAL);
+        
+        if (!header.is_keyframe) {
+            hevc_decoder.expected_sequence = header.sequence_number + 1;
+            return;
+        }
     }
+    
+    hevc_decoder.expected_sequence = header.sequence_number + 1;
 
-    if (compressed_size == 0 || offset + compressed_size > data.size())
-    {
-        std::cerr << "[KMS] Invalid compressed_size: " << compressed_size << "\n";
-        return;
-    }
+    const uint8_t* ptr = data.data() + sizeof(header);
+    const uint8_t* extradata = header.extradata_size > 0 ? ptr : nullptr;
+    ptr += header.extradata_size;
+    const uint8_t* hevc_data = ptr;
 
-    const uint8_t *hevc_data = data.data() + offset;
-
-    // std::cerr << "[KMS] Decoding HEVC: " << compressed_size << " bytes -> "
-    //           << width << "x" << height << " (extradata: " << extradata_size << " bytes)\n";
-
-    // Allocate fresh buffers each time (avoid reuse issues)
     std::vector<uint8_t> rgb_data;
-
-    if (!decode_hevc_to_rgb(hevc_data, extradata, extradata_size, compressed_size, width, height, rgb_data))
-    {
-        std::cerr << "[KMS] Failed to decode HEVC data\n";
+    if (!decode_hevc_to_rgb(hevc_data, extradata, header.extradata_size,
+                            header.compressed_size, header.width, header.height, rgb_data)) {
+        std::cerr << "[SIXEL] Decode failed seq=" << header.sequence_number << "\n";
         return;
     }
 
+    uint32_t width = header.width;
+    uint32_t height = header.height;    
+    uint32_t extradata_size = header.extradata_size;
+    
     size_t expected_rgb_size = (size_t)width * height * 3;
     if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
     {

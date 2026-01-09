@@ -8066,3 +8066,89 @@ Received session ID: 2ec0eb3e-7805-43aa-a7fb-6b1afbcdc5a6
 [CONFIG] Keyframe requested by client 2ec0eb3e-7805-43aa-a7fb-6b1afbcdc5a6
 [HEVC] Keyframe at pts=2235 (every 60 frames)
 [HEVC TX] seq=29954 [KEYFRAME] size=42609 bytes
+[CONFIG] Keyframe requested by client 2ec0eb3e-7805-43aa-a7fb-6b1afbcdc5a6
+[HEVC] Keyframe at pts=2280 (every 60 frames)
+[HEVC TX] seq=29999 [KEYFRAME] size=36895 bytes
+[HEVC] Compression | Ratio: 233.42x | Saved: 99.57% over 30600 frames
+[CONFIG] Keyframe requested by client 2ec0eb3e-7805-43aa-a7fb-6b1afbcdc5a6
+[HEVC] Keyframe at pts=2324 (every 60 frames)
+[HEVC TX] seq=30043 [KEYFRAME] size=42640 bytes
+[CONFIG] Keyframe requested by client 2ec0eb3e-7805-43aa-a7fb-6b1afbcdc5a6
+[HEVC] Keyframe at pts=2369 (every 60 frames)
+[HEVC TX] seq=30088 [KEYFRAME] size=42022 bytes
+[HEVC] Compression | Ratio: 233.99x | Saved: 99.57% over 30700 frames
+[SERVER] Received key 29 pressed=1 [shift=0 ctrl=1 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 42 pressed=1 [shift=1 ctrl=1 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 56 pressed=1 [shift=1 ctrl=1 alt=1]
+[SERVER] Key event sent
+[CONFIG] Keyframe requested by client 2ec0eb3e-7805-43aa-a7fb-6b1afbcdc5a6
+[INPUT] Released modifier keys via WLR Protocols
+[INPUT] Client disconnected for session 2ec0eb3e-7805-43aa-a7fb-6b1afbcdc5a6
+[CONFIG] Client disconnected for session 2ec0eb3e-7805-43aa-a7fb-6b1afbcdc5a6
+[HEVC] Keyframe at pts=2413 (every 60 frames)
+[HEVC TX] seq=30132 [KEYFRAME] size=42004 bytes
+[RENDER] Thread stopped for session 2ec0eb3e-7805-43aa-a7fb-6b1afbcdc5a6
+[SEND] Thread stopped
+[FRAME] Client handler exiting for session 2ec0eb3e-7805-43aa-a7fb-6b1afbcdc5a6
+[CONFIG] Client connecting from 100.74.196.12
+[CONFIG] Client connected from 100.74.196.12
+Received session ID: 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[CONFIG] Created new client session: 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[FRAME] Client connecting from 100.74.196.12
+[FRAME] Client connected from 100.74.196.12
+Received session ID: 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[FRAME] Matched existing session: 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[INPUT] Client connecting from 100.74.196.12
+[INPUT] Client connected from 100.74.196.12
+Received session ID: 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[INPUT] Matched existing session: 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[SEND] Thread started
+[SEND] Thread started
+[FRAME] Starting send loop for session 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[RENDER] Thread started for session 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[CONFIG] Client 3909d2ec-64a6-44f6-a7b6-455d1a7590b2 requested capture resolution: 1280x800
+[DEBUG] Received config: follow_focus=0 output_index=3 renderer=7 detail=100 quality=100 audio_compress=1 microphone_compress=0
+[CONFIG] Initializing audio opus encoder: 48000Hz 2ch
+[CONFIG] Update for session 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+
+[HEVC] ========================================
+[HEVC] Initializing encoder for 1280x800 @ 60 fps
+[HEVC] Target bitrate: 120.00 Mbps
+[HEVC] Quality level: 100/100
+[HEVC] Detecting available encoders...
+[HEVC]   ✓ NVIDIA NVENC (hevc_nvenc)
+[HEVC]   ✓ Intel QuickSync (hevc_qsv)
+[HEVC]   ✓ VAAPI (hevc_vaapi)
+[HEVC]   ✓ AMD AMF (hevc_amf)
+[HEVC]   ✗ VideoToolbox (not available)
+[HEVC]   ✓ Software (x265) (libx265)
+[HEVC] Trying NVIDIA NVENC...
+[HEVC] Configuring NVENC encoder...
+[HEVC] NVENC configured: preset=p5 cq=15 bitrate=12Mbps gop=60 b_frames=0 (FORCED)
+[HEVC] ✓ Successfully opened: NVIDIA NVENC
+[HEVC] ✓ Encoder initialized successfully!
+[HEVC] ========================================
+
+[HEVC TX] seq=0 [KEYFRAME] size=91376 bytes
+[HEVC] Keyframe at pts=61 (every 60 frames)
+[HEVC TX] seq=61 [KEYFRAME] size=171397 bytes
+[HEVC] Compression | Ratio: 233.89x | Saved: 99.57% over 30800 frames
+[HEVC] Keyframe at pts=122 (every 60 frames)
+[HEVC TX] seq=122 [KEYFRAME] size=171411 bytes
+[HEVC] Keyframe at pts=183 (every 60 frames)
+[HEVC TX] seq=183 [KEYFRAME] size=182784 bytes
+[HEVC] Compression | Ratio: 233.22x | Saved: 99.57% over 30900 frames
+[SERVER] Received key 29 pressed=1 [shift=0 ctrl=1 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 42 pressed=1 [shift=1 ctrl=1 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 56 pressed=1 [shift=1 ctrl=1 alt=1]
+[SERVER] Key event sent
+[INPUT] Released modifier keys via WLR Protocols
+[INPUT] Client disconnected for session 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[CONFIG] Client disconnected for session 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[RENDER] Thread stopped for session 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
+[SEND] Thread stopped
+[FRAME] Client handler exiting for session 3909d2ec-64a6-44f6-a7b6-455d1a7590b2
