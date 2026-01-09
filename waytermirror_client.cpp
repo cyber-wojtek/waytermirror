@@ -5036,7 +5036,7 @@ int main(int argc, char **argv)
         }
 
         int nodelay = 1;
-        setsockopt(frame_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+        setsockopt(frame_socket, IPPROTO_UDP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
         if (!send_session_id(frame_socket, session_id))
         {

@@ -6045,7 +6045,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
     int sndbuf = 16 * 1024 * 1024;
     setsockopt(client_socket, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
     int nodelay = 1;
-    setsockopt(client_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+    setsockopt(client_socket, IPPROTO_UDP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
     // Create async send queue and thread
     auto send_queue = std::make_shared<SendQueue>();
