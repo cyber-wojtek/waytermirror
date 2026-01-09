@@ -51,14 +51,15 @@ extern "C"
 }
 #include <png.h>
 
-struct HEVCFrameHeader {
-    uint32_t sequence_number;    // Sequential frame counter
-    uint32_t extradata_size;     // SPS/PPS size
-    uint32_t width;              // Frame width
-    uint32_t height;             // Frame height
-    uint32_t compressed_size;    // HEVC data size
-    uint8_t is_keyframe;         // 1 if IDR/I-frame, 0 if P-frame
-    uint8_t reserved[3];         // Padding for alignment
+struct HEVCFrameHeader
+{
+    uint32_t sequence_number; // Sequential frame counter
+    uint32_t extradata_size;  // SPS/PPS size
+    uint32_t width;           // Frame width
+    uint32_t height;          // Frame height
+    uint32_t compressed_size; // HEVC data size
+    uint8_t is_keyframe;      // 1 if IDR/I-frame, 0 if P-frame
+    uint8_t reserved[3];      // Padding for alignment
 };
 
 // Opus encoders/decoders
@@ -78,6 +79,10 @@ static std::atomic<int> screen_height{(int)-1};
 static std::atomic<int> output_offset_x{0}; // Current output X offset in virtual desktop
 static std::atomic<int> output_offset_y{0}; // Current output Y offset in virtual desktop
 static std::atomic<uint32_t> current_output_index{0};
+static std::atomic<int> global_mouse_x{0};     // Mouse X in global desktop coordinates
+static std::atomic<int> global_mouse_y{0};     // Mouse Y in global desktop coordinates
+static std::atomic<int> virtual_desktop_width{0};  // Total virtual desktop width
+static std::atomic<int> virtual_desktop_height{0}; // Total virtual desktop height
 
 // Modifier tracking for exit combo and sending to server
 static std::atomic<bool> shift_pressed{false};
@@ -186,11 +191,11 @@ struct HEVCDecoder
 
     int consecutive_decode_failures = 0;
     bool needs_keyframe = false;
-    std::chrono::steady_clock::time_point last_keyframe_time;
+    std::chrono::steady_clock::time_point last_keyframe_time = std::chrono::steady_clock::now();
     int frames_since_keyframe = 0;
     int pts = 0;
 
-      std::atomic<uint32_t> expected_sequence{0};
+    std::atomic<uint32_t> expected_sequence{0};
     std::atomic<uint32_t> total_drops{0};
 };
 
@@ -397,8 +402,12 @@ struct KMSDisplay
 {
     int drm_fd = -1;
     struct gbm_device *gbm_device = nullptr;
-    struct gbm_bo *current_bo = nullptr;
-    struct gbm_bo *next_bo = nullptr;
+
+    // Double buffering
+    struct gbm_bo *front_buffer = nullptr;
+    struct gbm_bo *back_buffer = nullptr;
+    uint32_t front_fb = 0;
+    uint32_t back_fb = 0;
 
     uint32_t connector_id = 0;
     uint32_t crtc_id = 0;
@@ -406,9 +415,6 @@ struct KMSDisplay
 
     uint32_t width = 0;
     uint32_t height = 0;
-
-    uint32_t current_fb_id = 0;
-    uint32_t next_fb_id = 0; // Add this
 
     bool mode_set = false;
 };
@@ -433,25 +439,26 @@ static void cleanup_kms_display()
 {
     std::lock_guard<std::mutex> lock(kms_mutex);
 
-    if (kms_display.current_fb_id)
+    if (kms_display.front_fb)
     {
-        drmModeRmFB(kms_display.drm_fd, kms_display.current_fb_id);
-        kms_display.current_fb_id = 0;
+        drmModeRmFB(kms_display.drm_fd, kms_display.front_fb);
+        kms_display.front_fb = 0;
     }
-    if (kms_display.next_fb_id)
+    if (kms_display.back_fb)
     {
-        drmModeRmFB(kms_display.drm_fd, kms_display.next_fb_id);
-        kms_display.next_fb_id = 0;
+        drmModeRmFB(kms_display.drm_fd, kms_display.back_fb);
+        kms_display.back_fb = 0;
     }
-    if (kms_display.current_bo)
+
+    if (kms_display.front_buffer)
     {
-        gbm_bo_destroy(kms_display.current_bo);
-        kms_display.current_bo = nullptr;
+        gbm_bo_destroy(kms_display.front_buffer);
+        kms_display.front_buffer = nullptr;
     }
-    if (kms_display.next_bo)
+    if (kms_display.back_buffer)
     {
-        gbm_bo_destroy(kms_display.next_bo);
-        kms_display.next_bo = nullptr;
+        gbm_bo_destroy(kms_display.back_buffer);
+        kms_display.back_buffer = nullptr;
     }
 
     if (kms_display.gbm_device)
@@ -638,17 +645,12 @@ static void query_kms_geometry(int &width, int &height)
 
 static uint32_t get_fb_for_bo(struct gbm_bo *bo)
 {
-    uint32_t fb_id = (uint32_t)(uintptr_t)gbm_bo_get_user_data(bo);
-    if (fb_id)
-    {
-        return fb_id;
-    }
-
     uint32_t width = gbm_bo_get_width(bo);
     uint32_t height = gbm_bo_get_height(bo);
     uint32_t stride = gbm_bo_get_stride(bo);
     uint32_t handle = gbm_bo_get_handle(bo).u32;
 
+    uint32_t fb_id;
     int ret = drmModeAddFB(kms_display.drm_fd, width, height, 24, 32,
                            stride, handle, &fb_id);
     if (ret)
@@ -656,16 +658,6 @@ static uint32_t get_fb_for_bo(struct gbm_bo *bo)
         std::cerr << "[KMS] Failed to create framebuffer: " << strerror(errno) << "\n";
         return 0;
     }
-
-    gbm_bo_set_user_data(bo, (void *)(uintptr_t)fb_id,
-                         [](struct gbm_bo *bo, void *data)
-                         {
-                             uint32_t fb_id = (uint32_t)(uintptr_t)data;
-                             if (fb_id)
-                             {
-                                 drmModeRmFB(kms_display.drm_fd, fb_id);
-                             }
-                         });
 
     return fb_id;
 }
@@ -1567,68 +1559,73 @@ static bool decode_hevc_to_rgb(
 static void render_to_kms(const std::vector<uint8_t> &data)
 {
     std::lock_guard<std::mutex> lock(kms_mutex);
-    if (data.size() < sizeof(HEVCFrameHeader)) {
-        std::cerr << "[SIXEL] Packet too small\n";
+
+    if (data.size() < sizeof(HEVCFrameHeader))
+    {
+        std::cerr << "[KMS] Packet too small\n";
         return;
     }
 
     HEVCFrameHeader header;
     memcpy(&header, data.data(), sizeof(header));
-    
-    if (header.width == 0 || header.height == 0 || 
-        header.width > 8192 || header.height > 8192) {
-        std::cerr << "[SIXEL] Invalid dimensions\n";
+
+    if (header.width == 0 || header.height == 0 ||
+        header.width > 8192 || header.height > 8192)
+    {
+        std::cerr << "[KMS] Invalid dimensions\n";
         return;
     }
-    
+
     size_t expected_size = sizeof(header) + header.extradata_size + header.compressed_size;
-    if (data.size() < expected_size) {
-        std::cerr << "[SIXEL] Truncated packet\n";
+    if (data.size() < expected_size)
+    {
+        std::cerr << "[KMS] Truncated packet\n";
         return;
     }
 
     // Check sequence
     uint32_t expected = hevc_decoder.expected_sequence.load();
-    if (header.sequence_number != expected && expected != 0) {
+    if (header.sequence_number != expected && expected != 0)
+    {
         uint32_t dropped = header.sequence_number - expected;
         hevc_decoder.total_drops.fetch_add(dropped);
-        
-        std::cerr << "[HEVC] SEQ GAP: expected " << expected 
-                  << " got " << header.sequence_number 
-                  << " (dropped " << dropped << ", total " 
+
+        std::cerr << "[HEVC] SEQ GAP: expected " << expected
+                  << " got " << header.sequence_number
+                  << " (dropped " << dropped << ", total "
                   << hevc_decoder.total_drops.load() << ")\n";
-        
+
         MessageType msg = MessageType::REQUESTED_KEYFRAME;
         send(config_socket, &msg, sizeof(msg), MSG_NOSIGNAL);
-        
-        if (!header.is_keyframe) {
+
+        if (!header.is_keyframe)
+        {
             hevc_decoder.expected_sequence = header.sequence_number + 1;
             return;
         }
     }
-    
+
     hevc_decoder.expected_sequence = header.sequence_number + 1;
 
-    const uint8_t* ptr = data.data() + sizeof(header);
-    const uint8_t* extradata = header.extradata_size > 0 ? ptr : nullptr;
+    const uint8_t *ptr = data.data() + sizeof(header);
+    const uint8_t *extradata = header.extradata_size > 0 ? ptr : nullptr;
     ptr += header.extradata_size;
-    const uint8_t* hevc_data = ptr;
+    const uint8_t *hevc_data = ptr;
 
     std::vector<uint8_t> rgb_data;
     if (!decode_hevc_to_rgb(hevc_data, extradata, header.extradata_size,
-                            header.compressed_size, header.width, header.height, rgb_data)) {
-        std::cerr << "[SIXEL] Decode failed seq=" << header.sequence_number << "\n";
+                            header.compressed_size, header.width, header.height, rgb_data))
+    {
+        std::cerr << "[KMS] Decode failed seq=" << header.sequence_number << "\n";
         return;
     }
 
     uint32_t width = header.width;
-    uint32_t height = header.height;    
-    uint32_t extradata_size = header.extradata_size;
-    
+    uint32_t height = header.height;
+
     size_t expected_rgb_size = (size_t)width * height * 3;
     if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
     {
-        // Invalid decode result - skip this frame silently
         return;
     }
 
@@ -1645,33 +1642,33 @@ static void render_to_kms(const std::vector<uint8_t> &data)
     const uint32_t img_width = width;
     const uint32_t img_height = height;
 
-    // Create or reuse next_bo (double buffering)
-    if (!kms_display.next_bo)
+    // Create back buffer if needed
+    if (!kms_display.back_buffer)
     {
-        kms_display.next_bo = gbm_bo_create(
+        kms_display.back_buffer = gbm_bo_create(
             kms_display.gbm_device,
             kms_display.width,
             kms_display.height,
             GBM_FORMAT_XRGB8888,
             GBM_BO_USE_SCANOUT | GBM_BO_USE_WRITE);
 
-        if (!kms_display.next_bo)
+        if (!kms_display.back_buffer)
         {
-            std::cerr << "[KMS] Failed to create BO\n";
+            std::cerr << "[KMS] Failed to create back buffer\n";
             return;
         }
     }
 
-    // Map the buffer
+    // Map and render to back buffer
     uint32_t map_stride = 0;
     void *map_data = nullptr;
-    void *bo_map = gbm_bo_map(kms_display.next_bo, 0, 0,
+    void *bo_map = gbm_bo_map(kms_display.back_buffer, 0, 0,
                               kms_display.width, kms_display.height,
                               GBM_BO_TRANSFER_WRITE, &map_stride, &map_data);
 
     if (!bo_map || map_stride == 0)
     {
-        std::cerr << "[KMS] Failed to map BO\n";
+        std::cerr << "[KMS] Failed to map back buffer\n";
         return;
     }
 
@@ -1730,17 +1727,14 @@ static void render_to_kms(const std::vector<uint8_t> &data)
             const uint8_t *src_row = rgb + (size_t)y * img_width * 3;
             uint8_t *dst_row = fb_data + (size_t)fb_y * map_stride + (size_t)off_x * 4;
 
-            // Convert entire row at once with SIMD
             convert_rgb_to_xrgb_simd(src_row, dst_row, img_width);
         }
     }
     // Scaled rendering with lookup table
     else
     {
-        // Build scaling lookup tables (cached if dimensions unchanged)
         build_scaling_lut(img_width, img_height, target_w, target_h);
 
-        // Temporary row buffer for converted pixels
         static thread_local std::vector<uint8_t> row_buffer;
         row_buffer.resize(target_w * 4);
 
@@ -1754,7 +1748,6 @@ static void render_to_kms(const std::vector<uint8_t> &data)
             const uint8_t *src_row = rgb + (size_t)src_y * img_width * 3;
             uint8_t *dst_row = fb_data + (size_t)fb_y * map_stride + (size_t)off_x * 4;
 
-            // Sample pixels according to lookup table
             for (uint32_t dst_x = 0; dst_x < target_w; ++dst_x)
             {
                 uint32_t src_x = scaling_lut.x_map[dst_x];
@@ -1767,26 +1760,29 @@ static void render_to_kms(const std::vector<uint8_t> &data)
                 tmp_pixel[3] = 0xFF;         // X
             }
 
-            // Copy converted row to framebuffer
             memcpy(dst_row, row_buffer.data(), target_w * 4);
         }
     }
 
-    gbm_bo_unmap(kms_display.next_bo, map_data);
+    gbm_bo_unmap(kms_display.back_buffer, map_data);
 
-    // Get framebuffer ID (cached in gbm_bo user data)
-    uint32_t fb_id = get_fb_for_bo(kms_display.next_bo);
-    if (!fb_id)
+    // Get framebuffer ID for back buffer
+    if (!kms_display.back_fb)
     {
-        std::cerr << "[KMS] Failed to get framebuffer ID\n";
-        return;
+        kms_display.back_fb = get_fb_for_bo(kms_display.back_buffer);
+        if (!kms_display.back_fb)
+        {
+            std::cerr << "[KMS] Failed to get framebuffer ID\n";
+            return;
+        }
     }
 
     // First frame: Set CRTC mode
     if (!kms_display.mode_set)
     {
         int ret = drmModeSetCrtc(kms_display.drm_fd, kms_display.crtc_id,
-                                 fb_id, 0, 0, &kms_display.connector_id, 1,
+                                 kms_display.back_fb, 0, 0,
+                                 &kms_display.connector_id, 1,
                                  &kms_display.mode);
         if (ret)
         {
@@ -1794,21 +1790,24 @@ static void render_to_kms(const std::vector<uint8_t> &data)
             return;
         }
         kms_display.mode_set = true;
+        std::cerr << "[KMS] Initial mode set complete\n";
     }
-    // Subsequent frames: Page flip
     else
     {
-        int ret = drmModePageFlip(kms_display.drm_fd, kms_display.crtc_id,
-                                  fb_id, DRM_MODE_PAGE_FLIP_EVENT, nullptr);
+        // Swap: back becomes front
+        std::swap(kms_display.front_buffer, kms_display.back_buffer);
+        std::swap(kms_display.front_fb, kms_display.back_fb);
+
+        // Display the new front buffer
+        int ret = drmModeSetCrtc(kms_display.drm_fd, kms_display.crtc_id,
+                                 kms_display.front_fb, 0, 0,
+                                 &kms_display.connector_id, 1,
+                                 &kms_display.mode);
         if (ret)
         {
-            std::cerr << "[KMS] Page flip failed: " << strerror(errno) << "\n";
-            return;
+            std::cerr << "[KMS] Failed to flip: " << strerror(errno) << "\n";
         }
     }
-
-    // Swap buffers for double buffering
-    std::swap(kms_display.current_bo, kms_display.next_bo);
 }
 
 // Session ID generation
@@ -2770,6 +2769,7 @@ static bool receive_newest_frame(std::vector<uint8_t> &rendered)
                 output_offset_x = info.output_x;
                 output_offset_y = info.output_y;
                 current_output_index = info.output_index;
+                outputs = info.output_count;
             }
             continue;
         }
@@ -3706,20 +3706,26 @@ static void send_key_event(uint32_t keycode, bool pressed)
 
 static void send_mouse_move(int x, int y)
 {
+    // x and y are already global coordinates
+    current_mouse_x = x;
+    current_mouse_y = y;
+
     int w = screen_width.load();
     int h = screen_height.load();
+    int off_x = output_offset_x.load();
+    int off_y = output_offset_y.load();
 
-    // Clamp to output bounds (should already be clamped, but be safe)
-    int local_x = std::clamp(x, 0, w - 1);
-    int local_y = std::clamp(y, 0, h - 1);
+    // Calculate local coordinates for zoom (relative to current output)
+    int local_x = x - off_x;
+    int local_y = y - off_y;
 
-    // Always update zoom center locally if enabled (use output-local coords)
+    // Update zoom center if enabled (use output-local coords for zoom viewport)
     if (zoom_state.enabled.load() && zoom_state.follow_mouse.load())
     {
         zoom_state.center_x = local_x;
         zoom_state.center_y = local_y;
 
-        // Send zoom config update to server (throttled - sent every frame anyway)
+        // Send zoom config update to server (throttled)
         static auto last_zoom_update = std::chrono::steady_clock::now();
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_zoom_update).count() >= 16)
@@ -3733,8 +3739,9 @@ static void send_mouse_move(int x, int y)
     if (!feature_input || input_socket < 0 || !input_forwarding_enabled.load())
         return;
 
+    // Send global coordinates to server
     MessageType type = MessageType::MOUSE_MOVE;
-    MouseMove evt{local_x, local_y, (uint32_t)w, (uint32_t)h};
+    MouseMove evt{x, y, (uint32_t)w, (uint32_t)h};
 
     send(input_socket, &type, sizeof(type), MSG_NOSIGNAL);
     send(input_socket, &evt, sizeof(evt), MSG_NOSIGNAL);
@@ -3827,14 +3834,9 @@ static void process_libinput_events()
             double dx = libinput_event_pointer_get_dx(ptr);
             double dy = libinput_event_pointer_get_dy(ptr);
 
+            // Update global position directly
             int new_x = current_mouse_x.load() + (int)dx;
             int new_y = current_mouse_y.load() + (int)dy;
-
-            new_x = std::max(0, std::min(new_x, screen_width.load() - 1));
-            new_y = std::max(0, std::min(new_y, screen_height.load() - 1));
-
-            current_mouse_x = new_x;
-            current_mouse_y = new_y;
 
             send_mouse_move(new_x, new_y);
             break;
@@ -4258,62 +4260,68 @@ void render_to_kitty_b64_chunked(const std::string &b64_data)
 
 static void render_to_kitty(const std::vector<uint8_t> &data)
 {
-    if (data.size() < sizeof(HEVCFrameHeader)) {
+    if (data.size() < sizeof(HEVCFrameHeader))
+    {
         std::cerr << "[SIXEL] Packet too small\n";
         return;
     }
 
     HEVCFrameHeader header;
     memcpy(&header, data.data(), sizeof(header));
-    
-    if (header.width == 0 || header.height == 0 || 
-        header.width > 8192 || header.height > 8192) {
+
+    if (header.width == 0 || header.height == 0 ||
+        header.width > 8192 || header.height > 8192)
+    {
         std::cerr << "[SIXEL] Invalid dimensions\n";
         return;
     }
-    
+
     size_t expected_size = sizeof(header) + header.extradata_size + header.compressed_size;
-    if (data.size() < expected_size) {
+    if (data.size() < expected_size)
+    {
         std::cerr << "[SIXEL] Truncated packet\n";
         return;
     }
 
     // Check sequence
     uint32_t expected = hevc_decoder.expected_sequence.load();
-    if (header.sequence_number != expected && expected != 0) {
+    if (header.sequence_number != expected && expected != 0)
+    {
         uint32_t dropped = header.sequence_number - expected;
         hevc_decoder.total_drops.fetch_add(dropped);
-        
-        std::cerr << "[HEVC] SEQ GAP: expected " << expected 
-                  << " got " << header.sequence_number 
-                  << " (dropped " << dropped << ", total " 
+
+        std::cerr << "[HEVC] SEQ GAP: expected " << expected
+                  << " got " << header.sequence_number
+                  << " (dropped " << dropped << ", total "
                   << hevc_decoder.total_drops.load() << ")\n";
-        
+
         MessageType msg = MessageType::REQUESTED_KEYFRAME;
         send(config_socket, &msg, sizeof(msg), MSG_NOSIGNAL);
-        
-        if (!header.is_keyframe) {
+
+        if (!header.is_keyframe)
+        {
             hevc_decoder.expected_sequence = header.sequence_number + 1;
             return;
         }
     }
-    
+
     hevc_decoder.expected_sequence = header.sequence_number + 1;
 
-    const uint8_t* ptr = data.data() + sizeof(header);
-    const uint8_t* extradata = header.extradata_size > 0 ? ptr : nullptr;
+    const uint8_t *ptr = data.data() + sizeof(header);
+    const uint8_t *extradata = header.extradata_size > 0 ? ptr : nullptr;
     ptr += header.extradata_size;
-    const uint8_t* hevc_data = ptr;
+    const uint8_t *hevc_data = ptr;
 
     std::vector<uint8_t> rgb_data;
     if (!decode_hevc_to_rgb(hevc_data, extradata, header.extradata_size,
-                            header.compressed_size, header.width, header.height, rgb_data)) {
+                            header.compressed_size, header.width, header.height, rgb_data))
+    {
         std::cerr << "[SIXEL] Decode failed seq=" << header.sequence_number << "\n";
         return;
     }
 
     uint32_t width = header.width;
-    uint32_t height = header.height;    
+    uint32_t height = header.height;
     uint32_t extradata_size = header.extradata_size;
 
     size_t expected_rgb_size = (size_t)width * height * 3;
@@ -4354,62 +4362,68 @@ static FBTempBuffers fbtmp;
 
 static void render_to_framebuffer(const std::vector<uint8_t> &data)
 {
-    if (data.size() < sizeof(HEVCFrameHeader)) {
+    if (data.size() < sizeof(HEVCFrameHeader))
+    {
         std::cerr << "[SIXEL] Packet too small\n";
         return;
     }
 
     HEVCFrameHeader header;
     memcpy(&header, data.data(), sizeof(header));
-    
-    if (header.width == 0 || header.height == 0 || 
-        header.width > 8192 || header.height > 8192) {
+
+    if (header.width == 0 || header.height == 0 ||
+        header.width > 8192 || header.height > 8192)
+    {
         std::cerr << "[SIXEL] Invalid dimensions\n";
         return;
     }
-    
+
     size_t expected_size = sizeof(header) + header.extradata_size + header.compressed_size;
-    if (data.size() < expected_size) {
+    if (data.size() < expected_size)
+    {
         std::cerr << "[SIXEL] Truncated packet\n";
         return;
     }
 
     // Check sequence
     uint32_t expected = hevc_decoder.expected_sequence.load();
-    if (header.sequence_number != expected && expected != 0) {
+    if (header.sequence_number != expected && expected != 0)
+    {
         uint32_t dropped = header.sequence_number - expected;
         hevc_decoder.total_drops.fetch_add(dropped);
-        
-        std::cerr << "[HEVC] SEQ GAP: expected " << expected 
-                  << " got " << header.sequence_number 
-                  << " (dropped " << dropped << ", total " 
+
+        std::cerr << "[HEVC] SEQ GAP: expected " << expected
+                  << " got " << header.sequence_number
+                  << " (dropped " << dropped << ", total "
                   << hevc_decoder.total_drops.load() << ")\n";
-        
+
         MessageType msg = MessageType::REQUESTED_KEYFRAME;
         send(config_socket, &msg, sizeof(msg), MSG_NOSIGNAL);
-        
-        if (!header.is_keyframe) {
+
+        if (!header.is_keyframe)
+        {
             hevc_decoder.expected_sequence = header.sequence_number + 1;
             return;
         }
     }
-    
+
     hevc_decoder.expected_sequence = header.sequence_number + 1;
 
-    const uint8_t* ptr = data.data() + sizeof(header);
-    const uint8_t* extradata = header.extradata_size > 0 ? ptr : nullptr;
+    const uint8_t *ptr = data.data() + sizeof(header);
+    const uint8_t *extradata = header.extradata_size > 0 ? ptr : nullptr;
     ptr += header.extradata_size;
-    const uint8_t* hevc_data = ptr;
+    const uint8_t *hevc_data = ptr;
 
     std::vector<uint8_t> rgb_data;
     if (!decode_hevc_to_rgb(hevc_data, extradata, header.extradata_size,
-                            header.compressed_size, header.width, header.height, rgb_data)) {
+                            header.compressed_size, header.width, header.height, rgb_data))
+    {
         std::cerr << "[SIXEL] Decode failed seq=" << header.sequence_number << "\n";
         return;
     }
 
     uint32_t width = header.width;
-    uint32_t height = header.height;    
+    uint32_t height = header.height;
     uint32_t extradata_size = header.extradata_size;
 
     size_t expected_rgb_size = (size_t)width * height * 3;
@@ -4528,62 +4542,68 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
 
 static void render_to_sixel(const std::vector<uint8_t> &data)
 {
-    if (data.size() < sizeof(HEVCFrameHeader)) {
+    if (data.size() < sizeof(HEVCFrameHeader))
+    {
         std::cerr << "[SIXEL] Packet too small\n";
         return;
     }
 
     HEVCFrameHeader header;
     memcpy(&header, data.data(), sizeof(header));
-    
-    if (header.width == 0 || header.height == 0 || 
-        header.width > 8192 || header.height > 8192) {
+
+    if (header.width == 0 || header.height == 0 ||
+        header.width > 8192 || header.height > 8192)
+    {
         std::cerr << "[SIXEL] Invalid dimensions\n";
         return;
     }
-    
+
     size_t expected_size = sizeof(header) + header.extradata_size + header.compressed_size;
-    if (data.size() < expected_size) {
+    if (data.size() < expected_size)
+    {
         std::cerr << "[SIXEL] Truncated packet\n";
         return;
     }
 
     // Check sequence
     uint32_t expected = hevc_decoder.expected_sequence.load();
-    if (header.sequence_number != expected && expected != 0) {
+    if (header.sequence_number != expected && expected != 0)
+    {
         uint32_t dropped = header.sequence_number - expected;
         hevc_decoder.total_drops.fetch_add(dropped);
-        
-        std::cerr << "[HEVC] SEQ GAP: expected " << expected 
-                  << " got " << header.sequence_number 
-                  << " (dropped " << dropped << ", total " 
+
+        std::cerr << "[HEVC] SEQ GAP: expected " << expected
+                  << " got " << header.sequence_number
+                  << " (dropped " << dropped << ", total "
                   << hevc_decoder.total_drops.load() << ")\n";
-        
+
         MessageType msg = MessageType::REQUESTED_KEYFRAME;
         send(config_socket, &msg, sizeof(msg), MSG_NOSIGNAL);
-        
-        if (!header.is_keyframe) {
+
+        if (!header.is_keyframe)
+        {
             hevc_decoder.expected_sequence = header.sequence_number + 1;
             return;
         }
     }
-    
+
     hevc_decoder.expected_sequence = header.sequence_number + 1;
 
-    const uint8_t* ptr = data.data() + sizeof(header);
-    const uint8_t* extradata = header.extradata_size > 0 ? ptr : nullptr;
+    const uint8_t *ptr = data.data() + sizeof(header);
+    const uint8_t *extradata = header.extradata_size > 0 ? ptr : nullptr;
     ptr += header.extradata_size;
-    const uint8_t* hevc_data = ptr;
+    const uint8_t *hevc_data = ptr;
 
     std::vector<uint8_t> rgb_data;
     if (!decode_hevc_to_rgb(hevc_data, extradata, header.extradata_size,
-                            header.compressed_size, header.width, header.height, rgb_data)) {
+                            header.compressed_size, header.width, header.height, rgb_data))
+    {
         std::cerr << "[SIXEL] Decode failed seq=" << header.sequence_number << "\n";
         return;
     }
 
     uint32_t width = header.width;
-    uint32_t height = header.height;    
+    uint32_t height = header.height;
     uint32_t extradata_size = header.extradata_size;
 
     size_t expected_rgb_size = (size_t)width * height * 3;
@@ -5494,10 +5514,11 @@ int main(int argc, char **argv)
     // Initialize mouse position
     if (feature_input && program.get<bool>("--center-mouse"))
     {
-        current_mouse_x = screen_width.load() / 2;
-        current_mouse_y = screen_height.load() / 2;
-        std::cerr << "[INIT] Mouse centered at " << current_mouse_x.load()
-                  << "," << current_mouse_y.load() << "\n";
+        // Start at center of first output in global space
+        current_mouse_x = output_offset_x.load() + (screen_width.load() / 2);
+        current_mouse_y = output_offset_y.load() + (screen_height.load() / 2);
+        std::cerr << "[INIT] Mouse centered at global (" << current_mouse_x.load()
+                << "," << current_mouse_y.load() << ")\n";
     }
 
     // Start threads based on enabled features
