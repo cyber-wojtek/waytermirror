@@ -455,6 +455,8 @@ struct HEVCEncoder
     uint32_t last_width = 0;
     uint32_t last_height = 0;
     int frames_since_keyframe = 0;
+
+    bool requested_keyframe = false;
 };
 
 struct ClientConnection
@@ -512,7 +514,7 @@ enum class MessageType : uint8_t
     SESSION_ID = 9,
     OPUS_INFO = 10,
     COMPRESSED_FRAME = 11,
-    DELTA_FRAME = 12,
+    REQUESTED_KEYFRAME = 12,
     AUDIO_DATA = 13,
     AUDIO_FORMAT = 14,
     MICROPHONE_DATA = 15,
@@ -572,19 +574,6 @@ struct MicrophoneVirtualSource
 
 static MicrophoneVirtualSource microphone_virtual_source;
 static int microphone_server_socket = -1;
-
-struct DeltaFrameHeader
-{
-    uint32_t num_changes;
-    uint32_t base_frame_size;
-};
-
-struct FrameChange
-{
-    uint32_t offset;
-    uint16_t length;
-    // Followed by: uint8_t data[length]
-};
 
 struct SessionID
 {
@@ -3755,7 +3744,8 @@ static std::vector<uint8_t> encode_hevc_frame(
               enc.frame->data, enc.frame->linesize);
 
     // Force keyframe every GOP_SIZE frames (fps), OR at start, OR on request
-    bool force_keyframe = (enc.frames_since_keyframe >= fps) || (enc.pts == 0);
+    bool force_keyframe = (enc.frames_since_keyframe >= fps) || (enc.pts == 0) || enc.requested_keyframe;
+    enc.requested_keyframe = false;
     
     enc.frames_since_keyframe++;
 
@@ -5119,112 +5109,6 @@ static std::vector<uint8_t> compress_frame(const std::vector<uint8_t> &data,
     }
 
     return compressed;
-}
-
-static std::vector<uint8_t> encode_delta_frame(
-    const std::string &old_frame,
-    const std::string &new_frame,
-    bool compress,
-    int compression_level)
-{
-
-    std::vector<uint8_t> delta;
-
-    if (old_frame.empty() || old_frame.size() != new_frame.size())
-    {
-        // Size mismatch or no previous frame - can't delta encode
-        return delta;
-    }
-
-    // Find all changed regions
-    std::vector<FrameChange> changes;
-    size_t i = 0;
-    size_t frame_size = new_frame.size();
-
-    while (i < frame_size)
-    {
-        // Skip identical bytes
-        while (i < frame_size && old_frame[i] == new_frame[i])
-        {
-            i++;
-        }
-
-        if (i >= frame_size)
-            break;
-
-        // Found a change - find the end
-        size_t start = i;
-        while (i < frame_size && old_frame[i] != new_frame[i])
-        {
-            i++;
-        }
-
-        size_t length = i - start;
-
-        // Split large changes into chunks to avoid overflow
-        while (length > 0)
-        {
-            uint16_t chunk_len = std::min(length, (size_t)65535);
-            changes.push_back({(uint32_t)start, chunk_len});
-            start += chunk_len;
-            length -= chunk_len;
-        }
-    }
-
-    if (changes.empty())
-    {
-        // No changes - return empty delta to signal identical frame
-        return delta;
-    }
-
-    // Calculate uncompressed delta size
-    size_t delta_size = sizeof(DeltaFrameHeader);
-    for (const auto &change : changes)
-    {
-        delta_size += sizeof(FrameChange) + change.length;
-    }
-
-    // Only use delta if it's significantly smaller (less than 75% of full frame)
-    if (delta_size > new_frame.size() * 0.75)
-    {
-        return {}; // Not worth it
-    }
-
-    // Build delta message
-    delta.reserve(delta_size);
-
-    DeltaFrameHeader header;
-    header.num_changes = changes.size();
-    header.base_frame_size = old_frame.size();
-
-    const uint8_t *header_bytes = reinterpret_cast<const uint8_t *>(&header);
-    delta.insert(delta.end(), header_bytes, header_bytes + sizeof(header));
-
-    for (const auto &change : changes)
-    {
-        // Add change header
-        const uint8_t *change_bytes = reinterpret_cast<const uint8_t *>(&change);
-        delta.insert(delta.end(), change_bytes, change_bytes + sizeof(change));
-
-        // Add changed data
-        const uint8_t *data = reinterpret_cast<const uint8_t *>(
-            new_frame.data() + change.offset);
-        delta.insert(delta.end(), data, data + change.length);
-    }
-
-    // Optionally compress the delta
-    if (compress && delta.size() > 1024)
-    {
-        std::vector<uint8_t> compressed = compress_frame(delta, compression_level);
-
-        // Only use compression if it actually helps
-        if (compressed.size() < delta.size() * 0.9)
-        {
-            return compressed;
-        }
-    }
-
-    return delta;
 }
 
 static void on_process_microphone_source(void *userdata)
@@ -6751,6 +6635,11 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                                   << " center=(" << conn->zoom.center_x << "," << conn->zoom.center_y << ")"
                                   << " follow=" << (conn->zoom.follow_mouse ? "YES" : "NO") << "\n";
                     }
+                }
+                else if (type == MessageType::REQUESTED_KEYFRAME) {
+                    std::lock_guard<std::mutex> lock(clients_mutex);
+                    conn->hevc_encoder.requested_keyframe = true;
+                    std::cerr << "[CONFIG] Keyframe requested by client " << session_id << "\n";
                 }
                 else if (n == 0)
                 {

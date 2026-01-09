@@ -196,7 +196,7 @@ enum class MessageType : uint8_t
     SCREEN_INFO = 8,
     SESSION_ID = 9,
     COMPRESSED_FRAME = 11,
-    DELTA_FRAME = 12,
+    REQUESTED_KEYFRAME = 12,
     AUDIO_DATA = 13,
     AUDIO_FORMAT = 14,
     MICROPHONE_DATA = 15,
@@ -255,19 +255,6 @@ static AudioPlayback audio_playback;
 static int audio_socket = -1;
 
 static int config_socket = -1;
-
-struct DeltaFrameHeader
-{
-    uint32_t num_changes;
-    uint32_t base_frame_size;
-};
-
-struct FrameChange
-{
-    uint32_t offset;
-    uint16_t length;
-    // Followed by: uint8_t data[length]
-};
 
 struct SessionID
 {
@@ -1267,9 +1254,12 @@ static bool decode_hevc_to_rgb(
         hevc_decoder.consecutive_decode_failures++;
         
         // Log every 30 dropped frames
-        if (hevc_decoder.consecutive_decode_failures % 30 == 0) {
-            std::cerr << "[HEVC] Still waiting for keyframe (dropped " 
-                      << hevc_decoder.consecutive_decode_failures << " frames)\n";
+        if (hevc_decoder.consecutive_decode_failures % 5 == 0) {
+            // Send keyframe request signal here if needed
+            MessageType msg = MessageType::REQUESTED_KEYFRAME;
+            send(config_socket, &msg, sizeof(msg), 0);
+            /*std::cerr << "[HEVC] Still waiting for keyframe (dropped " 
+                      << hevc_decoder.consecutive_decode_failures << " frames)\n";*/
         }
         return false;
     }
@@ -2673,79 +2663,6 @@ static bool receive_newest_frame(std::vector<uint8_t> &rendered)
             continue;
         }
 
-        // === NEW: Handle DELTA_FRAME ===
-        if (type == MessageType::DELTA_FRAME)
-        {
-            // Receive delta header
-            DeltaFrameHeader header;
-            size_t total = 0;
-            while (total < sizeof(header))
-            {
-                n = recv(frame_socket, ((uint8_t *)&header) + total,
-                         sizeof(header) - total, 0);
-                if (n <= 0)
-                    return false;
-                total += n;
-            }
-
-            if (last_received_frame.size() != header.base_frame_size)
-            {
-                std::cerr << "[DELTA] Size mismatch, skipping delta\n";
-                // Skip this delta - read and discard the changes
-                for (uint32_t i = 0; i < header.num_changes; i++)
-                {
-                    FrameChange change;
-                    recv(frame_socket, &change, sizeof(change), 0);
-                    std::vector<uint8_t> discard(change.length);
-                    recv(frame_socket, discard.data(), change.length, 0);
-                }
-                continue;
-            }
-
-            // Apply delta to last frame
-            std::vector<uint8_t> result = last_received_frame;
-
-            for (uint32_t i = 0; i < header.num_changes; i++)
-            {
-                FrameChange change;
-                total = 0;
-                while (total < sizeof(change))
-                {
-                    n = recv(frame_socket, ((uint8_t *)&change) + total,
-                             sizeof(change) - total, 0);
-                    if (n <= 0)
-                        return false;
-                    total += n;
-                }
-
-                // Receive changed data
-                std::vector<uint8_t> data(change.length);
-                total = 0;
-                while (total < change.length)
-                {
-                    n = recv(frame_socket, data.data() + total,
-                             change.length - total, 0);
-                    if (n <= 0)
-                        return false;
-                    total += n;
-                }
-
-                // Apply change
-                if (change.offset + change.length <= result.size())
-                {
-                    memcpy(&result[change.offset], data.data(), change.length);
-                }
-                else
-                {
-                    std::cerr << "[DELTA] Invalid offset/length\n";
-                }
-            }
-
-            latest_data.assign(result.begin(), result.end());
-            got_frame = true;
-            continue;
-        }
-
         if (type == MessageType::COMPRESSED_FRAME)
         {
             CompressedFrameHeader comp_header;
@@ -2780,37 +2697,7 @@ static bool receive_newest_frame(std::vector<uint8_t> &rendered)
             offset += sizeof(MessageType);
 
             // === NEW: Handle compressed delta frames ===
-            if (inner_type == MessageType::DELTA_FRAME)
-            {
-                DeltaFrameHeader header;
-                memcpy(&header, decompressed.data() + offset, sizeof(header));
-                offset += sizeof(header);
-
-                if (last_received_frame.size() != header.base_frame_size)
-                {
-                    std::cerr << "[DELTA] Compressed: Size mismatch\n";
-                    continue;
-                }
-
-                std::vector<uint8_t> result = last_received_frame;
-
-                for (uint32_t i = 0; i < header.num_changes; i++)
-                {
-                    FrameChange change;
-                    memcpy(&change, decompressed.data() + offset, sizeof(change));
-                    offset += sizeof(change);
-
-                    if (change.offset + change.length <= result.size())
-                    {
-                        memcpy(&result[change.offset], decompressed.data() + offset, change.length);
-                    }
-                    offset += change.length;
-                }
-
-                latest_data.assign(result.begin(), result.end());
-                got_frame = true;
-            }
-            else if (inner_type == MessageType::RENDERED_FRAME)
+            if (inner_type == MessageType::RENDERED_FRAME)
             {
                 RenderedFrameHeader frame_header;
                 memcpy(&frame_header, decompressed.data() + offset, sizeof(frame_header));

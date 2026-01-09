@@ -74,10 +74,10 @@ Then log out and back in.
 [HOTPLUG]   - Keyboard capability
 [HOTPLUG] Device added: JBL Flip 7 (Wojt (AVRCP)
 [HOTPLUG]   - Keyboard capability
-[INIT] Session ID: 2dda75f7-3a73-4299-a330-9ee89d70dbdc
-[CONFIG] Connected to 192.168.0.131:10002
-[VIDEO] Connected to 192.168.0.131:9999
-[CLIENT] Got geometry from ioctl: 1899x960 (reserved 1 top, 1 bottom)
+[INIT] Session ID: 8270ba76-4c32-4577-9920-dd69e38a0b00
+[CONFIG] Connected to 0.0.0.0:10002
+[VIDEO] UDP ready for 0.0.0.0:9999
+[CLIENT] Got geometry from ioctl: 945x440 (reserved 1 top, 1 bottom)
 === Zoom Configuration ===
 Enabled: NO
 Level: 2x
@@ -87,19 +87,18 @@ Smooth Pan: YES
 ==========================
 
 === Rendering Settings ===
-Detail Level: 0 (0=smooth, 100=sharp)
+Detail Level: 100 (0=smooth, 100=sharp)
 Quality: 0 (0=fast, 100=best)
 Render Device: CPU
 ===========================
 
-[CONFIG] Sent: 211x50 fps=60 renderer=5 detail=0 follow_focus=0
+[CONFIG] Sent: 105x24 fps=60 renderer=5 detail=100 follow_focus=0
 [INIT] Waiting for screen info from server...
-[INIT] Received screen info: 1280x800 offset: 0,0
-[INIT] Screen info received: 1280x800
+[INIT] Warning: No screen info received, using default 1920x1080
 
 === Waytermirror Client Started ===
-Session: 2dda75f7-3a73-4299-a330-9ee89d70dbdc
-Output: 1 | Resolution: 1280x800
+Session: 8270ba76-4c32-4577-9920-dd69e38a0b00
+Output: 1 | Resolution: 1920x1080
 Renderer: kitty | Color mode: true
 FPS: 60 | Scale: 1
 Compression: OFF
@@ -114,60 +113,3 @@ Press Ctrl+Alt+Shift+H for full shortcut list
 ================================================
 
 [INPUT] Thread started with libinput and hotplug monitoring
-
-[HEVC DECODER] ========================================
-[HEVC DECODER] Initializing decoder for 1898x960
-[HEVC DECODER] Attempting hardware acceleration...
-[HEVC DECODER] Trying CUDA (NVIDIA)...
-[hevc_cuvid @ 0x5574f06df200] Invalid pkt_timebase, passing timestamps as-is.
-[HEVC DECODER]   ✓ Successfully opened: CUDA (NVIDIA)
-[HEVC DECODER] ✓ Decoder initialized successfully!
-[HEVC DECODER]   Resolution: 1898x960
-[HEVC DECODER]   Hardware: YES
-[HEVC DECODER]   Threads: 1
-[HEVC DECODER]   Threading type: internal
-[HEVC DECODER] ========================================
-
-[HEVC DECODER] Decoder initialized/reinitialized for 1898x960
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
