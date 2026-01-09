@@ -1066,8 +1066,7 @@ static std::vector<HEVCNALUnit> parse_hevc_nal_units(const uint8_t *data, size_t
                 uint8_t nal_header_byte1 = data[i + 4];
                 unit.nal_type = (nal_header_byte1 >> 1) & 0x3F;
                 
-                // IDR frames: 19 (IDR_W_RADL), 20 (IDR_N_LP), 21 (CRA_NUT)
-                unit.is_keyframe = (unit.nal_type >= 19 && unit.nal_type <= 21);
+                unit.is_keyframe = (unit.nal_type >= 16 && unit.nal_type <= 21);
                 
                 nal_units.push_back(unit);
             }
