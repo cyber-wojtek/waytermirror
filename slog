@@ -1,0 +1,464 @@
+[FOCUS] Using manual compositor setting: hyprland
+[INIT] Compositor: hyprland
+[INIT] Will use hyprland CLI tools for focus detection
+=== Features ===
+Video: ON
+Audio: ON
+Input: ON
+Microphone: ON
+================
+
+[FOCUS] Foreign toplevel manager available
+[OUTPUT] Registered output-0
+[OUTPUT] Registered output-1
+[FOCUS] Added toplevel manager listener
+[FOCUS] Focus tracking enabled with 25 existing windows
+Found 2 output(s)
+[CAPTURE] Using wlr-screencopy protocol
+[FOCUS] Update thread started with compositor: hyprland
+[AUDIO OUT] System audio capture initialized (monitoring default sink)
+[AUDIO OUT] Sending: 48kHz stereo F32LE from system audio output
+Audio server listening on port 10001
+Microphone server listening on port 10003
+[AUDIO] Accept thread started
+Frame server listening on port 9999
+[MICROPHONE IN] Accept thread started
+Input server listening on port 10000
+Found 2 output(s)
+[WLR] Keymap configured
+[WLR] Virtual input devices created
+[INPUT] Initialized WLR protocols backend
+[INPUT] Using WLR Protocols backend
+Config server listening on port 10002
+[CONFIG] Accept thread started
+[CAPTURE] Thread started for output 0 at 60 FPS using wlr-screencopy
+[CAPTURE] Thread started for output 1 at 60 FPS using wlr-screencopy
+[FRAME] Accept thread started
+
+=== Waytermirror Server Started ===
+Listening on port 9999
+  Video (frames): port 9999
+  Input: port 10000
+  Audio (system out): port 10001
+  Config: port 10002
+  Microphone (client in): port 10003
+Press Ctrl+C to stop...
+======================================
+
+[INPUT] Accept thread started
+[CONFIG] Client connecting from 100.74.196.12
+[CONFIG] Client connected from 100.74.196.12
+Received session ID: ab8d878f-c5fd-4032-9fd8-e2c980aaef34
+[CONFIG] Created new client session: ab8d878f-c5fd-4032-9fd8-e2c980aaef34
+[FRAME] Client connecting from 100.74.196.12
+[FRAME] Client connected from 100.74.196.12
+Received session ID: ab8d878f-c5fd-4032-9fd8-e2c980aaef34
+[FRAME] Matched existing session: ab8d878f-c5fd-4032-9fd8-e2c980aaef34
+[CONFIG] Client ab8d878f-c5fd-4032-9fd8-e2c980aaef34 requested capture resolution: 1280x800
+[DEBUG] Received config: follow_focus=0 output_index=1 renderer=6 detail=100 quality=2 audio_compress=1 microphone_compress=0
+[CONFIG] Initializing audio opus encoder: 48000Hz 2ch
+[CONFIG] Update for session ab8d878f-c5fd-4032-9fd8-e2c980aaef34
+[SEND] Thread started
+[FRAME] Starting send loop for session ab8d878f-c5fd-4032-9fd8-e2c980aaef34
+[RENDER] Thread started for session ab8d878f-c5fd-4032-9fd8-e2c980aaef34
+
+[HEVC] ========================================
+[HEVC] Initializing encoder for 1280x800 @ 60 fps
+[HEVC] Target bitrate: 1 Mbps
+[HEVC] Quality level: 2/100
+[HEVC] Detecting available encoders...
+[HEVC]   ✓ NVIDIA NVENC (hevc_nvenc)
+[HEVC]   ✓ Intel QuickSync (hevc_qsv)
+[HEVC]   ✓ VAAPI (hevc_vaapi)
+[HEVC]   ✓ AMD AMF (hevc_amf)
+[HEVC]   ✗ VideoToolbox (not available)
+[HEVC]   ✓ Software (x265) (libx265)
+[HEVC] Trying NVIDIA NVENC...
+[HEVC] Selected: NVIDIA NVENC (hevc_nvenc)
+[HEVC] Configuring NVENC encoder (safe mode)...
+[HEVC] Using preset: p3
+[HEVC] CQ level: 28 (lower=better)
+[HEVC] NVENC configured: preset=p3 cq=28 bitrate=1Mbps buffer=0Mb bframes=0
+[HEVC] ✓ Encoder initialized successfully!
+[HEVC] ========================================
+
+[HEVC] Forcing keyframe at pts=0
+[VIDEO] LZ4 Level 12 | Saved: -0.37% | Ratio: 1.00x over 0 frames
+[HEVC] Forcing keyframe at pts=61
+[HEVC] Compression | Ratio: 697.74x | Saved: 99.86% over 100 frames
+[VIDEO] LZ4 Level 12 | Saved: -0.19% | Ratio: 1.00x over 100 frames
+[HEVC] Forcing keyframe at pts=122
+[HEVC] Forcing keyframe at pts=183
+[HEVC] Compression | Ratio: 742.85x | Saved: 99.87% over 200 frames
+[VIDEO] LZ4 Level 12 | Saved: -0.18% | Ratio: 1.00x over 200 frames
+[HEVC] Forcing keyframe at pts=244
+[HEVC] Compression | Ratio: 762.23x | Saved: 99.87% over 300 frames
+[VIDEO] LZ4 Level 12 | Saved: -0.20% | Ratio: 1.00x over 300 frames
+[HEVC] Forcing keyframe at pts=305
+[HEVC] Forcing keyframe at pts=366
+[HEVC] Compression | Ratio: 745.44x | Saved: 99.87% over 400 frames
+[VIDEO] LZ4 Level 12 | Saved: -0.21% | Ratio: 1.00x over 400 frames
+[HEVC] Forcing keyframe at pts=427
+[HEVC] Forcing keyframe at pts=488
+[HEVC] Compression | Ratio: 739.18x | Saved: 99.86% over 500 frames
+[VIDEO] LZ4 Level 12 | Saved: -0.21% | Ratio: 1.00x over 500 frames
+[HEVC] Forcing keyframe at pts=549
+[HEVC] Compression | Ratio: 746.11x | Saved: 99.87% over 600 frames
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 600 frames
+[HEVC] Forcing keyframe at pts=610
+[SEND] Connection lost
+[RENDER] Thread stopped for session ab8d878f-c5fd-4032-9fd8-e2c980aaef34
+[FRAME] Client handler exiting for session ab8d878f-c5fd-4032-9fd8-e2c980aaef34
+[CONFIG] Client disconnected for session ab8d878f-c5fd-4032-9fd8-e2c980aaef34
+[CONFIG] Client connecting from 100.74.196.12
+[CONFIG] Client connected from 100.74.196.12
+Received session ID: a0f64352-2942-444f-b1ec-710b992cf082
+[CONFIG] Created new client session: a0f64352-2942-444f-b1ec-710b992cf082
+[FRAME] Client connecting from 100.74.196.12
+[FRAME] Client connected from 100.74.196.12
+Received session ID: a0f64352-2942-444f-b1ec-710b992cf082
+[FRAME] Matched existing session: a0f64352-2942-444f-b1ec-710b992cf082
+[SEND] Thread started
+[SEND] Thread started
+[FRAME] Starting send loop for session a0f64352-2942-444f-b1ec-710b992cf082
+[RENDER] Thread started for session a0f64352-2942-444f-b1ec-710b992cf082
+[INPUT] Client connecting from 100.74.196.12
+[INPUT] Client connected from 100.74.196.12
+Received session ID: a0f64352-2942-444f-b1ec-710b992cf082
+[INPUT] Matched existing session: a0f64352-2942-444f-b1ec-710b992cf082
+[CONFIG] Client a0f64352-2942-444f-b1ec-710b992cf082 requested capture resolution: 1280x800
+[DEBUG] Received config: follow_focus=0 output_index=1 renderer=7 detail=100 quality=2 audio_compress=1 microphone_compress=0
+[CONFIG] Initializing audio opus encoder: 48000Hz 2ch
+[CONFIG] Update for session a0f64352-2942-444f-b1ec-710b992cf082
+
+[HEVC] ========================================
+[HEVC] Initializing encoder for 1280x800 @ 60 fps
+[HEVC] Target bitrate: 1 Mbps
+[HEVC] Quality level: 2/100
+[HEVC] Detecting available encoders...
+[HEVC]   ✓ NVIDIA NVENC (hevc_nvenc)
+[HEVC]   ✓ Intel QuickSync (hevc_qsv)
+[HEVC]   ✓ VAAPI (hevc_vaapi)
+[HEVC]   ✓ AMD AMF (hevc_amf)
+[HEVC]   ✗ VideoToolbox (not available)
+[HEVC]   ✓ Software (x265) (libx265)
+[HEVC] Trying NVIDIA NVENC...
+[HEVC] Selected: NVIDIA NVENC (hevc_nvenc)
+[HEVC] Configuring NVENC encoder (safe mode)...
+[HEVC] Using preset: p3
+[HEVC] CQ level: 28 (lower=better)
+[HEVC] NVENC configured: preset=p3 cq=28 bitrate=1Mbps buffer=0Mb bframes=0
+[HEVC] ✓ Encoder initialized successfully!
+[HEVC] ========================================
+
+[HEVC] Forcing keyframe at pts=0
+[SERVER] Received key 125 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[HEVC] Forcing keyframe at pts=61
+[SERVER] Received key 106 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 700 frames
+[HEVC] Compression | Ratio: 709.84x | Saved: 99.86% over 700 frames
+[SERVER] Received key 125 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 125 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[HEVC] Forcing keyframe at pts=122
+[VIDEO] LZ4 Level 12 | Saved: -0.21% | Ratio: 1.00x over 800 frames
+[HEVC] Compression | Ratio: 742.42x | Saved: 99.87% over 800 frames
+[HEVC] Forcing keyframe at pts=183
+[HEVC] Forcing keyframe at pts=244
+[VIDEO] LZ4 Level 12 | Saved: -0.21% | Ratio: 1.00x over 900 frames
+[HEVC] Compression | Ratio: 739.99x | Saved: 99.86% over 900 frames
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[HEVC] Forcing keyframe at pts=305
+[HEVC] Forcing keyframe at pts=366
+[VIDEO] LZ4 Level 12 | Saved: -0.21% | Ratio: 1.00x over 1000 frames
+[HEVC] Compression | Ratio: 739.00x | Saved: 99.86% over 1000 frames
+[HEVC] Forcing keyframe at pts=427
+[SERVER] Received key 108 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 125 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 125 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 125 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 29 pressed=1 [shift=0 ctrl=1 alt=0]
+[SERVER] Key event sent
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 1100 frames
+[HEVC] Compression | Ratio: 740.40x | Saved: 99.86% over 1100 frames
+[HEVC] Forcing keyframe at pts=488
+[SERVER] Received key 42 pressed=1 [shift=1 ctrl=1 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 56 pressed=1 [shift=1 ctrl=1 alt=1]
+[SERVER] Key event sent
+[HEVC] Forcing keyframe at pts=549
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 1200 frames
+[HEVC] Compression | Ratio: 736.00x | Saved: 99.86% over 1200 frames
+[HEVC] Forcing keyframe at pts=610
+[HEVC] Forcing keyframe at pts=671
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 1300 frames
+[HEVC] Compression | Ratio: 731.34x | Saved: 99.86% over 1300 frames
+[HEVC] Forcing keyframe at pts=732
+[INPUT] Released modifier keys via WLR Protocols
+[INPUT] Client disconnected for session a0f64352-2942-444f-b1ec-710b992cf082
+[CONFIG] Client disconnected for session a0f64352-2942-444f-b1ec-710b992cf082
+[RENDER] Thread stopped for session a0f64352-2942-444f-b1ec-710b992cf082
+[SEND] Thread stopped
+[FRAME] Client handler exiting for session a0f64352-2942-444f-b1ec-710b992cf082
+[CONFIG] Client connecting from 100.74.196.12
+[CONFIG] Client connected from 100.74.196.12
+Received session ID: 9c97630d-1b56-472c-a927-039ede9098e7
+[CONFIG] Created new client session: 9c97630d-1b56-472c-a927-039ede9098e7
+[FRAME] Client connecting from 100.74.196.12
+[FRAME] Client connected from 100.74.196.12
+Received session ID: 9c97630d-1b56-472c-a927-039ede9098e7
+[FRAME] Matched existing session: 9c97630d-1b56-472c-a927-039ede9098e7
+[SEND] Thread started
+[FRAME] Starting send loop for session 9c97630d-1b56-472c-a927-039ede9098e7
+[RENDER] Thread started for session 9c97630d-1b56-472c-a927-039ede9098e7
+[INPUT] Client connecting from 100.74.196.12
+[INPUT] Client connected from 100.74.196.12
+Received session ID: 9c97630d-1b56-472c-a927-039ede9098e7
+[INPUT] Matched existing session: 9c97630d-1b56-472c-a927-039ede9098e7
+[SERVER] Received key 57 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 57 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 57 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 57 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 57 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 57 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 57 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 57 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 57 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 57 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[CONFIG] Client 9c97630d-1b56-472c-a927-039ede9098e7 requested capture resolution: 1280x800
+[DEBUG] Received config: follow_focus=0 output_index=1 renderer=7 detail=100 quality=2 audio_compress=1 microphone_compress=0
+[CONFIG] Initializing audio opus encoder: 48000Hz 2ch
+[CONFIG] Update for session 9c97630d-1b56-472c-a927-039ede9098e7
+
+[HEVC] ========================================
+[HEVC] Initializing encoder for 1280x800 @ 60 fps
+[HEVC] Target bitrate: 1 Mbps
+[HEVC] Quality level: 2/100
+[HEVC] Detecting available encoders...
+[HEVC]   ✓ NVIDIA NVENC (hevc_nvenc)
+[HEVC]   ✓ Intel QuickSync (hevc_qsv)
+[HEVC]   ✓ VAAPI (hevc_vaapi)
+[HEVC]   ✓ AMD AMF (hevc_amf)
+[HEVC]   ✗ VideoToolbox (not available)
+[HEVC]   ✓ Software (x265) (libx265)
+[HEVC] Trying NVIDIA NVENC...
+[HEVC] Selected: NVIDIA NVENC (hevc_nvenc)
+[HEVC] Configuring NVENC encoder (safe mode)...
+[HEVC] Using preset: p3
+[HEVC] CQ level: 28 (lower=better)
+[HEVC] NVENC configured: preset=p3 cq=28 bitrate=1Mbps buffer=0Mb bframes=0
+[HEVC] ✓ Encoder initialized successfully!
+[HEVC] ========================================
+
+[HEVC] Forcing keyframe at pts=0
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 1400 frames
+[HEVC] Compression | Ratio: 730.05x | Saved: 99.86% over 1400 frames
+[HEVC] Forcing keyframe at pts=61
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 1500 frames
+[HEVC] Compression | Ratio: 736.41x | Saved: 99.86% over 1500 frames
+[HEVC] Forcing keyframe at pts=122
+[HEVC] Forcing keyframe at pts=183
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 1600 frames
+[HEVC] Compression | Ratio: 735.68x | Saved: 99.86% over 1600 frames
+[HEVC] Forcing keyframe at pts=244
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 1700 frames
+[HEVC] Forcing keyframe at pts=305
+[HEVC] Compression | Ratio: 734.62x | Saved: 99.86% over 1700 frames
+[HEVC] Forcing keyframe at pts=366
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 1800 frames
+[HEVC] Compression | Ratio: 736.43x | Saved: 99.86% over 1800 frames
+[HEVC] Forcing keyframe at pts=427
+[HEVC] Forcing keyframe at pts=488
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 1900 frames
+[HEVC] Compression | Ratio: 735.34x | Saved: 99.86% over 1900 frames
+[HEVC] Forcing keyframe at pts=549
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 2000 frames
+[HEVC] Forcing keyframe at pts=610
+[HEVC] Compression | Ratio: 732.20x | Saved: 99.86% over 2000 frames
+[HEVC] Forcing keyframe at pts=671
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 2100 frames
+[HEVC] Compression | Ratio: 734.77x | Saved: 99.86% over 2100 frames
+[HEVC] Forcing keyframe at pts=732
+[HEVC] Forcing keyframe at pts=793
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 2200 frames
+[HEVC] Compression | Ratio: 732.77x | Saved: 99.86% over 2200 frames
+[HEVC] Forcing keyframe at pts=854
+[SERVER] Received key 125 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 125 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 125 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 2300 frames
+[SERVER] Received key 108 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[HEVC] Compression | Ratio: 732.07x | Saved: 99.86% over 2300 frames
+[HEVC] Forcing keyframe at pts=915
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[HEVC] Forcing keyframe at pts=976
+[SERVER] Received key 108 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 106 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[VIDEO] LZ4 Level 12 | Saved: -0.22% | Ratio: 1.00x over 2400 frames
+[SERVER] Received key 106 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[HEVC] Compression | Ratio: 732.22x | Saved: 99.86% over 2400 frames
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[HEVC] Forcing keyframe at pts=1037
+[SERVER] Received key 105 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 108 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 105 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=1 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 125 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 103 pressed=0 [shift=0 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 42 pressed=1 [shift=1 ctrl=0 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 29 pressed=1 [shift=1 ctrl=1 alt=0]
+[SERVER] Key event sent
+[SERVER] Received key 56 pressed=1 [shift=1 ctrl=1 alt=1]
+[SERVER] Key event sent
+[INPUT] Released modifier keys via WLR Protocols
+[INPUT] Client disconnected for session 9c97630d-1b56-472c-a927-039ede9098e7
+[CONFIG] Client disconnected for session 9c97630d-1b56-472c-a927-039ede9098e7
+[RENDER] Thread stopped for session 9c97630d-1b56-472c-a927-039ede9098e7
+[SEND] Thread stopped
+[FRAME] Client handler exiting for session 9c97630d-1b56-472c-a927-039ede9098e7

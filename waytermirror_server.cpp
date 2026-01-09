@@ -3257,12 +3257,7 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
     av_opt_set(ctx->priv_data, "spatial-aq", "1", 0);
     av_opt_set(ctx->priv_data, "temporal-aq", "1", 0);
     
-    // B-frames for quality >= 70
-    if (quality >= 70) {
-        ctx->max_b_frames = 2;
-    } else {
-        ctx->max_b_frames = 0;
-    }
+    ctx->max_b_frames = 0;
     
     // GOP size
     if (quality >= 75) {
@@ -3279,6 +3274,10 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
         ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
         ctx->flags2 |= AV_CODEC_FLAG2_FAST;
     }
+
+    av_opt_set(ctx->priv_data, "delay", "0", 0);
+    av_opt_set(ctx->priv_data, "zerolatency", "1", 0);
+    av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
     
     std::cerr << "[HEVC] NVENC configured: preset=" << preset 
               << " cq=" << cq
@@ -4317,7 +4316,7 @@ static std::vector<uint8_t> render_kms(
 
     std::vector<uint8_t> hevc_data;
 
-    // Use H.264 compression if encoder provided
+    // Use H.265 compression if encoder provided
     if (hevc_enc)
     {
         img_width -= img_width & 1; // ensure width is even
@@ -4432,7 +4431,7 @@ static void apply_capture_resolution(
             double sx = ((double)dx + 0.5) * width / dst_width - 0.5;
             double sy = ((double)dy + 0.5) * height / dst_height - 0.5;
 
-            // Clamp to valid range BEFORE converting to int
+            // Clamp to valid range
             sx = std::clamp(sx, 0.0, (double)(width - 1));
             sy = std::clamp(sy, 0.0, (double)(height - 1));
 
@@ -4450,7 +4449,7 @@ static void apply_capture_resolution(
             x1 = std::clamp(x1, 0, (int)width - 1);
             y1 = std::clamp(y1, 0, (int)height - 1);
 
-            // Calculate offsets with overflow protection - USE STRIDE NOT width*bpp
+            // Calculate offsets with overflow protectio
             size_t off00 = (size_t)y0 * stride + (size_t)x0 * bpp;
             size_t off10 = (size_t)y0 * stride + (size_t)x1 * bpp;
             size_t off01 = (size_t)y1 * stride + (size_t)x0 * bpp;
