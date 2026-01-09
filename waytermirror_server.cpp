@@ -3475,7 +3475,6 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
     }
 
     int64_t bitrate = (int64_t)(width * height * fps * (std::max(quality, 1) / 100.0));
-
     bitrate = std::clamp(bitrate, (int64_t)500000, (int64_t)50000000);
     
     std::cerr << "\n[HEVC] ========================================\n";
@@ -3494,9 +3493,10 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
                   return a.priority < b.priority;
               });
 
-    // Try each encoder in priority order
+    // Try each encoder in priority order until one succeeds
     const AVCodec* codec = nullptr;
     HWEncoderType selected_type = HWEncoderType::SOFTWARE;
+    bool encoder_opened = false;
     
     for (const auto& enc_info : available_encoders) {
         if (!enc_info.available) continue;
@@ -3504,75 +3504,81 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
         std::cerr << "[HEVC] Trying " << enc_info.name << "...\n";
         
         codec = avcodec_find_encoder_by_name(enc_info.codec_name);
-        if (!codec) continue;
+        if (!codec) {
+            std::cerr << "[HEVC] Codec not found: " << enc_info.codec_name << "\n";
+            continue;
+        }
         
+        // Allocate codec context for this encoder
+        enc.codec_ctx = avcodec_alloc_context3(codec);
+        if (!enc.codec_ctx) {
+            std::cerr << "[HEVC] Failed to allocate codec context\n";
+            continue;
+        }
+
+        // Basic parameters
+        enc.codec_ctx->width = width;
+        enc.codec_ctx->height = height;
+        enc.codec_ctx->slices = 1; 
+        enc.codec_ctx->time_base = {1, fps};
+        enc.codec_ctx->framerate = {fps, 1};
+        enc.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+
+        // Configure based on encoder type
         selected_type = enc_info.type;
-        std::cerr << "[HEVC] Selected: " << enc_info.name << " (" << enc_info.codec_name << ")\n";
+        bool config_ok = false;
+        
+        switch (selected_type) {
+            case HWEncoderType::NVENC:
+                config_ok = configure_nvenc(enc.codec_ctx, quality, fps, bitrate);
+                break;
+            case HWEncoderType::QSV:
+                config_ok = configure_qsv(enc.codec_ctx, quality, fps, bitrate);
+                break;
+            case HWEncoderType::VAAPI:
+                config_ok = configure_vaapi(enc.codec_ctx, quality, fps, bitrate, &enc.hw_device_ctx);
+                break;
+            case HWEncoderType::AMF:
+                config_ok = configure_amf(enc.codec_ctx, quality, fps, bitrate);
+                break;
+            case HWEncoderType::VIDEOTOOLBOX:
+                config_ok = configure_videotoolbox(enc.codec_ctx, quality, fps, bitrate);
+                break;
+            case HWEncoderType::SOFTWARE:
+                config_ok = configure_software(enc.codec_ctx, quality, fps, bitrate);
+                break;
+        }
+
+        if (!config_ok) {
+            std::cerr << "[HEVC] Configuration failed for " << enc_info.name << "\n";
+            avcodec_free_context(&enc.codec_ctx);
+            if (enc.hw_device_ctx)
+                av_buffer_unref(&enc.hw_device_ctx);
+            continue; // Try next encoder
+        }
+
+        // Try to open codec
+        int ret = avcodec_open2(enc.codec_ctx, codec, nullptr);
+        if (ret < 0) {
+            char errbuf[256];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            std::cerr << "[HEVC] Failed to open " << enc_info.name << ": " << errbuf << "\n";
+            
+            avcodec_free_context(&enc.codec_ctx);
+            if (enc.hw_device_ctx)
+                av_buffer_unref(&enc.hw_device_ctx);
+            continue; // Try next encoder
+        }
+
+        // Success!
+        std::cerr << "[HEVC] ✓ Successfully opened: " << enc_info.name << "\n";
+        encoder_opened = true;
         break;
     }
 
-    if (!codec) {
-        std::cerr << "[HEVC] ERROR: No encoder available!\n";
+    if (!encoder_opened) {
+        std::cerr << "[HEVC] ERROR: All encoders failed!\n";
         return false;
-    }
-
-    // Allocate codec context
-    enc.codec_ctx = avcodec_alloc_context3(codec);
-    if (!enc.codec_ctx) {
-        std::cerr << "[HEVC] Failed to allocate codec context\n";
-        return false;
-    }
-
-    // Basic parameters
-    enc.codec_ctx->width = width;
-    enc.codec_ctx->height = height;
-    enc.codec_ctx->slices = 1; 
-    enc.codec_ctx->time_base = {1, fps};
-    enc.codec_ctx->framerate = {fps, 1};
-    enc.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-
-    // Configure based on selected encoder type
-    bool config_ok = false;
-    switch (selected_type) {
-        case HWEncoderType::NVENC:
-            config_ok = configure_nvenc(enc.codec_ctx, quality, fps, bitrate);
-            break;
-        case HWEncoderType::QSV:
-            config_ok = configure_qsv(enc.codec_ctx, quality, fps, bitrate);
-            break;
-        case HWEncoderType::VAAPI:
-            config_ok = configure_vaapi(enc.codec_ctx, quality, fps, bitrate, &enc.hw_device_ctx);
-            break;
-        case HWEncoderType::AMF:
-            config_ok = configure_amf(enc.codec_ctx, quality, fps, bitrate);
-            break;
-        case HWEncoderType::VIDEOTOOLBOX:
-            config_ok = configure_videotoolbox(enc.codec_ctx, quality, fps, bitrate);
-            break;
-        case HWEncoderType::SOFTWARE:
-            config_ok = configure_software(enc.codec_ctx, quality, fps, bitrate);
-            break;
-    }
-
-    if (!config_ok) {
-        std::cerr << "[HEVC] Configuration failed\n";
-        avcodec_free_context(&enc.codec_ctx);
-        return false;
-    }
-
-    // Open codec
-    int ret = avcodec_open2(enc.codec_ctx, codec, nullptr);
-    if (ret < 0) {
-        char errbuf[256];
-        av_strerror(ret, errbuf, sizeof(errbuf));
-        std::cerr << "[HEVC] Failed to open codec: " << errbuf << "\n";
-         
-        // If hardware failed and this wasn't software, try software fallback
-        if (selected_type != HWEncoderType::SOFTWARE) {
-            std::cerr << "[HEVC] Hardware encoder failed, trying software fallback...\n";
-            selected_type = HWEncoderType::SOFTWARE;
-            config_ok = configure_software(enc.codec_ctx, quality, fps, bitrate);
-        }
     }
 
     enc.pts = 0;
@@ -3582,6 +3588,8 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
     if (!enc.frame) {
         std::cerr << "[HEVC] Failed to allocate frame\n";
         avcodec_free_context(&enc.codec_ctx);
+        if (enc.hw_device_ctx)
+            av_buffer_unref(&enc.hw_device_ctx);
         return false;
     }
 
@@ -3589,13 +3597,15 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
     enc.frame->width = width;
     enc.frame->height = height;
 
-    ret = av_frame_get_buffer(enc.frame, 0);
+    int ret = av_frame_get_buffer(enc.frame, 0);
     if (ret < 0) {
         char errbuf[256];
         av_strerror(ret, errbuf, sizeof(errbuf));
         std::cerr << "[HEVC] Failed to allocate frame buffer: " << errbuf << "\n";
         av_frame_free(&enc.frame);
         avcodec_free_context(&enc.codec_ctx);
+        if (enc.hw_device_ctx)
+            av_buffer_unref(&enc.hw_device_ctx);
         return false;
     }
 
@@ -3605,6 +3615,8 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
         std::cerr << "[HEVC] Failed to allocate packet\n";
         av_frame_free(&enc.frame);
         avcodec_free_context(&enc.codec_ctx);
+        if (enc.hw_device_ctx)
+            av_buffer_unref(&enc.hw_device_ctx);
         return false;
     }
 
