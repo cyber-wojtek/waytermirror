@@ -3346,6 +3346,7 @@ static bool configure_vaapi(AVCodecContext* ctx, int quality, int fps, int64_t b
     frames_ctx->initial_pool_size = 20;             // Number of pre-allocated surfaces
     
     ctx->hw_device_ctx = av_buffer_ref(*hw_device_ctx);
+    ctx->hw_frames_ctx = hw_frames_ref;
     
     // Quality
     int qp = 28 - (quality * 10) / 100;  // Lower QP = better quality
