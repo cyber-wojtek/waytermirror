@@ -450,7 +450,6 @@ struct HEVCEncoder
     AVBufferRef *hw_device_ctx = nullptr;
     HWEncoderType encoder_type = HWEncoderType::SOFTWARE;
     
-    // ✅ ADD THESE PER-ENCODER STATE TRACKERS:
     int last_fps = -1;
     int last_quality = -1;
     uint32_t last_width = 0;
@@ -3698,18 +3697,17 @@ static std::vector<uint8_t> encode_hevc_frame(
 {
     SwsContext *&sws_ctx = enc.sws_ctx;
     
-    // Store per-encoder state, NOT static
     bool resolution_changed = (enc.width != width || enc.height != height);
     bool quality_changed = (enc.last_quality != quality);
     bool fps_changed = (enc.last_fps != fps);
     
     if (!enc.initialized || resolution_changed || fps_changed || quality_changed)
     {
-        // Update stored values
         enc.last_fps = fps;
         enc.last_quality = quality;
         enc.last_width = width;
         enc.last_height = height;
+        enc.frames_since_keyframe = 9999; // Force keyframe on next encode
 
         if (sws_ctx) {
             sws_freeContext(sws_ctx);
@@ -3736,7 +3734,6 @@ static std::vector<uint8_t> encode_hevc_frame(
             SWS_BILINEAR, nullptr, nullptr, nullptr);
 
         if (!sws_ctx) {
-            std::cerr << "[HEVC] Failed to create scaler\n";
             return {};
         }
 
@@ -3745,10 +3742,7 @@ static std::vector<uint8_t> encode_hevc_frame(
     }
 
     // Make frame writable
-    int ret = av_frame_make_writable(enc.frame);
-    if (ret < 0)
-    {
-        std::cerr << "[HEVC] Failed to make frame writable\n";
+    if (av_frame_make_writable(enc.frame) < 0) {
         return {};
     }
 
@@ -3760,13 +3754,19 @@ static std::vector<uint8_t> encode_hevc_frame(
               src_data, src_linesize, 0, height,
               enc.frame->data, enc.frame->linesize);
 
+    // Force keyframe every GOP_SIZE frames (fps), OR at start, OR on request
     bool force_keyframe = (enc.frames_since_keyframe >= fps) || (enc.pts == 0);
+    
     enc.frames_since_keyframe++;
 
     if (force_keyframe) {
         enc.frame->pict_type = AV_PICTURE_TYPE_I;
         enc.frames_since_keyframe = 0;
-        std::cerr << "[HEVC] Forcing keyframe at pts=" << enc.pts << "\n";
+        
+        if (enc.pts > 0) { // Don't log first frame
+            std::cerr << "[HEVC] Keyframe at pts=" << enc.pts 
+                      << " (every " << fps << " frames)\n";
+        }
     } else {
         enc.frame->pict_type = AV_PICTURE_TYPE_NONE;
     }
@@ -3775,30 +3775,25 @@ static std::vector<uint8_t> encode_hevc_frame(
     enc.pts++;
 
     // Send frame to encoder
-    ret = avcodec_send_frame(enc.codec_ctx, enc.frame);
-    if (ret < 0)
-    {
+    int ret = avcodec_send_frame(enc.codec_ctx, enc.frame);
+    if (ret < 0) {
         char errbuf[256];
         av_strerror(ret, errbuf, sizeof(errbuf));
-        std::cerr << "[HEVC] Error sending frame: " << errbuf << "\n";
+        std::cerr << "[HEVC] Send frame error: " << errbuf << "\n";
         return {};
     }
 
     // Receive encoded packets
     std::vector<uint8_t> encoded_data;
 
-    while (ret >= 0)
-    {
+    while (ret >= 0) {
         ret = avcodec_receive_packet(enc.codec_ctx, enc.pkt);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-        {
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
             break;
-        }
-        else if (ret < 0)
-        {
+        } else if (ret < 0) {
             char errbuf[256];
             av_strerror(ret, errbuf, sizeof(errbuf));
-            std::cerr << "[HEVC] Error receiving packet: " << errbuf << "\n";
+            std::cerr << "[HEVC] Receive packet error: " << errbuf << "\n";
             return {};
         }
 
@@ -3819,8 +3814,7 @@ static std::vector<uint8_t> encode_hevc_frame(
     total_input += width * height * 3;
     total_output += encoded_data.size();
 
-    if (frame_count % 100 == 0)
-    {
+    if (frame_count % 100 == 0) {
         double ratio = total_output > 0 ? (double)total_input / total_output : 0;
         double saved = total_input > 0 ? 100.0 * (1.0 - (double)total_output / total_input) : 0;
         std::cerr << "[HEVC] Compression | Ratio: " << std::fixed
