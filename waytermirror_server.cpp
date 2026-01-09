@@ -3270,7 +3270,7 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
     } else {
         ctx->gop_size = fps * 2;
     }
-    
+
     // Profile and level
     ctx->profile = AV_PROFILE_HEVC_MAIN;
     
@@ -3475,17 +3475,9 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
         enc.initialized = false;
     }
 
-    double pixels = width * height;
-    double base_pixels = 1920.0 * 1080.0;
-    double resolution_factor = pixels / base_pixels;
-    
-    double base_mbps = quality * 0.2;
-    double fps_factor = fps / 30.0;
-
-    int64_t bitrate = (int64_t)(base_mbps * 1000000 * resolution_factor * fps_factor);
+    int64_t bitrate = (int64_t)(width * height * fps * (std::max(quality, 1) / 100.0 * 0.11));
 
     bitrate = std::clamp(bitrate, (int64_t)500000, (int64_t)50000000);
-    bitrate = 100'000'000;
     
     std::cerr << "\n[HEVC] ========================================\n";
     std::cerr << "[HEVC] Initializing encoder for " << width << "x" << height 
@@ -3535,7 +3527,7 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
     // Basic parameters
     enc.codec_ctx->width = width;
     enc.codec_ctx->height = height;
-    enc.codec_ctx->slices = 8; 
+    enc.codec_ctx->slices = 1; 
     enc.codec_ctx->time_base = {1, fps};
     enc.codec_ctx->framerate = {fps, 1};
     enc.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
