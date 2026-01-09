@@ -74,7 +74,7 @@ Then log out and back in.
 [HOTPLUG]   - Keyboard capability
 [HOTPLUG] Device added: JBL Flip 7 (Wojt (AVRCP)
 [HOTPLUG]   - Keyboard capability
-[INIT] Session ID: 2ad50124-14b6-4ab1-a66e-57e7efe68d25
+[INIT] Session ID: 4284d9aa-feec-4381-9b1d-8cbc2feba9cc
 [CONFIG] Connected to 192.168.0.131:10002
 [VIDEO] Connected to 192.168.0.131:9999
 [CLIENT] Got geometry from ioctl: 1899x960 (reserved 1 top, 1 bottom)
@@ -94,12 +94,11 @@ Render Device: CPU
 
 [CONFIG] Sent: 211x50 fps=60 renderer=5 detail=100 follow_focus=0
 [INIT] Waiting for screen info from server...
-[INIT] Received screen info: 1280x800 offset: 0,0
-[INIT] Screen info received: 1280x800
+[INIT] Warning: No screen info received, using default 1920x1080
 
 === Waytermirror Client Started ===
-Session: 2ad50124-14b6-4ab1-a66e-57e7efe68d25
-Output: 1 | Resolution: 1280x800
+Session: 4284d9aa-feec-4381-9b1d-8cbc2feba9cc
+Output: 1 | Resolution: 1920x1080
 Renderer: kitty | Color mode: true
 FPS: 60 | Scale: 1
 Compression: ON
@@ -118,20 +117,17 @@ Press Ctrl+Alt+Shift+H for full shortcut list
 [HEVC DECODER] ========================================
 [HEVC DECODER] Initializing decoder for 1898x960
 [HEVC DECODER] Attempting hardware acceleration...
-[HEVC DECODER]   ✓ Found CUDA (NVIDIA) decoder
-[HEVC DECODER] Hardware device context created
-[HEVC DECODER] Hardware decoder: using internal threading
-[HEVC DECODER] Low-latency flags enabled
-[hevc_cuvid @ 0x55fd02935200] Invalid pkt_timebase, passing timestamps as-is.
+[HEVC DECODER] Trying CUDA (NVIDIA)...
+[hevc_cuvid @ 0x55a798c9d200] Invalid pkt_timebase, passing timestamps as-is.
+[HEVC DECODER]   ✓ Successfully opened: CUDA (NVIDIA)
 [HEVC DECODER] ✓ Decoder initialized successfully!
 [HEVC DECODER]   Resolution: 1898x960
 [HEVC DECODER]   Hardware: YES
 [HEVC DECODER]   Threads: 1
-[HEVC DECODER]   Threading type: other
+[HEVC DECODER]   Threading type: internal
 [HEVC DECODER] ========================================
 
 [HEVC DECODER] Decoder initialized/reinitialized for 1898x960
-[KITTY] Failed to decode HEVC data
 [KITTY] Failed to decode HEVC data
 [KITTY] Failed to decode HEVC data
 [KITTY] Failed to decode HEVC data

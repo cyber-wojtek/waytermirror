@@ -3210,7 +3210,7 @@ static std::vector<HWEncoderInfo> detect_available_encoders() {
 
 // Configure NVENC encoder (NVIDIA)
 static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t bitrate) {
-    std::cerr << "[HEVC] Configuring NVENC encoder (safe mode)...\n";
+    std::cerr << "[HEVC] Configuring NVENC encoder...\n";
     
     // Quality-based preset selection (p1-p7 are valid)
     const char* preset;
@@ -3330,6 +3330,20 @@ static bool configure_vaapi(AVCodecContext* ctx, int quality, int fps, int64_t b
         std::cerr << "[HEVC] Failed to create VAAPI device: " << errbuf << "\n";
         return false;
     }
+
+    AVBufferRef* hw_frames_ref = av_hwframe_ctx_alloc(*hw_device_ctx);
+    if (!hw_frames_ref) {
+        std::cerr << "[HEVC] Failed to allocate VAAPI frames context\n";
+        return false;
+    }
+    
+    // Create hardware frames context for VAAPI encoder
+    AVHWFramesContext* frames_ctx = (AVHWFramesContext*)hw_frames_ref->data;
+    frames_ctx->format = AV_PIX_FMT_VAAPI;          // Hardware format
+    frames_ctx->sw_format = AV_PIX_FMT_NV12;        // Software format (input)
+    frames_ctx->width = ctx->width;
+    frames_ctx->height = ctx->height;
+    frames_ctx->initial_pool_size = 20;             // Number of pre-allocated surfaces
     
     ctx->hw_device_ctx = av_buffer_ref(*hw_device_ctx);
     
