@@ -1023,16 +1023,43 @@ static void cleanup_hevc_decoder(HEVCDecoder &dec)
         return;
 
     if (dec.sws_ctx)
+    {
         sws_freeContext(dec.sws_ctx);
+        dec.sws_ctx = nullptr;
+    }
     if (dec.pkt)
+    {
         av_packet_free(&dec.pkt);
+        dec.pkt = nullptr;
+    }
     if (dec.frame)
+    {
         av_frame_free(&dec.frame);
+        dec.frame = nullptr;
+    }
     if (dec.rgb_frame)
-        av_frame_free(&dec.rgb_frame); // Cleanup
+    {
+        av_frame_free(&dec.rgb_frame);
+        dec.rgb_frame = nullptr;
+    }
     if (dec.codec_ctx)
+    {
         avcodec_free_context(&dec.codec_ctx);
+        dec.codec_ctx = nullptr;
+    }
+    
+    if (dec.hw_device_ctx)
+    {
+        av_buffer_unref(&dec.hw_device_ctx);
+        dec.hw_device_ctx = nullptr;
+    }
 
+    dec.use_hw = false;
+    dec.hw_pix_fmt = AV_PIX_FMT_NONE;
+    dec.width = 0;
+    dec.height = 0;
+    dec.src_format = -1;
+    dec.received_keyframe = false;
     dec.initialized = false;
 }
 
@@ -1151,16 +1178,23 @@ static bool decode_hevc_to_rgb(
             return false;
         }
     }
-
-    // Initialize/reinitialize decoder if needed
+    
+    
     if (!hevc_decoder.initialized || hevc_decoder.width != width || hevc_decoder.height != height)
     {
+        if (hevc_decoder.initialized)
+        {
+            std::cerr << "[HEVC DECODER] Dimensions changed (" << hevc_decoder.width << "x" << hevc_decoder.height 
+                      << " -> " << width << "x" << height << "), cleaning up old decoder\n";
+            cleanup_hevc_decoder(hevc_decoder);
+        }
+        
         if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size))
         {
             std::cerr << "[HEVC DECODER] Init failed\n";
             return false;
         }
-        std::cerr << "[HEVC DECODER] Decoder initialized/reinitialized\n";
+        std::cerr << "[HEVC DECODER] Decoder initialized/reinitialized for " << width << "x" << height << "\n";
     }
 
     // Allocate RGB frame buffer if needed

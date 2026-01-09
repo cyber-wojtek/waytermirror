@@ -3229,13 +3229,7 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
     std::cerr << "[HEVC] Using preset: " << preset << "\n";
     
     // Tune for quality
-    if (quality >= 70) {
-        av_opt_set(ctx->priv_data, "tune", "hq", 0);  // High quality
-    } else if (quality >= 50) {
-        av_opt_set(ctx->priv_data, "tune", "ll", 0);  // Low latency
-    } else {
-        av_opt_set(ctx->priv_data, "tune", "ull", 0);  // Ultra low latency
-    }
+    av_opt_set(ctx->priv_data, "tune", "ull", 0);  // Ultra low latency
     
     // Rate control
     av_opt_set(ctx->priv_data, "rc", "vbr", 0);  // VBR works for all quality levels
@@ -3480,7 +3474,7 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
     std::cerr << "\n[HEVC] ========================================\n";
     std::cerr << "[HEVC] Initializing encoder for " << width << "x" << height 
               << " @ " << fps << " fps\n";
-    std::cerr << "[HEVC] Target bitrate: " << bitrate/1000000 << " Mbps\n";
+    std::cerr << "[HEVC] Target bitrate: " << bitrate/100000.0 << " Mbps\n";
     std::cerr << "[HEVC] Quality level: " << quality << "/100\n";
 
     // Detect available encoders
