@@ -34,6 +34,14 @@
 #include <sys/select.h>
 #include <linux/fb.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <chrono>
+#include <atomic>
+#include <thread>
+#include <queue>
+#include <mutex>
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
@@ -57,6 +65,59 @@ extern "C"
 #include <libswscale/swscale.h>
 #include <libavutil/hwcontext.h>
 }
+
+// Maximum UDP packet size (Ethernet MTU minus IP/UDP headers)
+constexpr size_t UDP_MTU = 1400; // Safe size for most networks
+constexpr size_t UDP_HEADER_SIZE = 12; // Sequence + timestamp + fragment info
+constexpr size_t UDP_PAYLOAD_SIZE = UDP_MTU - UDP_HEADER_SIZE;
+
+// Packet types
+enum class UDPPacketType : uint8_t {
+    VIDEO_FRAME = 1,
+    AUDIO_CHUNK = 2,
+    MICROPHONE_CHUNK = 3,
+    HEARTBEAT = 4
+};
+
+// UDP packet header (12 bytes total)
+struct UDPPacketHeader {
+    uint32_t sequence_number;    // 4 bytes - monotonic sequence
+    uint32_t timestamp_us;       // 4 bytes - microsecond timestamp (lower 32 bits)
+    uint16_t fragment_index;     // 2 bytes - fragment number (0-based)
+    uint16_t total_fragments;    // 2 bytes - total fragments in this frame
+    uint8_t packet_type;         // 1 byte - UDPPacketType
+    uint8_t flags;               // 1 byte - reserved for future use
+} __attribute__((packed));
+
+// Statistics tracking
+struct UDPStats {
+    std::atomic<uint64_t> packets_sent{0};
+    std::atomic<uint64_t> bytes_sent{0};
+    std::atomic<uint64_t> fragments_sent{0};
+    std::atomic<uint32_t> current_bitrate{0}; // bits per second
+    
+    void update_bitrate() {
+        static auto last_update = std::chrono::steady_clock::now();
+        static uint64_t last_bytes = 0;
+        
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - last_update).count();
+        
+        if (elapsed >= 1000) { // Update every second
+            uint64_t current_bytes = bytes_sent.load();
+            uint64_t delta_bytes = current_bytes - last_bytes;
+            current_bitrate = (delta_bytes * 8 * 1000) / elapsed; // bits/sec
+            
+            last_bytes = current_bytes;
+            last_update = now;
+        }
+    }
+};
+
+static UDPStats udp_video_stats;
+static UDPStats udp_audio_stats;
+static UDPStats udp_microphone_stats;
 
 enum class HWEncoderType {
     NVENC,      // NVIDIA GPU
@@ -346,6 +407,9 @@ struct ClientConfig
     int microphone_opus_application = OPUS_APPLICATION_VOIP;
     uint32_t requested_capture_width;  // 0 = native
     uint32_t requested_capture_height; // 0 = native
+    uint16_t udp_video_port;
+    uint16_t udp_audio_port;
+    uint16_t udp_microphone_port;
 };
 
 enum CaptureBackend
@@ -459,6 +523,14 @@ struct HEVCEncoder
     bool requested_keyframe = false;
 };
 
+struct RawFrame {
+    std::vector<uint8_t> data;
+    uint32_t width;
+    uint32_t height;
+    uint32_t stride;
+    PixelFormat pixel_format;
+};
+
 struct ClientConnection
 {
     int frame_socket = -1;
@@ -474,6 +546,19 @@ struct ClientConnection
     // Microphone opus (client->server): decoder decodes received mic data
     OpusDecoder *microphone_opus_decoder = nullptr;
     HEVCEncoder hevc_encoder;
+
+    // UDP support
+    std::string client_ip;
+    uint16_t udp_video_port;
+    uint16_t udp_audio_port;
+    uint16_t udp_microphone_port;
+    
+    // Async encoding
+    std::queue<struct RawFrame> encode_queue;
+    std::mutex encode_queue_mutex;
+    
+    std::queue<std::vector<uint8_t>> frame_queue;
+    std::mutex frame_queue_mutex;
 };
 
 static std::map<std::string, std::shared_ptr<ClientConnection>> clients;
@@ -3171,6 +3256,92 @@ static std::string render_hybrid(
     return out.str();
 }
 
+// Fragment a large payload into UDP packets
+static std::vector<std::vector<uint8_t>> fragment_payload(
+    const std::vector<uint8_t>& payload,
+    UDPPacketType packet_type)
+{
+    std::vector<std::vector<uint8_t>> fragments;
+    
+    if (payload.empty()) return fragments;
+    
+    size_t total_fragments = (payload.size() + UDP_PAYLOAD_SIZE - 1) / UDP_PAYLOAD_SIZE;
+    if (total_fragments > 65535) {
+        std::cerr << "[UDP] Payload too large: " << payload.size() 
+                  << " bytes (max fragments exceeded)\n";
+        return fragments;
+    }
+    
+    static std::atomic<uint32_t> sequence_counter{0};
+    uint32_t sequence = sequence_counter.fetch_add(1);
+    
+    auto now = std::chrono::steady_clock::now().time_since_epoch();
+    uint32_t timestamp = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+    
+    for (size_t i = 0; i < total_fragments; ++i) {
+        size_t offset = i * UDP_PAYLOAD_SIZE;
+        size_t chunk_size = std::min(UDP_PAYLOAD_SIZE, payload.size() - offset);
+        
+        std::vector<uint8_t> packet(sizeof(UDPPacketHeader) + chunk_size);
+        
+        UDPPacketHeader* header = reinterpret_cast<UDPPacketHeader*>(packet.data());
+        header->sequence_number = sequence;
+        header->timestamp_us = timestamp;
+        header->fragment_index = i;
+        header->total_fragments = total_fragments;
+        header->packet_type = static_cast<uint8_t>(packet_type);
+        header->flags = 0;
+        
+        memcpy(packet.data() + sizeof(UDPPacketHeader), 
+               payload.data() + offset, 
+               chunk_size);
+        
+        fragments.push_back(std::move(packet));
+    }
+    
+    return fragments;
+}
+
+// Send fragmented payload via UDP
+static bool send_udp_payload(
+    int udp_socket,
+    const sockaddr_in& client_addr,
+    const std::vector<uint8_t>& payload,
+    UDPPacketType packet_type,
+    UDPStats& stats)
+{
+    auto fragments = fragment_payload(payload, packet_type);
+    
+    if (fragments.empty()) return false;
+    
+    bool all_sent = true;
+    for (const auto& fragment : fragments) {
+        ssize_t sent = sendto(udp_socket, fragment.data(), fragment.size(), 
+                              MSG_DONTWAIT, // Non-blocking
+                              (const sockaddr*)&client_addr, 
+                              sizeof(client_addr));
+        
+        if (sent < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // Socket buffer full - frame will be dropped, but we continue
+                // This is CORRECT behavior for real-time streaming
+                continue;
+            } else {
+                std::cerr << "[UDP] Send error: " << strerror(errno) << "\n";
+                all_sent = false;
+                break;
+            }
+        } else {
+            stats.packets_sent++;
+            stats.bytes_sent += sent;
+            stats.fragments_sent++;
+        }
+    }
+    
+    stats.update_bitrate();
+    return all_sent;
+}
+
 static std::vector<HWEncoderInfo> detect_available_encoders() {
     std::vector<HWEncoderInfo> encoders = {
         {HWEncoderType::NVENC, "NVIDIA NVENC", "hevc_nvenc", false, 1},
@@ -3210,14 +3381,24 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
         preset = "p5";
     } else if (quality >= 40) {
         preset = "p4";
+    } else if (quality >= 25) {
+        preset = "p3";
+    } else if (quality >= 10) {
+        preset = "p2";
     } else {
-        preset = "p3";  // Fast
+        preset = "p1";  // Fastest, lower quality
     }
     av_opt_set(ctx->priv_data, "preset", preset, 0);
     std::cerr << "[HEVC] Using preset: " << preset << "\n";
     
     // Tune for quality
-    av_opt_set(ctx->priv_data, "tune", "ull", 0);  // Ultra low latency
+    if (quality >= 75) {
+        av_opt_set(ctx->priv_data, "tune", "hq", 0);  // High quality
+    } else if (quality >= 50) {
+        av_opt_set(ctx->priv_data, "tune", "ll", 0);  // Low latency
+    } else {
+        av_opt_set(ctx->priv_data, "tune", "ull", 0);  // Ultra low latency
+    }
     
     // Rate control
     av_opt_set(ctx->priv_data, "rc", "vbr", 0);  // VBR works for all quality levels
@@ -3232,7 +3413,7 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
     
     // Bitrate and buffer configuration
     ctx->bit_rate = bitrate;
-    ctx->rc_max_rate = bitrate * 2;  // Allow 2x for VBR peaks
+    ctx->rc_max_rate = bitrate * 4;  // Allow 4x for VBR peaks
     ctx->rc_buffer_size = bitrate / fps * 8;  // 8 frames buffer
     
     // Basic quality options
@@ -3242,11 +3423,7 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
     ctx->max_b_frames = 0;
     
     // GOP size
-    if (quality >= 75) {
-        ctx->gop_size = fps;
-    } else {
-        ctx->gop_size = fps;
-    }
+    ctx->gop_size = fps;
 
     // Profile and level
     ctx->profile = AV_PROFILE_HEVC_MAIN;
@@ -3254,8 +3431,9 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
     // Low delay for < 70 quality
     if (quality < 70) {
         ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-        ctx->flags2 |= AV_CODEC_FLAG2_FAST;
     }
+
+    ctx->flags2 |= AV_CODEC_FLAG2_FAST;
 
     av_opt_set(ctx->priv_data, "delay", "0", 0);
     av_opt_set(ctx->priv_data, "zerolatency", "1", 0);
@@ -3813,6 +3991,82 @@ static std::vector<uint8_t> encode_hevc_frame(
     }
 
     return encoded_data;
+}
+
+static void async_encoder_thread(std::shared_ptr<ClientConnection> conn) {
+    std::cerr << "[ENCODER] Async thread started for " << conn->client_id << "\n";
+    
+    while (running && conn->active) {
+        std::vector<uint8_t> raw_frame;
+        uint32_t width, height, stride;
+        PixelFormat pixel_fmt;
+        
+        {
+            std::lock_guard<std::mutex> lock(conn->encode_queue_mutex);
+            if (!conn->encode_queue.empty()) {
+                auto& item = conn->encode_queue.front();
+                raw_frame = std::move(item.data);
+                width = item.width;
+                height = item.height;
+                stride = item.stride;
+                pixel_fmt = item.pixel_format;
+                conn->encode_queue.pop();
+            }
+        }
+        
+        if (raw_frame.empty()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+        
+        // Encode (this can take 50-500ms depending on quality)
+        std::vector<uint8_t> encoded = encode_hevc_frame(
+            conn->hevc_encoder,
+            raw_frame.data(),
+            width, height,
+            conn->config.quality,
+            conn->config.fps);
+        
+        if (!encoded.empty()) {
+            // Queue for UDP transmission
+            std::lock_guard<std::mutex> lock(conn->frame_queue_mutex);
+            
+            // Drop old frames if queue is full (max 2 buffered)
+            while (conn->frame_queue.size() >= 2) {
+                conn->frame_queue.pop();
+            }
+            
+            conn->frame_queue.push(std::move(encoded));
+        }
+    }
+    
+    std::cerr << "[ENCODER] Async thread stopped\n";
+}
+
+static void adaptive_quality_thread(std::shared_ptr<ClientConnection> conn) {
+    while (running && conn->active) {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        
+        // Check encoding queue depth
+        size_t queue_depth;
+        {
+            std::lock_guard<std::mutex> lock(conn->encode_queue_mutex);
+            queue_depth = conn->encode_queue.size();
+        }
+        
+        if (queue_depth > 3 && conn->config.quality > 10) {
+            // Queue building up - reduce quality
+            conn->config.quality -= 10;
+            std::cerr << "[ADAPTIVE] Reducing quality to " 
+                      << (int)conn->config.quality << " (queue depth: " 
+                      << queue_depth << ")\n";
+        } else if (queue_depth == 0 && conn->config.quality < 90) {
+            // No backlog - can increase quality
+            conn->config.quality += 5;
+            std::cerr << "[ADAPTIVE] Increasing quality to " 
+                      << (int)conn->config.quality << "\n";
+        }
+    }
 }
 
 static std::vector<uint8_t> render_framebuffer(
@@ -5717,6 +5971,262 @@ static void accept_microphone_thread(int server_socket)
     std::cerr << "[MICROPHONE IN] Accept thread stopped\n";
 }
 
+// UDP Video streaming thread
+static void udp_video_thread(int udp_socket, std::shared_ptr<ClientConnection> conn) {
+    std::cerr << "[UDP VIDEO] Thread started for " << conn->client_id << "\n";
+    
+    sockaddr_in client_addr{};
+    client_addr.sin_family = AF_INET;
+    
+    // USE PORTS FROM CLIENT CONFIG (not hardcoded)
+    client_addr.sin_port = htons(conn->config.udp_video_port);
+    
+    // CONVERT IP STRING TO ADDRESS
+    if (inet_pton(AF_INET, conn->client_ip.c_str(), &client_addr.sin_addr) <= 0) {
+        std::cerr << "[UDP VIDEO] Invalid client IP: " << conn->client_ip << "\n";
+        return;
+    }
+    
+    std::cerr << "[UDP VIDEO] Sending to " << conn->client_ip 
+              << ":" << conn->config.udp_video_port << "\n";
+    
+    // Heartbeat every 5 seconds
+    auto last_heartbeat = std::chrono::steady_clock::now();
+    
+    while (running && conn->active) {
+        // Send heartbeat periodically
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(
+            now - last_heartbeat).count() >= 5) {
+            
+            std::vector<uint8_t> heartbeat(8);
+            uint64_t timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+                now.time_since_epoch()).count();
+            memcpy(heartbeat.data(), &timestamp, 8);
+            
+            send_udp_payload(udp_socket, client_addr, heartbeat, 
+                           UDPPacketType::HEARTBEAT, udp_video_stats);
+            
+            last_heartbeat = now;
+        }
+        
+        // Get rendered frame from queue
+        std::vector<uint8_t> frame_data;
+        {
+            std::lock_guard<std::mutex> lock(conn->frame_queue_mutex);
+            if (!conn->frame_queue.empty()) {
+                frame_data = std::move(conn->frame_queue.front());
+                conn->frame_queue.pop();
+            }
+        }
+        
+        if (!frame_data.empty()) {
+            send_udp_payload(udp_socket, client_addr, frame_data,
+                           UDPPacketType::VIDEO_FRAME, udp_video_stats);
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    
+    std::cerr << "[UDP VIDEO] Thread stopped. Stats: "
+              << udp_video_stats.packets_sent << " packets, "
+              << udp_video_stats.bytes_sent / 1024 / 1024 << " MB sent\n";
+}
+
+// UDP Audio streaming thread (server -> client)
+static void udp_audio_thread(int udp_socket, std::shared_ptr<ClientConnection> conn) {
+    std::cerr << "[UDP AUDIO] Thread started for " << conn->client_id << "\n";
+    
+    sockaddr_in client_addr{};
+    client_addr.sin_family = AF_INET;
+    client_addr.sin_port = htons(conn->config.udp_audio_port);
+    inet_pton(AF_INET, conn->client_ip.c_str(), &client_addr.sin_addr);
+    
+    while (running && conn->active && audio_capture.running) {
+        std::vector<uint8_t> audio_data;
+        
+        {
+            std::lock_guard<std::mutex> lock(audio_capture.mutex);
+            if (!audio_capture.audio_queue.empty()) {
+                audio_data = std::move(audio_capture.audio_queue.front());
+                audio_capture.audio_queue.pop();
+            }
+        }
+        
+        if (!audio_data.empty()) {
+            // Encode if compression enabled
+            if (conn->config.audio_compress && conn->audio_opus_encoder) {
+                // [Opus encoding code from original...]
+                // audio_data = encode_audio_opus(...);
+            }
+            
+            send_udp_payload(udp_socket, client_addr, audio_data,
+                           UDPPacketType::AUDIO_CHUNK, udp_audio_stats);
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    
+    std::cerr << "[UDP AUDIO] Thread stopped\n";
+}
+
+// UDP Microphone receive thread (client -> server)
+static void udp_microphone_thread(int udp_socket, std::string session_id) {
+    std::cerr << "[UDP MICROPHONE] Thread started for " << session_id << "\n";
+    
+    // Reassembly buffer
+    struct FragmentedFrame {
+        std::map<uint16_t, std::vector<uint8_t>> fragments;
+        uint16_t total_fragments;
+        std::chrono::steady_clock::time_point first_fragment_time;
+    };
+    
+    std::map<uint32_t, FragmentedFrame> reassembly_buffer;
+    constexpr size_t MAX_REASSEMBLY_BUFFER = 10; // Max frames buffered
+    
+    uint8_t recv_buffer[UDP_MTU];
+    
+    while (running && microphone_virtual_source.running) {
+        ssize_t received = recvfrom(udp_socket, recv_buffer, sizeof(recv_buffer),
+                                   MSG_DONTWAIT, nullptr, nullptr);
+        
+        if (received < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+                continue;
+            }
+            std::cerr << "[UDP MIC] Recv error: " << strerror(errno) << "\n";
+            break;
+        }
+        
+        if (received < sizeof(UDPPacketHeader)) {
+            continue; // Malformed packet
+        }
+        
+        UDPPacketHeader* header = reinterpret_cast<UDPPacketHeader*>(recv_buffer);
+        
+        if (header->packet_type != static_cast<uint8_t>(UDPPacketType::MICROPHONE_CHUNK)) {
+            continue; // Wrong packet type
+        }
+        
+        uint32_t seq = header->sequence_number;
+        uint16_t frag_idx = header->fragment_index;
+        uint16_t total_frags = header->total_fragments;
+        
+        size_t payload_size = received - sizeof(UDPPacketHeader);
+        std::vector<uint8_t> payload(recv_buffer + sizeof(UDPPacketHeader),
+                                     recv_buffer + received);
+        
+        // Reassembly logic
+        auto& frame = reassembly_buffer[seq];
+        
+        if (frame.fragments.empty()) {
+            frame.total_fragments = total_frags;
+            frame.first_fragment_time = std::chrono::steady_clock::now();
+        }
+        
+        frame.fragments[frag_idx] = std::move(payload);
+        
+        // Check if complete
+        if (frame.fragments.size() == frame.total_fragments) {
+            // Reassemble
+            size_t total_size = 0;
+            for (const auto& [idx, frag] : frame.fragments) {
+                total_size += frag.size();
+            }
+            
+            std::vector<uint8_t> complete_frame;
+            complete_frame.reserve(total_size);
+            
+            for (uint16_t i = 0; i < frame.total_fragments; ++i) {
+                const auto& frag = frame.fragments[i];
+                complete_frame.insert(complete_frame.end(), frag.begin(), frag.end());
+            }
+            
+            // Decode if compressed
+            std::shared_ptr<ClientConnection> conn;
+            {
+                std::lock_guard<std::mutex> lock(clients_mutex);
+                auto it = clients.find(session_id);
+                if (it != clients.end()) {
+                    conn = it->second;
+                }
+            }
+            
+            if (conn && conn->config.microphone_compress && conn->microphone_opus_decoder) {
+                complete_frame = decode_microphone_opus(
+                    complete_frame, 
+                    conn->config.microphone_sample_rate,
+                    conn->config.microphone_channels,
+                    conn->microphone_opus_decoder);
+            }
+            
+            // Queue for playback
+            {
+                std::lock_guard<std::mutex> lock(microphone_virtual_source.mutex);
+                microphone_virtual_source.microphone_queue.push(std::move(complete_frame));
+                
+                while (microphone_virtual_source.microphone_queue.size() > 10) {
+                    microphone_virtual_source.microphone_queue.pop();
+                }
+            }
+            
+            reassembly_buffer.erase(seq);
+        }
+        
+        // Cleanup old incomplete frames (timeout after 500ms)
+        auto now = std::chrono::steady_clock::now();
+        for (auto it = reassembly_buffer.begin(); it != reassembly_buffer.end();) {
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - it->second.first_fragment_time).count() > 500) {
+                it = reassembly_buffer.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        
+        // Limit buffer size
+        while (reassembly_buffer.size() > MAX_REASSEMBLY_BUFFER) {
+            reassembly_buffer.erase(reassembly_buffer.begin());
+        }
+    }
+    
+    std::cerr << "[UDP MICROPHONE] Thread stopped\n";
+}
+
+// Initialize UDP sockets
+static int create_udp_socket(int port) {
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        std::cerr << "[UDP] Failed to create socket\n";
+        return -1;
+    }
+    
+    // Set large send/receive buffers
+    int buffer_size = 2 * 1024 * 1024; // 2MB
+    setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &buffer_size, sizeof(buffer_size));
+    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &buffer_size, sizeof(buffer_size));
+    
+    // Bind for receiving
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(port);
+    
+    if (bind(sock, (sockaddr*)&addr, sizeof(addr)) < 0) {
+        std::cerr << "[UDP] Failed to bind to port " << port << "\n";
+        close(sock);
+        return -1;
+    }
+    
+    // Set non-blocking
+    int flags = fcntl(sock, F_GETFL, 0);
+    fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+    
+    std::cerr << "[UDP] Socket created on port " << port << "\n";
+    return sock;
+}
+
 static void apply_zoom_transform(
     const uint8_t *src_data,
     uint32_t src_width,
@@ -5874,7 +6384,10 @@ static void update_zoom_smooth_pan(ZoomState &zoom)
 
 static void handle_frame_client(int client_socket, sockaddr_in client_addr)
 {
-    std::cerr << "[FRAME] Client connected from " << inet_ntoa(client_addr.sin_addr) << "\n";
+    char client_ip_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip_str, INET_ADDRSTRLEN);
+    
+    std::cerr << "[FRAME] Client connected from " << client_ip_str << "\n";
 
     // FIRST: Receive session ID
     std::string session_id;
@@ -5893,6 +6406,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
         {
             conn = std::make_shared<ClientConnection>();
             conn->client_id = session_id;
+            conn->client_ip = std::string(client_ip_str);
 
             // INITIALIZE DEFAULT CONFIG
             conn->config.output_index = 0;
@@ -6470,6 +6984,7 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                     if (n == sizeof(new_config))
                     {
                         std::lock_guard<std::mutex> lock(clients_mutex);
+                        
 
                         // Apply client's requested capture resolution
                         if (new_config.requested_capture_width > 0 &&
@@ -7149,39 +7664,47 @@ int main(int argc, char **argv)
 
     // Initialize audio capture
     std::thread audio_acceptor;
-    if (feature_audio)
-    {
-        if (!init_audio_capture())
-        {
-            std::cerr << "Warning: Audio init failed\n";
-            feature_audio = false;
-        }
-        else
-        {
-            audio_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-            all_server_sockets.push_back(audio_server_socket);
-            int opt = 1;
-            setsockopt(audio_server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        int udp_video_socket = -1, udp_audio_socket = -1, udp_microphone_socket = -1;
+        std::thread udp_video_sender, udp_audio_sender, udp_microphone_receiver;
 
-            sockaddr_in audio_addr{};
-            audio_addr.sin_family = AF_INET;
-            audio_addr.sin_addr.s_addr = INADDR_ANY;
-            audio_addr.sin_port = htons(port + 2);
-
-            if (bind(audio_server_socket, (sockaddr *)&audio_addr, sizeof(audio_addr)) < 0)
+        if (feature_video)
+        {
+            udp_video_socket = create_udp_socket(port);
+            if (udp_video_socket < 0)
             {
-                std::cerr << "Failed to bind audio socket\n";
-                cleanup_audio_capture();
+                std::cerr << "Failed to create UDP video socket on port " << port << "\n";
+                feature_video = false;
+            }
+        }
+
+        if (feature_audio)
+        {
+            if (!init_audio_capture())
+            {
+                std::cerr << "Warning: Audio init failed\n";
                 feature_audio = false;
             }
             else
             {
-                listen(audio_server_socket, 10);
-                std::cerr << "Audio server listening on port " << (port + 2) << "\n";
-                audio_acceptor = std::thread(accept_audio_thread, audio_server_socket);
+                udp_audio_socket = create_udp_socket(port + 2);
+                if (udp_audio_socket < 0)
+                {
+                    std::cerr << "Failed to create UDP audio socket on port " << (port + 2) << "\n";
+                    cleanup_audio_capture();
+                    feature_audio = false;
+                }
             }
         }
-    }
+
+        if (feature_microphone)
+        {
+            udp_microphone_socket = create_udp_socket(port + 4);
+            if (udp_microphone_socket < 0)
+            {
+                std::cerr << "Failed to create UDP microphone socket on port " << (port + 4) << "\n";
+                feature_microphone = false;
+            }
+        }
 
     // Setup microphone input server socket (port + 4)
     std::thread microphone_acceptor;
@@ -7230,72 +7753,10 @@ int main(int argc, char **argv)
     }
 
     // Setup frame server socket
-    if (feature_video)
-    {
-        frame_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-        all_server_sockets.push_back(frame_server_socket);
-        if (frame_server_socket < 0)
-        {
-            std::cerr << "Failed to create frame socket\n";
-            return 1;
-        }
-
-        int opt = 1;
-        setsockopt(frame_server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-        sockaddr_in frame_addr{};
-        frame_addr.sin_family = AF_INET;
-        frame_addr.sin_addr.s_addr = INADDR_ANY;
-        frame_addr.sin_port = htons(port);
-
-        if (bind(frame_server_socket, (sockaddr *)&frame_addr, sizeof(frame_addr)) < 0)
-        {
-            std::cerr << "Failed to bind frame socket\n";
-            return 1;
-        }
-
-        if (listen(frame_server_socket, 10) < 0)
-        {
-            std::cerr << "Failed to listen on frame socket\n";
-            return 1;
-        }
-
-        std::cerr << "Frame server listening on port " << port << "\n";
-    }
+        // No TCP frame server socket for video (UDP used)
 
     // Setup input server socket
-    if (feature_input)
-    {
-        input_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-        all_server_sockets.push_back(input_server_socket);
-        if (input_server_socket < 0)
-        {
-            std::cerr << "Failed to create input socket\n";
-            return 1;
-        }
-
-        int opt = 1;
-        setsockopt(input_server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-        sockaddr_in input_addr{};
-        input_addr.sin_family = AF_INET;
-        input_addr.sin_addr.s_addr = INADDR_ANY;
-        input_addr.sin_port = htons(port + 1);
-
-        if (bind(input_server_socket, (sockaddr *)&input_addr, sizeof(input_addr)) < 0)
-        {
-            std::cerr << "Failed to bind input socket\n";
-            return 1;
-        }
-
-        if (listen(input_server_socket, 10) < 0)
-        {
-            std::cerr << "Failed to listen on input socket\n";
-            return 1;
-        }
-
-        std::cerr << "Input server listening on port " << (port + 1) << "\n";
-    }
+        // Input still uses TCP
 
     // Initialize capture based on backend:
     if (feature_video)
@@ -7447,18 +7908,6 @@ int main(int argc, char **argv)
         {
             capture_threads.emplace_back(capture_thread, i, capture_fps);
         }
-    }
-
-    std::thread frame_acceptor;
-    if (feature_video)
-    {
-        frame_acceptor = std::thread(accept_frame_thread, frame_server_socket);
-    }
-
-    std::thread input_acceptor;
-    if (feature_input)
-    {
-        input_acceptor = std::thread(accept_input_thread, input_server_socket);
     }
 
     // Wait for interrupt

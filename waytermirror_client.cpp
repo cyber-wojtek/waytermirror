@@ -19,6 +19,14 @@
 #include <sys/ioctl.h>
 #include <lz4.h>
 #include <lz4hc.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <chrono>
+#include <map>
+#include <queue>
 #include <libinput.h>
 #include <libudev.h>
 #include <linux/input-event-codes.h>
@@ -183,6 +191,113 @@ struct HEVCDecoder
 
 static HEVCDecoder hevc_decoder;
 
+// Must match server constants
+constexpr size_t UDP_MTU = 1400;
+constexpr size_t UDP_HEADER_SIZE = 12;
+constexpr size_t UDP_PAYLOAD_SIZE = UDP_MTU - UDP_HEADER_SIZE;
+
+enum class UDPPacketType : uint8_t {
+    VIDEO_FRAME = 1,
+    AUDIO_CHUNK = 2,
+    MICROPHONE_CHUNK = 3,
+    HEARTBEAT = 4
+};
+
+struct UDPPacketHeader {
+    uint32_t sequence_number;
+    uint32_t timestamp_us;
+    uint16_t fragment_index;
+    uint16_t total_fragments;
+    uint8_t packet_type;
+    uint8_t flags;
+} __attribute__((packed));
+
+// Jitter buffer for video frames
+struct JitterBuffer {
+    struct Frame {
+        std::map<uint16_t, std::vector<uint8_t>> fragments;
+        uint16_t total_fragments;
+        uint32_t timestamp_us;
+        std::chrono::steady_clock::time_point arrival_time;
+        bool complete;
+    };
+    
+    std::map<uint32_t, Frame> frames;
+    std::mutex mutex;
+    
+    static constexpr size_t MAX_BUFFER_SIZE = 5; // Buffer up to 5 frames
+    static constexpr int TIMEOUT_MS = 100; // Drop incomplete frames after 100ms
+    
+    void add_fragment(uint32_t sequence, uint16_t frag_idx, 
+                     uint16_t total_frags, uint32_t timestamp,
+                     std::vector<uint8_t> payload) {
+        std::lock_guard<std::mutex> lock(mutex);
+        
+        auto& frame = frames[sequence];
+        if (frame.fragments.empty()) {
+            frame.total_fragments = total_frags;
+            frame.timestamp_us = timestamp;
+            frame.arrival_time = std::chrono::steady_clock::now();
+            frame.complete = false;
+        }
+        
+        frame.fragments[frag_idx] = std::move(payload);
+        
+        if (frame.fragments.size() == frame.total_fragments) {
+            frame.complete = true;
+        }
+    }
+    
+    std::vector<uint8_t> get_next_frame() {
+        std::lock_guard<std::mutex> lock(mutex);
+        
+        // Cleanup old incomplete frames
+        auto now = std::chrono::steady_clock::now();
+        for (auto it = frames.begin(); it != frames.end();) {
+            if (!it->second.complete && 
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - it->second.arrival_time).count() > TIMEOUT_MS) {
+                it = frames.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        
+        // Find oldest complete frame
+        for (auto it = frames.begin(); it != frames.end(); ++it) {
+            if (it->second.complete) {
+                // Reassemble
+                size_t total_size = 0;
+                for (const auto& [idx, frag] : it->second.fragments) {
+                    total_size += frag.size();
+                }
+                
+                std::vector<uint8_t> complete_frame;
+                complete_frame.reserve(total_size);
+                
+                for (uint16_t i = 0; i < it->second.total_fragments; ++i) {
+                    const auto& frag = it->second.fragments[i];
+                    complete_frame.insert(complete_frame.end(), 
+                                        frag.begin(), frag.end());
+                }
+                
+                frames.erase(it);
+                return complete_frame;
+            }
+        }
+        
+        return {}; // No complete frame available
+    }
+    
+    size_t size() const {
+        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(mutex));
+        return frames.size();
+    }
+};
+
+static JitterBuffer video_jitter_buffer;
+static JitterBuffer audio_jitter_buffer;
+
 // Protocol definitions
 enum class MessageType : uint8_t
 {
@@ -298,6 +413,9 @@ struct ClientConfig
     int microphone_opus_application = OPUS_APPLICATION_VOIP;
     uint32_t requested_capture_width;  // 0 = native
     uint32_t requested_capture_height; // 0 = native
+    uint16_t udp_video_port;
+    uint16_t udp_audio_port;
+    uint16_t udp_microphone_port;
 };
 
 struct ZoomState
@@ -415,6 +533,223 @@ static KMSDisplay kms_display;
 
 // Global mutex for KMS operations
 static std::mutex kms_mutex;
+
+// UDP Video receive thread
+static void udp_video_receive_thread(int udp_socket) {
+    std::cerr << "[UDP VIDEO] Receive thread started\n";
+    
+    uint8_t recv_buffer[UDP_MTU];
+    uint64_t packets_received = 0;
+    uint64_t frames_received = 0;
+    
+    while (running) {
+        ssize_t received = recvfrom(udp_socket, recv_buffer, sizeof(recv_buffer),
+                                   0, nullptr, nullptr);
+        
+        if (received < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+                continue;
+            }
+            std::cerr << "[UDP VIDEO] Recv error: " << strerror(errno) << "\n";
+            break;
+        }
+        
+        if (received < sizeof(UDPPacketHeader)) {
+            continue; // Malformed
+        }
+        
+        UDPPacketHeader* header = reinterpret_cast<UDPPacketHeader*>(recv_buffer);
+        
+        if (header->packet_type == static_cast<uint8_t>(UDPPacketType::HEARTBEAT)) {
+            // Just a keepalive, ignore
+            continue;
+        }
+        
+        if (header->packet_type != static_cast<uint8_t>(UDPPacketType::VIDEO_FRAME)) {
+            continue;
+        }
+        
+        packets_received++;
+        
+        size_t payload_size = received - sizeof(UDPPacketHeader);
+        std::vector<uint8_t> payload(recv_buffer + sizeof(UDPPacketHeader),
+                                     recv_buffer + received);
+        
+        video_jitter_buffer.add_fragment(
+            header->sequence_number,
+            header->fragment_index,
+            header->total_fragments,
+            header->timestamp_us,
+            std::move(payload));
+        
+        // Stats
+        if (packets_received % 100 == 0) {
+            std::cerr << "[UDP VIDEO] Received " << packets_received 
+                      << " packets, buffer: " << video_jitter_buffer.size() 
+                      << " frames\n";
+        }
+    }
+    
+    std::cerr << "[UDP VIDEO] Receive thread stopped\n";
+}
+
+// UDP Audio receive thread
+static void udp_audio_receive_thread(int udp_socket) {
+    std::cerr << "[UDP AUDIO] Receive thread started\n";
+    
+    uint8_t recv_buffer[UDP_MTU];
+    
+    while (running && audio_playback.running) {
+        ssize_t received = recvfrom(udp_socket, recv_buffer, sizeof(recv_buffer),
+                                   0, nullptr, nullptr);
+        
+        if (received < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+                continue;
+            }
+            break;
+        }
+        
+        if (received < sizeof(UDPPacketHeader)) continue;
+        
+        UDPPacketHeader* header = reinterpret_cast<UDPPacketHeader*>(recv_buffer);
+        
+        if (header->packet_type != static_cast<uint8_t>(UDPPacketType::AUDIO_CHUNK)) {
+            continue;
+        }
+        
+        size_t payload_size = received - sizeof(UDPPacketHeader);
+        std::vector<uint8_t> payload(recv_buffer + sizeof(UDPPacketHeader),
+                                     recv_buffer + received);
+        
+        audio_jitter_buffer.add_fragment(
+            header->sequence_number,
+            header->fragment_index,
+            header->total_fragments,
+            header->timestamp_us,
+            std::move(payload));
+    }
+    
+    std::cerr << "[UDP AUDIO] Receive thread stopped\n";
+}
+
+// UDP Microphone send thread
+static void udp_microphone_send_thread(int udp_socket, 
+                                       const std::string& server_ip,
+                                       int server_port) {
+    std::cerr << "[UDP MICROPHONE] Send thread started\n";
+    
+    sockaddr_in server_addr{};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(server_port);
+    inet_pton(AF_INET, server_ip.c_str(), &server_addr.sin_addr);
+    
+    static std::atomic<uint32_t> sequence_counter{0};
+    
+    while (running && microphone_capture.running) {
+        std::vector<uint8_t> mic_data;
+        
+        {
+            std::lock_guard<std::mutex> lock(microphone_capture.mutex);
+            if (!microphone_capture.microphone_queue.empty()) {
+                mic_data = std::move(microphone_capture.microphone_queue.front());
+                microphone_capture.microphone_queue.pop();
+            }
+        }
+        
+        if (mic_data.empty()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            continue;
+        }
+        
+        // Fragment and send
+        size_t total_fragments = (mic_data.size() + UDP_PAYLOAD_SIZE - 1) / UDP_PAYLOAD_SIZE;
+        uint32_t sequence = sequence_counter.fetch_add(1);
+        
+        auto now = std::chrono::steady_clock::now().time_since_epoch();
+        uint32_t timestamp = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+        
+        for (size_t i = 0; i < total_fragments; ++i) {
+            size_t offset = i * UDP_PAYLOAD_SIZE;
+            size_t chunk_size = std::min(UDP_PAYLOAD_SIZE, mic_data.size() - offset);
+            
+            std::vector<uint8_t> packet(sizeof(UDPPacketHeader) + chunk_size);
+            
+            UDPPacketHeader* header = reinterpret_cast<UDPPacketHeader*>(packet.data());
+            header->sequence_number = sequence;
+            header->timestamp_us = timestamp;
+            header->fragment_index = i;
+            header->total_fragments = total_fragments;
+            header->packet_type = static_cast<uint8_t>(UDPPacketType::MICROPHONE_CHUNK);
+            header->flags = 0;
+            
+            memcpy(packet.data() + sizeof(UDPPacketHeader),
+                   mic_data.data() + offset,
+                   chunk_size);
+            
+            sendto(udp_socket, packet.data(), packet.size(),
+                   MSG_DONTWAIT,
+                   (const sockaddr*)&server_addr,
+                   sizeof(server_addr));
+        }
+    }
+    
+    std::cerr << "[UDP MICROPHONE] Send thread stopped\n";
+}
+
+// Audio playback thread that pulls from jitter buffer
+static void audio_playback_thread() {
+    while (running && audio_playback.running) {
+        auto audio_data = audio_jitter_buffer.get_next_frame();
+        
+        if (!audio_data.empty()) {
+            // Decode if compressed
+            if (current_config.audio_compress && audio_opus_decoder) {
+                // [Opus decoding code...]
+            }
+            
+            // Queue for playback
+            std::lock_guard<std::mutex> lock(audio_playback.mutex);
+            while (audio_playback.audio_queue.size() > 25) {
+                audio_playback.audio_queue.pop();
+            }
+            audio_playback.audio_queue.push(std::move(audio_data));
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+}
+
+// Create UDP sockets
+static int create_udp_client_socket(int local_port) {
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        std::cerr << "[UDP] Failed to create socket\n";
+        return -1;
+    }
+    
+    // Set large buffers
+    int buffer_size = 2 * 1024 * 1024;
+    setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &buffer_size, sizeof(buffer_size));
+    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &buffer_size, sizeof(buffer_size));
+    
+    // Bind to local port
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(local_port);
+    
+    if (bind(sock, (sockaddr*)&addr, sizeof(addr)) < 0) {
+        std::cerr << "[UDP] Failed to bind to port " << local_port << "\n";
+        close(sock);
+        return -1;
+    }
+    
+    std::cerr << "[UDP] Client socket bound to port " << local_port << "\n";
+    return sock;
+}
 
 static void cleanup_kms_display()
 {
@@ -4912,6 +5247,7 @@ int main(int argc, char **argv)
         }
     }
 
+
     // Network setup
     std::string session_id = generate_uuid();
     std::string host = program.get<std::string>("--host");
@@ -4919,202 +5255,130 @@ int main(int argc, char **argv)
 
     std::cerr << "[INIT] Session ID: " << session_id << "\n";
 
-    // Connect config socket (ALWAYS, regardless of features)
+    // Connect config socket (TCP, always)
     config_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (config_socket < 0)
-    {
+    if (config_socket < 0) {
         std::cerr << "Failed to create config socket\n";
         return 1;
     }
-
     sockaddr_in config_addr{};
     config_addr.sin_family = AF_INET;
-    config_addr.sin_port = htons(port + 3); // Port+3 for config
-    if (inet_pton(AF_INET, host.c_str(), &config_addr.sin_addr) <= 0)
-    {
+    config_addr.sin_port = htons(port + 3);
+    if (inet_pton(AF_INET, host.c_str(), &config_addr.sin_addr) <= 0) {
         std::cerr << "Invalid host address\n";
         return 1;
     }
-
-    if (connect(config_socket, (sockaddr *)&config_addr, sizeof(config_addr)) < 0)
-    {
+    if (connect(config_socket, (sockaddr *)&config_addr, sizeof(config_addr)) < 0) {
         std::cerr << "Failed to connect config socket to " << host << ":" << (port + 3) << "\n";
         return 1;
     }
-
-    if (!send_session_id(config_socket, session_id))
-    {
+    if (!send_session_id(config_socket, session_id)) {
         std::cerr << "Failed to send session ID to config socket\n";
         return 1;
     }
-
     std::cerr << "[CONFIG] Connected to " << host << ":" << (port + 3) << "\n";
 
-    // Connect frame socket (only if video enabled)
-    if (feature_video)
-    {
-        frame_socket = socket(AF_INET, SOCK_STREAM, 0);
-        if (frame_socket < 0)
-        {
-            std::cerr << "Failed to create frame socket\n";
-            return 1;
-        }
+    // UDP sockets for video/audio/microphone
+    int udp_video_sock = -1, udp_audio_sock = -1, udp_microphone_sock = -1;
+    std::thread udp_video_thr, udp_audio_thr, udp_microphone_thr;
 
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
-
-        if (connect(frame_socket, (sockaddr *)&addr, sizeof(addr)) < 0)
-        {
-            std::cerr << "Failed to connect frame socket to " << host << ":" << port << "\n";
-            return 1;
-        }
-
-        int nodelay = 1;
-        setsockopt(frame_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
-
-        if (!send_session_id(frame_socket, session_id))
-        {
-            std::cerr << "Failed to send session ID to frame socket\n";
-            return 1;
-        }
-
-        std::cerr << "[VIDEO] Connected to " << host << ":" << port << "\n";
-    }
-
-    // Connect input socket (only if input enabled)
-    if (feature_input)
-    {
-        input_socket = socket(AF_INET, SOCK_STREAM, 0);
-        if (input_socket < 0)
-        {
-            std::cerr << "Failed to create input socket\n";
-            if (!feature_video && !feature_audio && !feature_microphone)
-                return 1;
-            feature_input = false;
-        }
-        else
-        {
-            sockaddr_in addr{};
-            addr.sin_family = AF_INET;
-            addr.sin_port = htons(port + 1);
-            inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
-
-            if (connect(input_socket, (sockaddr *)&addr, sizeof(addr)) < 0)
-            {
-                std::cerr << "Failed to connect input socket\n";
-                close(input_socket);
-                input_socket = -1;
-                if (!feature_video && !feature_audio && !feature_microphone)
-                    return 1;
-                feature_input = false;
-            }
-            else
-            {
-                int nodelay = 1;
-                setsockopt(input_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
-
-                if (!send_session_id(input_socket, session_id))
-                {
-                    std::cerr << "Failed to send session ID to input socket\n";
-                    close(input_socket);
-                    input_socket = -1;
-                    feature_input = false;
-                }
-                else
-                {
-                    std::cerr << "[INPUT] Connected to " << host << ":" << (port + 1) << "\n";
-                }
+    if (feature_video) {
+        udp_video_sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (udp_video_sock < 0) {
+            std::cerr << "[UDP] Failed to create video socket\n";
+            feature_video = false;
+        } else {
+            // Set socket options
+            int buffer_size = 2 * 1024 * 1024;
+            setsockopt(udp_video_sock, SOL_SOCKET, SO_RCVBUF, &buffer_size, sizeof(buffer_size));
+            
+            sockaddr_in video_addr{};
+            video_addr.sin_family = AF_INET;
+            video_addr.sin_addr.s_addr = INADDR_ANY;
+            video_addr.sin_port = htons(current_config.udp_video_port); // NOW it's set!
+            
+            if (bind(udp_video_sock, (sockaddr*)&video_addr, sizeof(video_addr)) < 0) {
+                std::cerr << "[UDP] Failed to bind video socket to port " 
+                        << current_config.udp_video_port << ": " << strerror(errno) << "\n";
+                close(udp_video_sock);
+                udp_video_sock = -1;
+                feature_video = false;
+            } else {
+                std::cerr << "[UDP] Video socket bound to port " << current_config.udp_video_port << "\n";
+                
+                // Set non-blocking AFTER bind
+                int flags = fcntl(udp_video_sock, F_GETFL, 0);
+                fcntl(udp_video_sock, F_SETFL, flags | O_NONBLOCK);
+                
+                // Start receiver thread
+                udp_video_thr = std::thread(udp_video_receive_thread, udp_video_sock);
             }
         }
     }
-
-    // Connect audio socket (only if audio enabled)
-    if (feature_audio)
-    {
-        audio_socket = socket(AF_INET, SOCK_STREAM, 0);
-        if (audio_socket < 0)
-        {
-            std::cerr << "Warning: Failed to create audio socket\n";
+    if (feature_audio) {
+        udp_audio_sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (udp_audio_sock < 0) {
+            std::cerr << "[UDP] Failed to create audio socket\n";
             feature_audio = false;
-        }
-        else
-        {
-            sockaddr_in addr{};
-            addr.sin_family = AF_INET;
-            addr.sin_port = htons(port + 2);
-            inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
-
-            if (connect(audio_socket, (sockaddr *)&addr, sizeof(addr)) < 0)
-            {
-                std::cerr << "Warning: Failed to connect audio socket\n";
-                close(audio_socket);
-                audio_socket = -1;
+        } else {
+            // Set socket options
+            int buffer_size = 2 * 1024 * 1024;
+            setsockopt(udp_audio_sock, SOL_SOCKET, SO_RCVBUF, &buffer_size, sizeof(buffer_size));
+            
+            sockaddr_in audio_addr{};
+            audio_addr.sin_family = AF_INET;
+            audio_addr.sin_addr.s_addr = INADDR_ANY;
+            audio_addr.sin_port = htons(current_config.udp_audio_port); // NOW it's set!
+            
+            if (bind(udp_audio_sock, (sockaddr*)&audio_addr, sizeof(audio_addr)) < 0) {
+                std::cerr << "[UDP] Failed to bind audio socket to port " 
+                        << current_config.udp_audio_port << ": " << strerror(errno) << "\n";
+                close(udp_audio_sock);
+                udp_audio_sock = -1;
                 feature_audio = false;
-            }
-            else
-            {
-                int nodelay = 1;
-                setsockopt(audio_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
-
-                if (!send_session_id(audio_socket, session_id))
-                {
-                    std::cerr << "Warning: Failed to send session ID to audio socket\n";
-                    close(audio_socket);
-                    audio_socket = -1;
-                    feature_audio = false;
-                }
-                else
-                {
-                    std::cerr << "[AUDIO IN] Connected to " << host << ":" << (port + 2) << "\n";
-                }
+            } else {
+                std::cerr << "[UDP] Audio socket bound to port " << current_config.udp_audio_port << "\n";
+                
+                // Set non-blocking AFTER bind
+                int flags = fcntl(udp_audio_sock, F_GETFL, 0);
+                fcntl(udp_audio_sock, F_SETFL, flags | O_NONBLOCK);
+                
+                // Start receiver thread
+                udp_audio_thr = std::thread(udp_audio_receive_thread, udp_audio_sock);
             }
         }
     }
-
-    // Connect microphone socket (only if microphone enabled)
-    std::thread microphone_thr;
-    if (feature_microphone)
-    {
-        microphone_socket = socket(AF_INET, SOCK_STREAM, 0);
-        if (microphone_socket < 0)
-        {
-            std::cerr << "Warning: Failed to create microphone socket\n";
+    if (feature_microphone) {
+        udp_microphone_sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (udp_microphone_sock < 0) {
+            std::cerr << "[UDP] Failed to create microphone socket\n";
             feature_microphone = false;
-        }
-        else
-        {
-            sockaddr_in addr{};
-            addr.sin_family = AF_INET;
-            addr.sin_port = htons(port + 4);
-            inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
-
-            if (connect(microphone_socket, (sockaddr *)&addr, sizeof(addr)) < 0)
-            {
-                std::cerr << "Warning: Failed to connect microphone socket to " << host << ":" << (port + 4) << "\n";
-                close(microphone_socket);
-                microphone_socket = -1;
+        } else {
+            // Set socket options
+            int buffer_size = 2 * 1024 * 1024;
+            setsockopt(udp_microphone_sock, SOL_SOCKET, SO_RCVBUF, &buffer_size, sizeof(buffer_size));
+            
+            sockaddr_in microphone_addr{};
+            microphone_addr.sin_family = AF_INET;
+            microphone_addr.sin_addr.s_addr = INADDR_ANY;
+            microphone_addr.sin_port = htons(current_config.udp_microphone_port); // NOW it's set!
+            
+            if (bind(udp_microphone_sock, (sockaddr*)&microphone_addr, sizeof(microphone_addr)) < 0) {
+                std::cerr << "[UDP] Failed to bind microphone socket to port " 
+                        << current_config.udp_microphone_port << ": " << strerror(errno) << "\n";
+                close(udp_microphone_sock);
+                udp_microphone_sock = -1;
                 feature_microphone = false;
-            }
-            else
-            {
-                int nodelay = 1;
-                setsockopt(microphone_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
-
-                if (!send_session_id(microphone_socket, session_id))
-                {
-                    std::cerr << "Warning: Failed to send session ID to microphone socket\n";
-                    close(microphone_socket);
-                    microphone_socket = -1;
-                    feature_microphone = false;
-                }
-                else
-                {
-                    std::cerr << "[MICROPHONE OUT] Connected to " << host << ":" << (port + 4) << "\n";
-                    // Start microphone send thread
-                    microphone_thr = std::thread(microphone_send_thread);
-                }
+            } else {
+                std::cerr << "[UDP] Microphone socket bound to port " << current_config.udp_microphone_port << "\n";
+                
+                
+                // Set non-blocking AFTER bind
+                int flags = fcntl(udp_microphone_sock, F_GETFL, 0);
+                fcntl(udp_microphone_sock, F_SETFL, flags | O_NONBLOCK);
+                
+                // Start sender thread
+                udp_microphone_thr = std::thread(udp_microphone_send_thread, udp_microphone_sock, host, port + 5);
             }
         }
     }
@@ -5124,6 +5388,11 @@ int main(int argc, char **argv)
     {
         std::cerr << "Error: Config connection failed\n";
         return 1;
+    }
+
+    if (feature_audio) {
+        std::thread audio_playback_thr(audio_playback_thread);
+        audio_playback_thr.detach();
     }
 
     std::string output_arg = program.get<std::string>("--output");
@@ -5234,6 +5503,10 @@ int main(int argc, char **argv)
         current_config.microphone_bitrate = program.get<int>("--microphone-bitrate") * 1000; // kbps to bps
         current_config.microphone_opus_complexity = std::clamp(program.get<int>("--microphone-complexity"), 0, 10);
         current_config.microphone_opus_application = parse_opus_app(program.get<std::string>("--microphone-application"));
+        current_config.udp_video_port = 10000;   // Client RECEIVE port for video
+        current_config.udp_audio_port = 10001;   // Client RECEIVE port for audio  
+        current_config.udp_microphone_port = 10002; // Client SEND port for microphone
+
 
         // Update global opus settings for encoding/decoding
         microphone_opus_sample_rate = current_config.microphone_sample_rate;
@@ -5431,10 +5704,8 @@ int main(int argc, char **argv)
     std::cerr << "================================================\n\n";
 
     // Main loop
-    while (running)
-    {
-        if (feature_video)
-        {
+    while (running) {
+        if (feature_video) {
             std::vector<uint8_t> rendered;
             int new_term_width = 0, new_term_height = 0;
             get_terminal_size(new_term_width, new_term_height);
@@ -5443,42 +5714,33 @@ int main(int argc, char **argv)
             static int last_term_width = new_term_width;
             static int last_term_height = new_term_height;
 
-            if ((new_term_width != last_term_width || new_term_height != last_term_height) && new_term_width > 0 && new_term_height > 0 && new_term_width < 16384 && new_term_height < 16384)
-            {
+            if ((new_term_width != last_term_width || new_term_height != last_term_height) && new_term_width > 0 && new_term_height > 0 && new_term_width < 16384 && new_term_height < 16384) {
                 last_term_width = new_term_width;
                 last_term_height = new_term_height;
-
                 std::lock_guard<std::mutex> lock(config_mutex);
                 current_config.term_width = new_term_width;
                 current_config.term_height = new_term_height;
-
-                // Query actual pixel dimensions if using sixel or kitty
-                if (current_config.renderer == 4 || current_config.renderer == 5) // 4 = sixel, 5 = kitty
-                {
+                if (current_config.renderer == 4 || current_config.renderer == 5) {
                     query_terminal_geometry(current_config.renderer == 4, (int &)current_config.term_pixel_width,
                                             (int &)current_config.term_pixel_height);
                     const char *proto = (current_config.renderer == 4) ? "SIXEL" : "KITTY";
                     std::cerr << "[RESIZE] Terminal resized to " << new_term_width << "x"
                               << new_term_height << " cells (" << current_config.term_pixel_width << "x"
                               << current_config.term_pixel_height << " pixels via " << proto << ")\n";
-                }
-                else
-                {
-                    current_config.term_pixel_width = new_term_width * 10; // Fallback estimates
+                } else {
+                    current_config.term_pixel_width = new_term_width * 10;
                     current_config.term_pixel_height = new_term_height * 20;
                     std::cerr << "[RESIZE] Terminal resized to " << new_term_width << "x"
                               << new_term_height << "\n";
                 }
                 send_client_config(current_config);
-
                 std::cout << "\033[2J";
             }
 
             // Handle clear screen request
             {
                 std::lock_guard<std::mutex> lock(clear_screen_mutex);
-                if (clear_screen_requested.load())
-                {
+                if (clear_screen_requested.load()) {
                     clear_screen_requested.store(false);
                     std::cout << "\033[H\033[2J" << std::flush;
                     std::cerr << "[CLEAR] Screen cleared as requested\n";
@@ -5487,56 +5749,34 @@ int main(int argc, char **argv)
 
             // Skip frames if counter is active (waiting for server to process config changes)
             int skip_count = skip_frames_counter.load();
-            if (skip_count > 0)
-            {
+            if (skip_count > 0) {
                 skip_frames_counter.store(skip_count - 1);
-                // Still consume frames to prevent buffer buildup
-                std::vector<uint8_t> dummy;
-                receive_newest_frame(dummy);
+                std::vector<uint8_t> dummy = video_jitter_buffer.get_next_frame();
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            } else if (!video_paused.load()) {
+                rendered = video_jitter_buffer.get_next_frame();
+                if (!rendered.empty()) {
+                    if (current_config.renderer == 4) {
+                        render_to_sixel(rendered);
+                    } else if (current_config.renderer == 5) {
+                        render_to_kitty(rendered);
+                    } else if (current_config.renderer == 6) {
+                        render_to_framebuffer(rendered);
+                    } else if (current_config.renderer == 7) {
+                        render_to_kms(rendered);
+                    } else {
+                        std::cerr << "[FRAME] Rendering frame, size: " << rendered.size() << " bytes\n";
+                        std::cout << "\033[H" << std::flush;
+                        write(STDOUT_FILENO, rendered.data(), rendered.size());
+                    }
+                } else {
+                    std::this_thread::sleep_for(std::chrono::microseconds(1000));
+                }
+            } else {
+                std::vector<uint8_t> dummy = video_jitter_buffer.get_next_frame();
                 std::this_thread::sleep_for(std::chrono::milliseconds(16));
             }
-            else if (!video_paused.load() && receive_newest_frame(rendered))
-            {
-                if (current_config.renderer == 4)
-                { // Renderer sixel(4) - render
-                    render_to_sixel(rendered);
-                }
-                // Renderer kitty(5) - render
-                else if (current_config.renderer == 5)
-                {
-                    render_to_kitty(rendered);
-                }
-                // Renderer 6 = framebuffer - write to /dev/fb0 instead of terminal
-                else if (current_config.renderer == 6)
-                {
-                    render_to_framebuffer(rendered);
-                }
-                else if (current_config.renderer == 7)
-                { // KMS direct rendering mode
-                    render_to_kms(rendered);
-                }
-                else
-                {
-                    std::cerr << "[FRAME] Rendering frame, size: " << rendered.size() << " bytes\n";
-                    std::cout << "\033[H" << std::flush;
-                    write(STDOUT_FILENO, rendered.data(), rendered.size());
-                }
-            }
-            else if (video_paused.load())
-            {
-                // Still consume frames to prevent buffer buildup, but don't display
-                receive_newest_frame(rendered);
-                std::this_thread::sleep_for(std::chrono::milliseconds(16));
-            }
-            else
-            {
-                // No frame available, sleep briefly to avoid busy-looping
-                std::this_thread::sleep_for(std::chrono::microseconds(1000));
-            }
-        }
-        else
-        {
-            // No video - just wait for exit combo or Ctrl+C
+        } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
@@ -5552,20 +5792,17 @@ int main(int argc, char **argv)
     running = false;
 
     // Join threads in order
-    if (feature_microphone && microphone_thr.joinable())
-    {
-        microphone_thr.join();
+    if (feature_microphone && udp_microphone_thr.joinable()) {
+        udp_microphone_thr.join();
     }
-
-    // Input thread runs if libinput initialized (for local shortcuts)
-    if (input_thr.joinable())
-    {
+    if (input_thr.joinable()) {
         input_thr.join();
     }
-
-    if (feature_audio && audio_thr.joinable())
-    {
-        audio_thr.join();
+    if (feature_audio && udp_audio_thr.joinable()) {
+        udp_audio_thr.join();
+    }
+    if (feature_video && udp_video_thr.joinable()) {
+        udp_video_thr.join();
     }
 
     // Close sockets
