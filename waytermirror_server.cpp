@@ -3475,7 +3475,7 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
         enc.initialized = false;
     }
 
-    int64_t bitrate = (int64_t)(width * height * fps * (std::max(quality, 1) / 100.0 * 0.11));
+    int64_t bitrate = (int64_t)(width * height * fps * (std::max(quality, 1) / 100.0));
 
     bitrate = std::clamp(bitrate, (int64_t)500000, (int64_t)50000000);
     
