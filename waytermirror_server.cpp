@@ -75,6 +75,16 @@ struct HWEncoderInfo {
     int priority; // Lower = prefer
 };
 
+struct HEVCFrameHeader {
+    uint32_t sequence_number;    // Sequential frame counter
+    uint32_t extradata_size;     // SPS/PPS size
+    uint32_t width;              // Frame width
+    uint32_t height;             // Frame height
+    uint32_t compressed_size;    // HEVC data size
+    uint8_t is_keyframe;         // 1 if IDR/I-frame, 0 if P-frame
+    uint8_t reserved[3];         // Padding for alignment
+};
+
 static const uint32_t MAX_FRAME_WIDTH = 8192;
 static const uint32_t MAX_FRAME_HEIGHT = 8192;
 static const uint32_t MAX_FRAME_STRIDE = 65536;
@@ -457,6 +467,8 @@ struct HEVCEncoder
     int frames_since_keyframe = 0;
 
     bool requested_keyframe = false;
+
+        std::atomic<uint32_t> sequence_number{0};
 };
 
 struct ClientConnection
@@ -3200,72 +3212,68 @@ static std::vector<HWEncoderInfo> detect_available_encoders() {
 static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t bitrate) {
     std::cerr << "[HEVC] Configuring NVENC encoder...\n";
     
-    // Quality-based preset selection (p1-p7 are valid)
+    // Quality-based preset selection (p1-p7)
     const char* preset;
     if (quality >= 85) {
-        preset = "p7";  // Slowest, best quality
+        preset = "p5";  // Don't go higher - p6/p7 add latency
     } else if (quality >= 70) {
-        preset = "p6";
-    } else if (quality >= 55) {
-        preset = "p5";
-    } else if (quality >= 40) {
         preset = "p4";
+    } else if (quality >= 55) {
+        preset = "p3";
     } else {
-        preset = "p3";  // Fast
+        preset = "p2";  // Fast
     }
     av_opt_set(ctx->priv_data, "preset", preset, 0);
-    std::cerr << "[HEVC] Using preset: " << preset << "\n";
     
-    // Tune for quality
-    av_opt_set(ctx->priv_data, "tune", "ull", 0);  // Ultra low latency
+    // === CRITICAL: Ultra-low-latency tune (this is the most important setting) ===
+    av_opt_set(ctx->priv_data, "tune", "ull", 0);
     
-    // Rate control
-    av_opt_set(ctx->priv_data, "rc", "vbr", 0);  // VBR works for all quality levels
+    // === CRITICAL: Use CBR (Constant Bitrate) for streaming ===
+    // CBR is more reliable than VBR for real-time streaming
+    av_opt_set(ctx->priv_data, "rc", "cbr", 0);
     
-    // Set CQ level (15-51, lower = better quality)
+    // === CRITICAL: Explicitly disable B-frames multiple ways ===
+    ctx->max_b_frames = 0;
+    av_opt_set(ctx->priv_data, "bf", "0", 0);
+    av_opt_set(ctx->priv_data, "b_ref_mode", "0", 0);  // Disable B-frame references
+    
+    // === CRITICAL: Set bitrate (use the calculated value, don't modify it) ===
+    ctx->bit_rate = bitrate;
+    ctx->rc_max_rate = bitrate;
+    ctx->rc_buffer_size = bitrate / fps;  // 1 frame buffer
+    
+    // === CRITICAL: Short, strict GOP ===
+    ctx->gop_size = fps;  // Keyframe every second
+    av_opt_set(ctx->priv_data, "forced-idr", "1", 0);
+    
+    // === CRITICAL: Zero latency settings ===
+    av_opt_set(ctx->priv_data, "zerolatency", "1", 0);
+    av_opt_set(ctx->priv_data, "delay", "0", 0);
+    av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
+    
+    // Quality settings (use -cq for quality control in CBR mode)
     int cq = 28 - (quality * 13 / 100);  // Maps 0-100 to 28-15
     cq = std::clamp(cq, 15, 28);
     char cq_str[8];
     snprintf(cq_str, sizeof(cq_str), "%d", cq);
     av_opt_set(ctx->priv_data, "cq", cq_str, 0);
-    std::cerr << "[HEVC] CQ level: " << cq << " (lower=better)\n";
     
-    // Bitrate and buffer configuration
-    ctx->bit_rate = bitrate;
-    ctx->rc_max_rate = bitrate * 2;  // Allow 2x for VBR peaks
-    ctx->rc_buffer_size = bitrate / fps * 8;  // 8 frames buffer
-    
-    // Basic quality options
+    // Spatial/temporal AQ for better quality
     av_opt_set(ctx->priv_data, "spatial-aq", "1", 0);
     av_opt_set(ctx->priv_data, "temporal-aq", "1", 0);
     
-    ctx->max_b_frames = 0;
-    
-    // GOP size
-    if (quality >= 75) {
-        ctx->gop_size = fps;
-    } else {
-        ctx->gop_size = fps;
-    }
-
     // Profile and level
     ctx->profile = AV_PROFILE_HEVC_MAIN;
     
-    // Low delay for < 70 quality
-    if (quality < 70) {
-        ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-        ctx->flags2 |= AV_CODEC_FLAG2_FAST;
-    }
-
-    av_opt_set(ctx->priv_data, "delay", "0", 0);
-    av_opt_set(ctx->priv_data, "zerolatency", "1", 0);
-    av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
+    // Low delay flags
+    ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+    ctx->flags2 |= AV_CODEC_FLAG2_FAST;
     
     std::cerr << "[HEVC] NVENC configured: preset=" << preset 
               << " cq=" << cq
               << " bitrate=" << bitrate/1000000 << "Mbps"
-              << " buffer=" << ctx->rc_buffer_size/1000000 << "Mb"
-              << " bframes=" << ctx->max_b_frames << "\n";
+              << " gop=" << ctx->gop_size
+              << " b_frames=0 (FORCED)\n";
     return true;
 }
 
@@ -3455,6 +3463,7 @@ static bool configure_software(AVCodecContext* ctx, int quality, int fps, int64_
 }
 
 // Main encoder initialization with auto-detection
+// Main encoder initialization with auto-detection
 static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height, 
                               int quality, int fps) {
     std::lock_guard<std::mutex> lock(enc.mutex);
@@ -3476,8 +3485,56 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
         enc.initialized = false;
     }
 
-    int64_t bitrate = (int64_t)(width * height * fps * (std::max(quality, 1) / 100.0));
-    bitrate = std::clamp(bitrate, (int64_t)500000, (int64_t)50000000);
+    // IMPROVED BITRATE CALCULATION
+    // Base bitrate on resolution class and quality
+    int64_t bitrate;
+    int64_t pixel_count = (int64_t)width * height;
+    
+    // Resolution-based base bitrate (bits per pixel per frame)
+    double bpp; // bits per pixel
+    if (pixel_count <= 640 * 480) {
+        // Low res (480p and below): 0.10 - 0.25 bpp
+        bpp = 0.10 + (quality / 100.0) * 0.15;
+    } else if (pixel_count <= 1280 * 720) {
+        // 720p: 0.08 - 0.20 bpp
+        bpp = 0.08 + (quality / 100.0) * 0.12;
+    } else if (pixel_count <= 1920 * 1080) {
+        // 1080p: 0.06 - 0.15 bpp
+        bpp = 0.06 + (quality / 100.0) * 0.09;
+    } else if (pixel_count <= 2560 * 1440) {
+        // 1440p: 0.05 - 0.12 bpp
+        bpp = 0.05 + (quality / 100.0) * 0.07;
+    } else {
+        // 4K and above: 0.04 - 0.10 bpp
+        bpp = 0.04 + (quality / 100.0) * 0.06;
+    }
+    
+    // Calculate base bitrate
+    bitrate = (int64_t)(pixel_count * bpp * fps);
+    
+    // Apply quality scaling (non-linear for better quality distribution)
+    double quality_scale = 0.5 + (quality / 100.0) * 1.5; // 0.5x to 2.0x
+    bitrate = (int64_t)(bitrate * quality_scale);
+    
+    int64_t min_bitrate, max_bitrate;
+    if (pixel_count <= 640 * 480) {
+        min_bitrate = 500000;      // 500 Kbps
+        max_bitrate = 3000000;     // 3 Mbps
+    } else if (pixel_count <= 1280 * 720) {
+        min_bitrate = 1000000;     // 1 Mbps
+        max_bitrate = 6000000;     // 6 Mbps
+    } else if (pixel_count <= 1920 * 1080) {
+        min_bitrate = 2000000;     // 2 Mbps
+        max_bitrate = 12000000;    // 12 Mbps
+    } else if (pixel_count <= 2560 * 1440) {
+        min_bitrate = 4000000;     // 4 Mbps
+        max_bitrate = 20000000;    // 20 Mbps
+    } else {
+        min_bitrate = 6000000;     // 6 Mbps
+        max_bitrate = 40000000;    // 40 Mbps
+    }
+    
+    bitrate = std::clamp(bitrate, min_bitrate, max_bitrate);
     
     std::cerr << "\n[HEVC] ========================================\n";
     std::cerr << "[HEVC] Initializing encoder for " << width << "x" << height 
@@ -3676,13 +3733,61 @@ static void cleanup_hevc_encoder(HEVCEncoder &enc)
     std::cerr << "[HEVC] FFmpeg encoder cleaned up\n";
 }
 
+static std::vector<uint8_t> build_hevc_frame_packet(
+    const std::vector<uint8_t>& hevc_data,
+    const std::vector<uint8_t>& extradata,
+    uint32_t width,
+    uint32_t height,
+    bool is_keyframe,
+    HEVCEncoder& encoder)
+{
+    std::vector<uint8_t> result;
+    
+    // Build header
+    HEVCFrameHeader header;
+    header.sequence_number = encoder.sequence_number.fetch_add(1);
+    header.extradata_size = extradata.size();
+    header.width = width;
+    header.height = height;
+    header.compressed_size = hevc_data.size();
+    header.is_keyframe = is_keyframe ? 1 : 0;
+    memset(header.reserved, 0, sizeof(header.reserved));
+    
+    // Pack: [header][extradata][hevc_data]
+    result.resize(sizeof(header) + extradata.size() + hevc_data.size());
+    uint8_t* ptr = result.data();
+    
+    memcpy(ptr, &header, sizeof(header));
+    ptr += sizeof(header);
+    
+    if (extradata.size() > 0) {
+        memcpy(ptr, extradata.data(), extradata.size());
+        ptr += extradata.size();
+    }
+    
+    memcpy(ptr, hevc_data.data(), hevc_data.size());
+    
+    // Log keyframes and sequence jumps
+    static uint32_t last_seq = 0;
+    if (is_keyframe || (header.sequence_number != last_seq + 1 && last_seq != 0)) {
+        std::cerr << "[HEVC TX] seq=" << header.sequence_number 
+                  << (is_keyframe ? " [KEYFRAME]" : " [P-frame]")
+                  << " size=" << hevc_data.size() 
+                  << " bytes\n";
+    }
+    last_seq = header.sequence_number;
+    
+    return result;
+}
+
 static std::vector<uint8_t> encode_hevc_frame(
     HEVCEncoder &enc,
     const uint8_t *rgb_data,
     uint32_t width,
     uint32_t height,
     int quality,
-    int fps)
+    int fps,
+    bool &is_keyframe)
 {
     SwsContext *&sws_ctx = enc.sws_ctx;
     
@@ -3752,6 +3857,7 @@ static std::vector<uint8_t> encode_hevc_frame(
     if (force_keyframe) {
         enc.frame->pict_type = AV_PICTURE_TYPE_I;
         enc.frames_since_keyframe = 0;
+        is_keyframe = true;
         
         if (enc.pts > 0) { // Don't log first frame
             std::cerr << "[HEVC] Keyframe at pts=" << enc.pts 
@@ -3759,6 +3865,7 @@ static std::vector<uint8_t> encode_hevc_frame(
         }
     } else {
         enc.frame->pict_type = AV_PICTURE_TYPE_NONE;
+        is_keyframe = false;
     }
 
     enc.frame->pts = enc.pts;
@@ -3917,47 +4024,26 @@ static std::vector<uint8_t> render_sixel(
         }
     }
 
+    bool is_keyframe = false;
     std::vector<uint8_t> hevc_data = encode_hevc_frame(
-        *hevc_enc, rgb_data.data(), img_width, img_height, quality, fps);
+        *hevc_enc, rgb_data.data(), img_width, img_height, quality, fps, is_keyframe);
 
     if (hevc_data.empty())
     {
         return {};
     }
 
-    // Get SPS/PPS from encoder (extradata)
+    // Get extradata
     std::vector<uint8_t> extradata;
-    if (hevc_enc->codec_ctx && hevc_enc->codec_ctx->extradata)
-    {
+    if (hevc_enc->codec_ctx && hevc_enc->codec_ctx->extradata) {
         extradata.insert(extradata.end(),
                          hevc_enc->codec_ctx->extradata,
                          hevc_enc->codec_ctx->extradata + hevc_enc->codec_ctx->extradata_size);
     }
 
-    // Build header: [extradata_size (32B)][extradata (8B*)][width (32B)][height (32B)][compressed_size (32B)][HEVC_data (8B*)]
-    std::vector<uint8_t> result;
-    size_t extradata_size = extradata.size();
-    result.resize(4 + extradata_size + 4 + 4 + 4);
-    uint8_t *ptr = result.data();
-
-    *reinterpret_cast<uint32_t *>(ptr) = extradata_size;
-    ptr += 4;
-
-    if (extradata_size > 0)
-    {
-        memcpy(ptr, extradata.data(), extradata_size);
-        ptr += extradata_size;
-    }
-
-    *reinterpret_cast<uint32_t *>(ptr) = img_width;
-    ptr += 4;
-    *reinterpret_cast<uint32_t *>(ptr) = img_height;
-    ptr += 4;
-    *reinterpret_cast<uint32_t *>(ptr) = hevc_data.size();
-    ptr += 4;
-
-    result.insert(result.end(), hevc_data.begin(), hevc_data.end());
-    return result;
+    // Build packet with sequence number
+    return build_hevc_frame_packet(hevc_data, extradata, img_width, img_height, 
+                                   is_keyframe, *hevc_enc);
 }
 
 static std::vector<uint8_t> render_kitty(
@@ -4043,47 +4129,26 @@ static std::vector<uint8_t> render_kitty(
         }
     }
 
+    bool is_keyframe = false;
     std::vector<uint8_t> hevc_data = encode_hevc_frame(
-        *hevc_enc, rgb_data.data(), img_width, img_height, quality, fps);
+        *hevc_enc, rgb_data.data(), img_width, img_height, quality, fps, is_keyframe);
 
     if (hevc_data.empty())
     {
         return {};
     }
 
-    // Get SPS/PPS from encoder (extradata)
+    // Get extradata
     std::vector<uint8_t> extradata;
-    if (hevc_enc->codec_ctx && hevc_enc->codec_ctx->extradata)
-    {
+    if (hevc_enc->codec_ctx && hevc_enc->codec_ctx->extradata) {
         extradata.insert(extradata.end(),
                          hevc_enc->codec_ctx->extradata,
                          hevc_enc->codec_ctx->extradata + hevc_enc->codec_ctx->extradata_size);
     }
 
-    // Build header: [extradata_size (32B)][extradata (8B*)][width (32B)][height (32B)][compressed_size (32B)][HEVC_data (8B*)]
-    std::vector<uint8_t> result;
-    size_t extradata_size = extradata.size();
-    result.resize(4 + extradata_size + 4 + 4 + 4);
-    uint8_t *ptr = result.data();
-
-    *reinterpret_cast<uint32_t *>(ptr) = extradata_size;
-    ptr += 4;
-
-    if (extradata_size > 0)
-    {
-        memcpy(ptr, extradata.data(), extradata_size);
-        ptr += extradata_size;
-    }
-
-    *reinterpret_cast<uint32_t *>(ptr) = img_width;
-    ptr += 4;
-    *reinterpret_cast<uint32_t *>(ptr) = img_height;
-    ptr += 4;
-    *reinterpret_cast<uint32_t *>(ptr) = hevc_data.size();
-    ptr += 4;
-
-    result.insert(result.end(), hevc_data.begin(), hevc_data.end());
-    return result;
+    // Build packet with sequence number
+    return build_hevc_frame_packet(hevc_data, extradata, img_width, img_height, 
+                                   is_keyframe, *hevc_enc);
 }
 
 static std::vector<uint8_t> render_framebuffer(
@@ -4182,44 +4247,23 @@ static std::vector<uint8_t> render_framebuffer(
     {
         img_width -= img_width & 1; // ensure width is even
 
-        hevc_data = encode_hevc_frame(
-            *hevc_enc, rgb_data.data(), img_width, img_height, quality, fps);
+        bool is_keyframe = false;
+        std::vector<uint8_t> hevc_data = encode_hevc_frame(
+        *hevc_enc, rgb_data.data(), img_width, img_height, quality, fps, is_keyframe);
 
         if (!hevc_data.empty())
         {
-            // Get SPS/PPS from encoder (extradata)
+            // Get extradata
             std::vector<uint8_t> extradata;
-            if (hevc_enc->codec_ctx && hevc_enc->codec_ctx->extradata)
-            {
+            if (hevc_enc->codec_ctx && hevc_enc->codec_ctx->extradata) {
                 extradata.insert(extradata.end(),
-                                 hevc_enc->codec_ctx->extradata,
-                                 hevc_enc->codec_ctx->extradata + hevc_enc->codec_ctx->extradata_size);
+                                hevc_enc->codec_ctx->extradata,
+                                hevc_enc->codec_ctx->extradata + hevc_enc->codec_ctx->extradata_size);
             }
 
-            // Build header: [extradata_size (32B)][extradata (8B*)][width (32B)][height (32B)][compressed_size (32B)][HEVC_data (8B*)]
-            std::vector<uint8_t> result;
-            size_t extradata_size = extradata.size();
-            result.resize(4 + extradata_size + 4 + 4 + 4);
-            uint8_t *ptr = result.data();
-
-            *reinterpret_cast<uint32_t *>(ptr) = extradata_size;
-            ptr += 4;
-
-            if (extradata_size > 0)
-            {
-                memcpy(ptr, extradata.data(), extradata_size);
-                ptr += extradata_size;
-            }
-
-            *reinterpret_cast<uint32_t *>(ptr) = img_width;
-            ptr += 4;
-            *reinterpret_cast<uint32_t *>(ptr) = img_height;
-            ptr += 4;
-            *reinterpret_cast<uint32_t *>(ptr) = hevc_data.size();
-            ptr += 4;
-
-            result.insert(result.end(), hevc_data.begin(), hevc_data.end());
-            return result;
+            // Build packet with sequence number
+            return build_hevc_frame_packet(hevc_data, extradata, img_width, img_height, 
+                                        is_keyframe, *hevc_enc);
         }
 
         std::cerr << "[HEVC] Encoding failed\n";
@@ -4326,44 +4370,23 @@ static std::vector<uint8_t> render_kms(
     {
         img_width -= img_width & 1; // ensure width is even
 
-        hevc_data = encode_hevc_frame(
-            *hevc_enc, rgb_data.data(), img_width, img_height, quality, fps);
+        bool is_keyframe = false;
+        std::vector<uint8_t> hevc_data = encode_hevc_frame(
+        *hevc_enc, rgb_data.data(), img_width, img_height, quality, fps, is_keyframe);
 
         if (!hevc_data.empty())
         {
-            // Get SPS/PPS from encoder (extradata)
+            // Get extradata
             std::vector<uint8_t> extradata;
-            if (hevc_enc->codec_ctx && hevc_enc->codec_ctx->extradata)
-            {
+            if (hevc_enc->codec_ctx && hevc_enc->codec_ctx->extradata) {
                 extradata.insert(extradata.end(),
-                                 hevc_enc->codec_ctx->extradata,
-                                 hevc_enc->codec_ctx->extradata + hevc_enc->codec_ctx->extradata_size);
+                                hevc_enc->codec_ctx->extradata,
+                                hevc_enc->codec_ctx->extradata + hevc_enc->codec_ctx->extradata_size);
             }
 
-            // Build header: [extradata_size (32B)][extradata (8B*)][width (32B)][height (32B)][compressed_size (32B)][HEVC_data (8B*)]
-            std::vector<uint8_t> result;
-            size_t extradata_size = extradata.size();
-            result.resize(4 + extradata_size + 4 + 4 + 4);
-            uint8_t *ptr = result.data();
-
-            *reinterpret_cast<uint32_t *>(ptr) = extradata_size;
-            ptr += 4;
-
-            if (extradata_size > 0)
-            {
-                memcpy(ptr, extradata.data(), extradata_size);
-                ptr += extradata_size;
-            }
-
-            *reinterpret_cast<uint32_t *>(ptr) = img_width;
-            ptr += 4;
-            *reinterpret_cast<uint32_t *>(ptr) = img_height;
-            ptr += 4;
-            *reinterpret_cast<uint32_t *>(ptr) = hevc_data.size();
-            ptr += 4;
-
-            result.insert(result.end(), hevc_data.begin(), hevc_data.end());
-            return result;
+            // Build packet with sequence number
+            return build_hevc_frame_packet(hevc_data, extradata, img_width, img_height, 
+                                        is_keyframe, *hevc_enc);
         }
 
         std::cerr << "[HEVC] Encoding failed\n";
@@ -5937,7 +5960,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
     std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Brief pause to ensure stability
 
     // Configure socket for performance
-    int sndbuf = 16 * 1024 * 1024;
+    int sndbuf = 32 * 1024 * 1024;
     setsockopt(client_socket, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
     int nodelay = 1;
     setsockopt(client_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
