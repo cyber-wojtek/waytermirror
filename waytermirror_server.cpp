@@ -553,6 +553,11 @@ struct ClientConnection
     uint16_t udp_audio_port;
     uint16_t udp_microphone_port;
     
+    // UDP threads
+    std::thread udp_video_thread;
+    std::thread udp_audio_thread;
+    std::thread udp_microphone_thread;
+    
     // Async encoding
     std::queue<struct RawFrame> encode_queue;
     std::mutex encode_queue_mutex;
@@ -6920,6 +6925,9 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
         {
             conn = std::make_shared<ClientConnection>();
             conn->client_id = session_id;
+            
+            // Store client IP address for UDP communication
+            conn->client_ip = inet_ntoa(client_addr.sin_addr);
 
             // Initialize default config
             conn->config.output_index = 0;
@@ -6935,12 +6943,14 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
             conn->config.follow_focus = 0;
 
             clients[session_id] = conn;
-            std::cerr << "[CONFIG] Created new client session: " << session_id << "\n";
+            std::cerr << "[CONFIG] Created new client session: " << session_id << " (IP: " << conn->client_ip << ")\n";
         }
         else
         {
             conn = clients[session_id];
-            std::cerr << "[CONFIG] Matched existing session: " << session_id << "\n";
+            // Update client IP in case it changed
+            conn->client_ip = inet_ntoa(client_addr.sin_addr);
+            std::cerr << "[CONFIG] Matched existing session: " << session_id << " (IP: " << conn->client_ip << ")\n";
         }
         conn->config_socket = client_socket;
         conn->active = true;
@@ -7019,6 +7029,32 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                                   << " quality=" << (int)new_config.quality
                                   << " audio_compress=" << (int)new_config.audio_compress
                                   << " microphone_compress=" << (int)new_config.microphone_compress << "\n";
+                        
+                        // Start UDP threads if they haven't been started yet
+                        // Check if UDP ports are set in the config
+                        if (new_config.udp_video_port > 0 && !conn->udp_video_thread.joinable() && feature_video)
+                        {
+                            conn->udp_video_port = new_config.udp_video_port;
+                            conn->udp_video_thread = std::thread(udp_video_thread, udp_video_socket, conn);
+                            std::cerr << "[UDP VIDEO] Started thread for client " << session_id 
+                                      << " (port: " << new_config.udp_video_port << ")\n";
+                        }
+                        
+                        if (new_config.udp_audio_port > 0 && !conn->udp_audio_thread.joinable() && feature_audio)
+                        {
+                            conn->udp_audio_port = new_config.udp_audio_port;
+                            conn->udp_audio_thread = std::thread(udp_audio_thread, udp_audio_socket, conn);
+                            std::cerr << "[UDP AUDIO] Started thread for client " << session_id 
+                                      << " (port: " << new_config.udp_audio_port << ")\n";
+                        }
+                        
+                        if (new_config.udp_microphone_port > 0 && !conn->udp_microphone_thread.joinable() && feature_microphone)
+                        {
+                            conn->udp_microphone_port = new_config.udp_microphone_port;
+                            conn->udp_microphone_thread = std::thread(udp_microphone_thread, udp_microphone_socket, session_id);
+                            std::cerr << "[UDP MICROPHONE] Started thread for client " << session_id 
+                                      << " (port: " << new_config.udp_microphone_port << ")\n";
+                        }
 
                         bool old_follow = focus_tracker.follow_focus.load();
                         bool new_follow = new_config.follow_focus != 0;
@@ -7998,6 +8034,46 @@ int main(int argc, char **argv)
         {
             t.join();
         }
+    }
+
+    // Join UDP threads for all clients
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        for (auto &[session_id, conn] : clients)
+        {
+            if (conn->udp_video_thread.joinable())
+            {
+                std::cerr << "[UDP VIDEO] Joining thread for client " << session_id << "\n";
+                conn->udp_video_thread.join();
+            }
+            if (conn->udp_audio_thread.joinable())
+            {
+                std::cerr << "[UDP AUDIO] Joining thread for client " << session_id << "\n";
+                conn->udp_audio_thread.join();
+            }
+            if (conn->udp_microphone_thread.joinable())
+            {
+                std::cerr << "[UDP MICROPHONE] Joining thread for client " << session_id << "\n";
+                conn->udp_microphone_thread.join();
+            }
+        }
+    }
+
+    // Close UDP sockets
+    if (udp_video_socket >= 0)
+    {
+        std::cerr << "[UDP] Closing video socket\n";
+        close(udp_video_socket);
+    }
+    if (udp_audio_socket >= 0)
+    {
+        std::cerr << "[UDP] Closing audio socket\n";
+        close(udp_audio_socket);
+    }
+    if (udp_microphone_socket >= 0)
+    {
+        std::cerr << "[UDP] Closing microphone socket\n";
+        close(udp_microphone_socket);
     }
 
     // Close sockets
