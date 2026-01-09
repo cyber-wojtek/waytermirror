@@ -3268,7 +3268,7 @@ static bool configure_nvenc(AVCodecContext* ctx, int quality, int fps, int64_t b
     if (quality >= 75) {
         ctx->gop_size = fps;
     } else {
-        ctx->gop_size = fps * 2;
+        ctx->gop_size = fps;
     }
 
     // Profile and level
@@ -3531,7 +3531,6 @@ static bool init_hevc_encoder(HEVCEncoder &enc, uint32_t width, uint32_t height,
     enc.codec_ctx->time_base = {1, fps};
     enc.codec_ctx->framerate = {fps, 1};
     enc.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-    enc.codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
     // Configure based on selected encoder type
     bool config_ok = false;
@@ -3753,8 +3752,6 @@ static std::vector<uint8_t> encode_hevc_frame(
     }
 
     enc.frame->pts = enc.pts;
-    enc.pkt->pts = enc.pts;
-    enc.pkt->dts = enc.pts;
     enc.pts++;
 
     // Send frame to encoder
@@ -6045,7 +6042,7 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
     int sndbuf = 16 * 1024 * 1024;
     setsockopt(client_socket, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
     int nodelay = 1;
-    setsockopt(client_socket, IPPROTO_UDP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+    setsockopt(client_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
     // Create async send queue and thread
     auto send_queue = std::make_shared<SendQueue>();
