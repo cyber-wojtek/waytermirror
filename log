@@ -38,6 +38,7 @@ Then log out and back in.
 [INPUT] Opened device: /dev/input/event23
 [INPUT] Opened device: /dev/input/event24
 [INPUT] Opened device: /dev/input/event25
+[INPUT] Opened device: /dev/input/event22
 [INPUT] libinput initialized successfully
 [INPUT] Hotplug support enabled
 [INPUT] Initial devices:
@@ -71,9 +72,11 @@ Then log out and back in.
 [HOTPLUG]   - Pointer capability
 [HOTPLUG] Device added: Keyboard passthrough
 [HOTPLUG]   - Keyboard capability
-[INIT] Session ID: 94c8c4ac-0ddd-40f7-8d0c-81d7e805dc40
-[CONFIG] Connected to 0.0.0.0:10002
-[VIDEO] Connected to 0.0.0.0:9999
+[HOTPLUG] Device added: JBL Flip 7 (Wojt (AVRCP)
+[HOTPLUG]   - Keyboard capability
+[INIT] Session ID: 2ad50124-14b6-4ab1-a66e-57e7efe68d25
+[CONFIG] Connected to 192.168.0.131:10002
+[VIDEO] Connected to 192.168.0.131:9999
 [CLIENT] Got geometry from ioctl: 1899x960 (reserved 1 top, 1 bottom)
 === Zoom Configuration ===
 Enabled: NO
@@ -85,18 +88,18 @@ Smooth Pan: YES
 
 === Rendering Settings ===
 Detail Level: 100 (0=smooth, 100=sharp)
-Quality: 100 (0=fast, 100=best)
+Quality: 0 (0=fast, 100=best)
 Render Device: CPU
 ===========================
 
 [CONFIG] Sent: 211x50 fps=60 renderer=5 detail=100 follow_focus=0
 [INIT] Waiting for screen info from server...
-[INIT] Received screen info: 2560x1440 offset: 1920,0
-[INIT] Screen info received: 2560x1440
+[INIT] Received screen info: 1280x800 offset: 0,0
+[INIT] Screen info received: 1280x800
 
 === Waytermirror Client Started ===
-Session: 94c8c4ac-0ddd-40f7-8d0c-81d7e805dc40
-Output: 1 | Resolution: 2560x1440
+Session: 2ad50124-14b6-4ab1-a66e-57e7efe68d25
+Output: 1 | Resolution: 1280x800
 Renderer: kitty | Color mode: true
 FPS: 60 | Scale: 1
 Compression: ON
@@ -119,7 +122,7 @@ Press Ctrl+Alt+Shift+H for full shortcut list
 [HEVC DECODER] Hardware device context created
 [HEVC DECODER] Hardware decoder: using internal threading
 [HEVC DECODER] Low-latency flags enabled
-[hevc_cuvid @ 0x558d42222200] Invalid pkt_timebase, passing timestamps as-is.
+[hevc_cuvid @ 0x55fd02935200] Invalid pkt_timebase, passing timestamps as-is.
 [HEVC DECODER] ✓ Decoder initialized successfully!
 [HEVC DECODER]   Resolution: 1898x960
 [HEVC DECODER]   Hardware: YES
@@ -127,59 +130,7 @@ Press Ctrl+Alt+Shift+H for full shortcut list
 [HEVC DECODER]   Threading type: other
 [HEVC DECODER] ========================================
 
-[HEVC DECODER] Decoder initialized/reinitialized
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
-[KITTY] Failed to decode HEVC data
+[HEVC DECODER] Decoder initialized/reinitialized for 1898x960
 [KITTY] Failed to decode HEVC data
 [KITTY] Failed to decode HEVC data
 [KITTY] Failed to decode HEVC data

@@ -3299,6 +3299,7 @@ static bool configure_qsv(AVCodecContext* ctx, int quality, int fps, int64_t bit
     av_opt_set(ctx->priv_data, "low_delay_hrd", "1", 0);
     
     ctx->max_b_frames = 0;
+    ctx->pix_fmt = AV_PIX_FMT_QSV;
     
     // Bitrate
     ctx->bit_rate = bitrate;
@@ -3346,6 +3347,8 @@ static bool configure_vaapi(AVCodecContext* ctx, int quality, int fps, int64_t b
     
     // GOP
     ctx->gop_size = fps;
+
+    ctx->pix_fmt = AV_PIX_FMT_VAAPI;
     
     ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
     
@@ -3395,6 +3398,8 @@ static bool configure_videotoolbox(AVCodecContext* ctx, int quality, int fps, in
     ctx->bit_rate = bitrate;
     ctx->rc_max_rate = bitrate;
     ctx->rc_buffer_size = bitrate / fps;
+
+    ctx->pix_fmt = AV_PIX_FMT_VIDEOTOOLBOX;
     
     // GOP
     ctx->gop_size = fps;
