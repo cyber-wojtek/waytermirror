@@ -3803,10 +3803,10 @@ static std::vector<uint8_t> build_hevc_frame_packet(
     static uint32_t last_seq = 0;
     if (is_keyframe || (header.sequence_number != last_seq + 1 && last_seq != 0))
     {
-        std::cerr << "[HEVC TX] seq=" << header.sequence_number
-                  << (is_keyframe ? " [KEYFRAME]" : " [P-frame]")
-                  << " size=" << hevc_data.size()
-                  << " bytes\n";
+        //std::cerr << "[HEVC TX] seq=" << header.sequence_number
+        //          << (is_keyframe ? " [KEYFRAME]" : " [P-frame]")
+        //          << " size=" << hevc_data.size()
+        //          << " bytes\n";
     }
     last_seq = header.sequence_number;
 
@@ -3899,8 +3899,8 @@ static std::vector<uint8_t> encode_hevc_frame(
 
         if (enc.pts > 0)
         { // Don't log first frame
-            std::cerr << "[HEVC] Keyframe at pts=" << enc.pts
-                      << " (every " << fps << " frames)\n";
+            //std::cerr << "[HEVC] Keyframe at pts=" << enc.pts
+            //          << " (every " << fps << " frames)\n";
         }
     }
     else
@@ -6714,7 +6714,7 @@ static void handle_config_client(int client_socket, sockaddr_in client_addr)
                 {
                     std::lock_guard<std::mutex> lock(clients_mutex);
                     conn->hevc_encoder.requested_keyframe = true;
-                    std::cerr << "[CONFIG] Keyframe requested by client " << session_id << "\n";
+                    //std::cerr << "[CONFIG] Keyframe requested by client " << session_id << "\n";
                 }
                 else if (n == 0)
                 {
