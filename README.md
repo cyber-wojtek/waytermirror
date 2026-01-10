@@ -388,8 +388,8 @@ All client shortcuts use the **Ctrl+Alt+Shift** modifier prefix, so normal keys 
 | Shortcut                       | Action              | Notes                                          |
 | ------------------------------ | ------------------- | ---------------------------------------------- |
 | Ctrl+Alt+Shift+Z               | Toggle zoom mode    | When zoomed, use arrow keys to pan             |
-| Ctrl+Alt+Shift++ (or =)        | Zoom in             | Increases zoom level by 0.5×                   |
-| Ctrl+Alt+Shift+-               | Zoom out            | Decreases zoom level by 0.5×                   |
+| Ctrl+Alt+Shift++ (or =)        | Zoom in             | Increases zoom level by 0.125×                   |
+| Ctrl+Alt+Shift+-               | Zoom out            | Decreases zoom level by 0.125×                   |
 | Ctrl+Alt+Shift+0               | Reset zoom          | Reset to 2.0× and center viewport              |
 | Ctrl+Alt+Shift+N               | Toggle zoom follow  | Enable/disable zoom following mouse cursor     |
 | Ctrl+Alt+Shift+Arrow keys      | Pan viewport        | Left/Right/Up/Down — uses configured pan speed |

@@ -4049,14 +4049,14 @@ static void send_key_event(uint32_t keycode, bool pressed)
         // Zoom in (Ctrl+Alt+Shift++ or =)
         if (is_plus || is_equals)
         {
-            adjust_zoom(0.5);
+            adjust_zoom(0.125);
             return;
         }
 
         // Zoom out (Ctrl+Alt+Shift+-)
         if (is_minus)
         {
-            adjust_zoom(-0.5);
+            adjust_zoom(-0.125);
             return;
         }
 
