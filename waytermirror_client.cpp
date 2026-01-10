@@ -3261,6 +3261,7 @@ static void audio_receive_thread()
         {
             std::lock_guard<std::mutex> lock(terminal_query_mutex);
             std::cerr << "[AUDIO] Unexpected message type\n";
+            // flush also the 
             fflush(stderr);
             continue;
         }
