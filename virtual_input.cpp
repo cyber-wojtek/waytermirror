@@ -353,7 +353,13 @@ bool WLRInputDevice::send_key(uint32_t keycode, bool pressed) {
 }
 
 bool WLRInputDevice::send_mouse_move(int32_t x, int32_t y, uint32_t screen_width, uint32_t screen_height) {
-    if (!virtual_pointer) return false;
+    if (!virtual_pointer) {
+        std::cerr << "[WLR] No virtual pointer!\n";
+        return false;
+    }
+    
+    std::cerr << "[WLR] Sending motion_absolute: x=" << x << " y=" << y 
+              << " screen=" << screen_width << "x" << screen_height << "\n";
     
     uint32_t time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
@@ -363,6 +369,8 @@ bool WLRInputDevice::send_mouse_move(int32_t x, int32_t y, uint32_t screen_width
                                             screen_width, screen_height);
     zwlr_virtual_pointer_v1_frame(virtual_pointer);
     wl_display_flush(display);
+    
+    std::cerr << "[WLR] Motion sent and flushed\n";
     
     return true;
 }
