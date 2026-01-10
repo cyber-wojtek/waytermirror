@@ -1943,6 +1943,9 @@ static bool init_gui_window()
         return false;
     }
 
+    // Maximize window by default
+    xdg_toplevel_set_maximized(gui_window.toplevel);
+
     xdg_toplevel_add_listener(gui_window.toplevel, &xdg_toplevel_listener, &gui_window);
     xdg_toplevel_set_title(gui_window.toplevel, "Waytermirror Client");
     xdg_toplevel_set_app_id(gui_window.toplevel, "waytermirror-client");
