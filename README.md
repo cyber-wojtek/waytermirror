@@ -65,7 +65,7 @@ Real-time Wayland screen mirroring to a terminal or native window using Unicode 
 - **Rendering modes**:
   - **Terminal-based**: braille, half-blocks, ASCII, hybrid (auto-select per cell)
   - **Pixel-based**: sixels, kitty graphics, framebuffer (/dev/fb0), KMS direct rendering, **native Wayland window (GUI)**
-- **Color modes**: 16, 256, truecolor (24‑bit).
+- **Color modes**: 16, 256, truecolor (24‑bit). (applies to terminal-based renderers only)
 - **Optional CUDA acceleration** for server-side Unicode rendering (NVIDIA only).
 - **Hardware-accelerated H.265/HEVC encoding** for pixel-based renderers with automatic hardware detection (NVENC, QuickSync, VAAPI, AMF, VideoToolbox).
 - **Native GUI mode**: Client creates a Wayland window for a native application experience (no terminal required).
