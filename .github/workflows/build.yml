@@ -31,7 +31,7 @@ jobs:
           opus \
           opusfile \
           libsixel \
-          libdrm mesa ffmpeg libx265
+          libdrm mesa ffmpeg x265
 
     - uses: actions/checkout@v4
 
