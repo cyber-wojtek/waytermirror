@@ -3151,8 +3151,9 @@ static void audio_receive_thread()
     while (running && audio_playback.running)
     {
         if (recv(audio_socket, &type, sizeof(type), 0) != sizeof(type))
-            break;
-
+        {
+            continue; 
+        }
         packets_received++;
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - last_log).count() >= 5)
@@ -3171,7 +3172,9 @@ static void audio_receive_thread()
         {
             CompressedAudioHeader header;
             if (recv(audio_socket, &header, sizeof(header), 0) != sizeof(header))
-                break;
+            {
+                continue;
+            }
 
             std::vector<uint8_t> compressed(header.compressed_size);
             size_t total = 0;
@@ -3233,7 +3236,9 @@ static void audio_receive_thread()
         {
             AudioDataHeader header;
             if (recv(audio_socket, &header, sizeof(header), 0) != sizeof(header))
-                break;
+            {
+                continue;
+            }
 
             audio_data.resize(header.size);
             size_t total = 0;
