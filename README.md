@@ -322,8 +322,8 @@ All client shortcuts use the **Ctrl+Alt+Shift** modifier prefix, so normal keys 
 ### Rotation
 |         Shortcut | Action           | Notes                                |
 | ---------------: | ---------------- | ------------------------------------ |
-| Ctrl+Alt+Shift+[ | Rotate left 15°  | Counter-clockwise rotation           |
-| Ctrl+Alt+Shift+] | Rotate right 15° | Clockwise rotation                   |
+| Ctrl+Alt+Shift+[ | Rotate left 5°  | Counter-clockwise rotation           |
+| Ctrl+Alt+Shift+] | Rotate right 5° | Clockwise rotation                   |
 | Ctrl+Alt+Shift+\ | Reset rotation   | Return to 0°                         |
 | Ctrl+Alt+Shift+T | Rotate 90° CW    | Quick 90° clockwise rotation         |
 | Ctrl+Alt+Shift+Y | Rotate 90° CCW   | Quick 90° counter-clockwise rotation |

@@ -3590,7 +3590,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
 
         // === ROTATION ===
 
-        // Rotate left by 15° (Ctrl+Alt+Shift+[)
+        // Rotate left by 5° (Ctrl+Alt+Shift+[)
         if (is_leftbracket)
         {
             {
@@ -3598,11 +3598,11 @@ static void send_key_event(uint32_t keycode, bool pressed)
                 clear_screen_requested.store(true);
                 skip_frames_counter.store(5); // Skip 5 frames to allow server to process config
             }
-            adjust_rotation(-15.0);
+            adjust_rotation(-5.0);
             return;
         }
 
-        // Rotate right by 15° (Ctrl+Alt+Shift+])
+        // Rotate right by 5° (Ctrl+Alt+Shift+])
         if (is_rightbracket)
         {
             {
@@ -3610,7 +3610,7 @@ static void send_key_event(uint32_t keycode, bool pressed)
                 clear_screen_requested.store(true);
                 skip_frames_counter.store(5); // Skip 5 frames to allow server to process config
             }
-            adjust_rotation(15.0);
+            adjust_rotation(5.0);
             return;
         }
 
