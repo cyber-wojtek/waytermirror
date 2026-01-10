@@ -1,0 +1,286 @@
+=== Client Features ===
+Video: ON
+Audio: OFF
+Input: OFF
+Microphone: OFF
+=======================
+
+
+=== WARNING ===
+Not running as root. Input devices may not be accessible.
+Run with sudo or add your user to the 'input' group:
+  sudo usermod -a -G input $USER
+Then log out and back in.
+===============
+
+[INPUT] Opened device: /dev/input/event2
+[INPUT] Opened device: /dev/input/event1
+[INPUT] Opened device: /dev/input/event0
+[INPUT] Opened device: /dev/input/event13
+[INPUT] Opened device: /dev/input/event14
+[INPUT] Opened device: /dev/input/event15
+[INPUT] Opened device: /dev/input/event16
+[INPUT] Opened device: /dev/input/event3
+[INPUT] Opened device: /dev/input/event4
+[INPUT] Opened device: /dev/input/event5
+[INPUT] Opened device: /dev/input/event6
+[INPUT] Opened device: /dev/input/event7
+[INPUT] Opened device: /dev/input/event8
+[INPUT] Opened device: /dev/input/event9
+[INPUT] Opened device: /dev/input/event10
+[INPUT] Opened device: /dev/input/event17
+[INPUT] Opened device: /dev/input/event18
+[INPUT] Opened device: /dev/input/event19
+[INPUT] Opened device: /dev/input/event20
+[INPUT] Opened device: /dev/input/event21
+[INPUT] Opened device: /dev/input/event12
+[INPUT] Opened device: /dev/input/event11
+[INPUT] Opened device: /dev/input/event22
+[INPUT] Opened device: /dev/input/event23
+[INPUT] Opened device: /dev/input/event24
+[INPUT] Opened device: /dev/input/event25
+[INPUT] libinput initialized successfully
+[INPUT] Hotplug support enabled
+[INPUT] Initial devices:
+[HOTPLUG] Device added: Power Button
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: Power Button
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: Sleep Button
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries  Arctis Pro Wireless Consumer Control
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL Consumer Control
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: SteelSeries SteelSeries Apex 7 TKL Mouse
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Logitech G502 HERO Gaming Mouse
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Logitech G502 HERO Gaming Mouse Keyboard
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Eee PC WMI hotkeys
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: Mouse passthrough
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Mouse passthrough (absolute)
+[HOTPLUG]   - Pointer capability
+[HOTPLUG] Device added: Keyboard passthrough
+[HOTPLUG]   - Keyboard capability
+[HOTPLUG] Device added: JBL Flip 7 (Wojt (AVRCP)
+[HOTPLUG]   - Keyboard capability
+[INIT] Session ID: 0e4bf6b1-1159-4233-ac8a-e0d51a7bf998
+[CONFIG] Connected to 0.0.0.0:10002
+[VIDEO] Connected to 0.0.0.0:9999
+=== Zoom Configuration ===
+Enabled: NO
+Level: 2x
+Viewport: 800x600
+Follow Mouse: YES
+Smooth Pan: YES
+==========================
+
+=== Rendering Settings ===
+Detail Level: 100 (0=smooth, 100=sharp)
+Quality: 100 (0=fast, 100=best)
+Render Device: CPU
+===========================
+
+[CONFIG] Sent: 211x50 fps=60 renderer=8 detail=100 follow_focus=0
+[INIT] Waiting for screen info from server...
+[INIT] Received screen info: 2560x1440 offset: 1920,0
+[INIT] Screen info received: 2560x1440
+
+=== Waytermirror Client Started ===
+Session: 0e4bf6b1-1159-4233-ac8a-e0d51a7bf998
+Output: 1 | Resolution: 2560x1440
+Renderer: gui | Color mode: true
+FPS: 60 | Scale: 1
+Compression: OFF
+
+=== Keyboard Shortcuts (Ctrl+Alt+Shift+Key) ===
+  Q=Quit  H=Help  I=Toggle Input  G=Toggle Grab
+  Z=Zoom  +/-=Zoom In/Out  0=Reset Zoom  Arrows=Pan
+  R=Renderer  C=Color  D/S=Detail  W/E=Quality
+  P=Pause  A=Audio Mute  M=Mic Mute  F=Focus-Follow
+Input forwarding: DISABLED (local shortcuts only)
+Press Ctrl+Alt+Shift+H for full shortcut list
+================================================
+
+[GUI] Initializing GUI renderer...
+[GUI] Initializing Wayland window...
+[GUI] Connected to Wayland display
+[GUI] All required protocols available
+[GUI] Window structure created
+[INPUT] Thread started with libinput and hotplug monitoring
+[GUI] Initial buffer attached and committed
+[GUI] Window will configure asynchronously
+[GUI] Window ready for rendering
+[CONFIG] Sent: 211x50 fps=60ps=60 renderer=8 detail=100 follow_focus=0
+[GUI] Configure event: 960x1024
+[GUI] Window resized to: 960x1024
+[GUI] Configure acked (serial 89580)
+[CONFIG] Sent: 211x50 fps=60 renderer=8 detail=100 follow_focus=0
+[GUI] Window configured after delay (960x1024)
+
+[HEVC DECODER] ========================================
+[HEVC DECODER] Initializing decoder for 2110x1000
+[HEVC DECODER] Attempting hardware acceleration...
+[HEVC DECODER] Trying CUDA (NVIDIA)...
+[hevc_cuvid @ 0x56048fcbca40] Invalid pkt_timebase, passing timestamps as-is.
+[HEVC DECODER]   ✓ Successfully opened: CUDA (NVIDIA)
+[HEVC DECODER] ✓ Decoder initialized successfully!
+[HEVC DECODER]   Resolution: 2110x1000
+[HEVC DECODER]   Hardware: YES
+[HEVC DECODER]   Threads: 1
+[HEVC DECODER]   Threading type: internal
+[HEVC DECODER] ========================================
+
+[GUI] Decode failed seq=0
+[GUI] Configure event: 960x1024
+[GUI] Configure event: 960x1024
+[GUI] Configure acked (serial 89589)
+[GUI] Buffer committed after configure
+[GUI] Configure event: 1266x678
+[GUI] Window resized to: 1266x678
+[CONFIG] Sent: 211x50 fps=60 renderer=8 detail=100 follow_focus=0
+[GUI] Configure acked (serial 89594)
+
+[HEVC DECODER] ========================================
+[HEVC DECODER] Initializing decoder for 960x1024
+[HEVC DECODER] Attempting hardware acceleration...
+[HEVC DECODER] Trying CUDA (NVIDIA)...
+[hevc_cuvid @ 0x56048fcbca40] Invalid pkt_timebase, passing timestamps as-is.
+[HEVC DECODER]   ✓ Successfully opened: CUDA (NVIDIA)
+[HEVC DECODER] ✓ Decoder initialized successfully!
+[HEVC DECODER]   Resolution: 960x1024
+[HEVC DECODER]   Hardware: YES
+[HEVC DECODER]   Threads: 1
+[HEVC DECODER]   Threading type: internal
+[HEVC DECODER] ========================================
+
+[GUI] Decode failed seq=2
+
+[HEVC DECODER] ========================================
+[HEVC DECODER] Initializing decoder for 1266x678
+[HEVC DECODER] Attempting hardware acceleration...
+[HEVC DECODER] Trying CUDA (NVIDIA)...
+[hevc_cuvid @ 0x56048fcbca40] Invalid pkt_timebase, passing timestamps as-is.
+[HEVC DECODER]   ✓ Successfully opened: CUDA (NVIDIA)
+[HEVC DECODER] ✓ Decoder initialized successfully!
+[HEVC DECODER]   Resolution: 1266x678
+[HEVC DECODER]   Hardware: YES
+[HEVC DECODER]   Threads: 1
+[HEVC DECODER]   Threading type: internal
+[HEVC DECODER] ========================================
+
+[GUI] Decode failed seq=3
+[HEVC] SEQ GAP: expected 4 got 12 (dropped 8, total 8)
+[GUI] Configure event: 1266x678
+[GUI] Configure acked (serial 89595)
+[GUI] Buffer committed after configure
+[GUI] Configure event: 1266x678
+[GUI] Configure event: 1266x1366
+[GUI] Window resized to: 1266x1366
+[CONFIG] Sent: 211x50 fps=60 renderer=8 detail=100 follow_focus=0
+[GUI] Configure acked (serial 89600)
+
+[HEVC DECODER] ========================================
+[HEVC DECODER] Initializing decoder for 1266x1366
+[HEVC DECODER] Attempting hardware acceleration...
+[HEVC DECODER] Trying CUDA (NVIDIA)...
+[hevc_cuvid @ 0x56048fcbca40] Invalid pkt_timebase, passing timestamps as-is.
+[HEVC DECODER]   ✓ Successfully opened: CUDA (NVIDIA)
+[HEVC DECODER] ✓ Decoder initialized successfully!
+[HEVC DECODER]   Resolution: 1266x1366
+[HEVC DECODER]   Hardware: YES
+[HEVC DECODER]   Threads: 1
+[HEVC DECODER]   Threading type: internal
+[HEVC DECODER] ========================================
+
+[GUI] Decode failed seq=39
+[HEVC] SEQ GAP: expected 40 got 48 (dropped 8, total 16)
+[GUI] Configure event: 1266x1366
+[GUI] Configure event: 1266x1366
+[GUI] Configure acked (serial 89603)
+[GUI] Buffer committed after configure
+[GUI] Configure event: 1266x1366
+[GUI] Configure event: 1266x1366
+[GUI] Configure event: 946x1006
+[GUI] Window resized to: 946x1006
+[CONFIG] Sent: 211x50 fps=60 renderer=8 detail=100 follow_focus=0
+[GUI] Configure acked (serial 89606)
+[CONFIG] Sent: 105x50 fps=60 renderer=8 detail=100 follow_focus=0
+
+[HEVC DECODER] ========================================
+[HEVC DECODER] Initializing decoder for 946x1006
+[HEVC DECODER] Attempting hardware acceleration...
+[HEVC DECODER] Trying CUDA (NVIDIA)...
+[hevc_cuvid @ 0x56049058cfc0] Invalid pkt_timebase, passing timestamps as-is.
+[HEVC DECODER]   ✓ Successfully opened: CUDA (NVIDIA)
+[HEVC DECODER] ✓ Decoder initialized successfully!
+[HEVC DECODER]   Resolution: 946x1006
+[HEVC DECODER]   Hardware: YES
+[HEVC DECODER]   Threads: 1
+[HEVC DECODER]   Threading type: internal
+[HEVC DECODER] ========================================
+
+[GUI] Decode failed seq=75
+[HEVC] SEQ GAP: expected 76 got 84 (dropped 8, total 24)
+[GUI] Configure event: 946x1006
+[GUI] Configure acked (serial 89614)
+[GUI] Buffer committed after configure
+[GUI] Configure event: 946x1006
+[GUI] Configure acked (serial 89701)
+[GUI] Buffer committed after configure
+[GUI] Configure event: 946x1006
+[GUI] Configure acked (serial 89704)
+[GUI] Buffer committed after configure
+[GUI] Configure event: 1902x1006
+[GUI] Window resized to: 1902x1006
+[CONFIG] Sent: 105x50 fps=60 renderer=8 detail=100 follow_focus=0
+[GUI] Configure acked (serial 89712)
+[CONFIG] Sent: 211x50 fps=60 renderer=8 detail=100 follow_focus=0
+
+[HEVC DECODER] ========================================
+[HEVC DECODER] Initializing decoder for 1902x1006
+[HEVC DECODER] Attempting hardware acceleration...
+[HEVC DECODER] Trying CUDA (NVIDIA)...
+[hevc_cuvid @ 0x56049058cfc0] Invalid pkt_timebase, passing timestamps as-is.
+[HEVC DECODER]   ✓ Successfully opened: CUDA (NVIDIA)
+[HEVC DECODER] ✓ Decoder initialized successfully!
+[HEVC DECODER]   Resolution: 1902x1006
+[HEVC DECODER]   Hardware: YES
+[HEVC DECODER]   Threads: 1
+[HEVC DECODER]   Threading type: internal
+[HEVC DECODER] ========================================
+
+[GUI] Decode failed seq=320
+[HEVC] SEQ GAP: expected 321 got 329 (dropped 8, total 32)
+[GUI] Configure event: 1902x1006
+[GUI] Configure acked (serial 89726)
+[GUI] Buffer committed after configure
+[GUI] Configure event: 1902x1006
+[GUI] Configure acked (serial 89728)
+[GUI] Buffer committed after configure
+[GUI] Configure event: 1902x1006
+[GUI] Configure acked (serial 89851)
+[GUI] Buffer committed after configure
+[GUI] Configure event: 1902x1006
+[GUI] Configure acked (serial 89854)
+[GUI] Buffer committed after configure
+[GUI] Configure event: 1902x1006
+[GUI] Configure acked (serial 89867)
+[GUI] Buffer committed after configure
+[GUI] Event thread stopped
+[INPUT] Thread stopped
+
+[EXIT] Shutting down...
+[KMS] Cleanup complete
+[GUI] Window cleaned up
+[EXIT] Shutdown complete.

@@ -50,6 +50,29 @@ extern "C"
 #include <libswscale/swscale.h>
 }
 #include <png.h>
+#include <wayland-client.h>
+#include "xdg-shell-client-protocol.h"
+
+static int create_shm_file(size_t size)
+{
+    int fd = memfd_create("wayterm-mirror-shm", MFD_CLOEXEC);
+    if (fd < 0)
+        return -1;
+    if (ftruncate(fd, size) < 0)
+    {
+        close(fd);
+        return -1;
+    }
+
+    void *addr = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (addr != MAP_FAILED)
+    {
+        madvise(addr, size, MADV_SEQUENTIAL | MADV_WILLNEED);
+        munmap(addr, size);
+    }
+
+    return fd;
+}
 
 struct HEVCFrameHeader
 {
@@ -79,8 +102,8 @@ static std::atomic<int> screen_height{(int)-1};
 static std::atomic<int> output_offset_x{0}; // Current output X offset in virtual desktop
 static std::atomic<int> output_offset_y{0}; // Current output Y offset in virtual desktop
 static std::atomic<uint32_t> current_output_index{0};
-static std::atomic<int> global_mouse_x{0};     // Mouse X in global desktop coordinates
-static std::atomic<int> global_mouse_y{0};     // Mouse Y in global desktop coordinates
+static std::atomic<int> global_mouse_x{0};         // Mouse X in global desktop coordinates
+static std::atomic<int> global_mouse_y{0};         // Mouse Y in global desktop coordinates
 static std::atomic<int> virtual_desktop_width{0};  // Total virtual desktop width
 static std::atomic<int> virtual_desktop_height{0}; // Total virtual desktop height
 
@@ -1556,6 +1579,684 @@ static bool decode_hevc_to_rgb(
     return true;
 }
 
+struct GUIWindow {
+    wl_display* display = nullptr;
+    wl_registry* registry = nullptr;
+    wl_compositor* compositor = nullptr;
+    wl_surface* surface = nullptr;
+    wl_shm* shm = nullptr;
+    wl_shm_pool* pool = nullptr;
+    wl_buffer* buffer = nullptr;
+    xdg_wm_base* shell = nullptr;
+    xdg_surface* xdgsurface = nullptr;
+    xdg_toplevel* toplevel = nullptr;
+    
+    void* shm_data = nullptr;
+    int shm_fd = -1;
+    size_t shm_size = 0;
+    
+    uint32_t width = 1920;
+    uint32_t height = 1080;
+    
+    bool configured = false;
+    bool running = false;
+    std::mutex mutex;
+};
+
+static GUIWindow gui_window;
+
+// GUI/Wayland window registry listener
+static void gui_registry_handler(void *data, wl_registry *registry, uint32_t id,
+                                 const char *interface, uint32_t version)
+{
+    GUIWindow *win = static_cast<GUIWindow *>(data);
+
+    if (strcmp(interface, wl_compositor_interface.name) == 0)
+    {
+        win->compositor = static_cast<wl_compositor *>(
+            wl_registry_bind(registry, id, &wl_compositor_interface, 4));
+    }
+    else if (strcmp(interface, wl_shm_interface.name) == 0)
+    {
+        win->shm = static_cast<wl_shm *>(
+            wl_registry_bind(registry, id, &wl_shm_interface, 1));
+    }
+    else if (strcmp(interface, xdg_wm_base_interface.name) == 0)
+    {
+        win->shell = static_cast<xdg_wm_base *>(
+            wl_registry_bind(registry, id, &xdg_wm_base_interface, 1));
+    }
+}
+
+static void gui_registry_remover(void *, wl_registry *, uint32_t) {}
+
+static const wl_registry_listener gui_registry_listener = {
+    gui_registry_handler,
+    gui_registry_remover};
+
+// XDG shell listeners
+static void xdg_wm_base_ping(void *, xdg_wm_base *shell, uint32_t serial)
+{
+    xdg_wm_base_pong(shell, serial);
+}
+
+static const xdg_wm_base_listener xdg_shell_listener = {
+    xdg_wm_base_ping};
+
+static void xdg_surface_configure(void *data, xdg_surface *surface, uint32_t serial)
+{
+    GUIWindow *win = static_cast<GUIWindow *>(data);
+    xdg_surface_ack_configure(surface, serial);
+    win->configured = true;
+    
+    std::cerr << "[GUI] Configure acked (serial " << serial << ")\n";
+    
+    std::lock_guard<std::mutex> lock(win->mutex);
+    if (win->buffer && win->surface)
+    {
+        wl_surface_attach(win->surface, win->buffer, 0, 0);
+        wl_surface_damage_buffer(win->surface, 0, 0, win->width, win->height);
+        wl_surface_commit(win->surface);
+        std::cerr << "[GUI] Buffer committed after configure\n";
+    }
+}
+
+static const xdg_surface_listener xdg_surface_listener = {
+    xdg_surface_configure};
+
+
+static bool send_client_config(const ClientConfig &config)
+{
+    if (config_socket < 0)
+    {
+        std::cerr << "[CONFIG] Socket not connected\n";
+        return false;
+    }
+
+    MessageType type = MessageType::CLIENT_CONFIG;
+    if (send(config_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type))
+    {
+        std::cerr << "[CONFIG] Failed to send message type\n";
+        return false;
+    }
+    if (send(config_socket, &config, sizeof(config), MSG_NOSIGNAL) != sizeof(config))
+    {
+        std::cerr << "[CONFIG] Failed to send config data\n";
+        return false;
+    }
+
+    std::cerr << "[CONFIG] Sent: " << config.term_width << "x" << config.term_height
+              << " fps=" << config.fps << " renderer=" << (int)config.renderer
+              << " detail=" << (int)config.detail_level
+              << " follow_focus=" << (int)config.follow_focus << "\n";
+    return true;
+}
+
+static void xdg_toplevel_configure(void *data, xdg_toplevel *,
+                                   int32_t width, int32_t height, wl_array *)
+{
+    GUIWindow *win = static_cast<GUIWindow *>(data);
+    std::cerr << "[GUI] Configure event: " << width << "x" << height << "\n";
+    
+    if (width > 0 && height > 0)
+    {
+        std::lock_guard<std::mutex> lock(win->mutex);
+        
+        bool size_changed = (win->width != (uint32_t)width || win->height != (uint32_t)height);
+        
+        win->width = width;
+        win->height = height;
+        
+        if (size_changed)
+        {
+            std::cerr << "[GUI] Window resized to: " << width << "x" << height << "\n";
+            
+            // Invalidate buffer so it gets recreated
+            if (win->buffer)
+            {
+                wl_buffer_destroy(win->buffer);
+                win->buffer = nullptr;
+            }
+            if (win->pool)
+            {
+                wl_shm_pool_destroy(win->pool);
+                win->pool = nullptr;
+            }
+            if (win->shm_data)
+            {
+                munmap(win->shm_data, win->shm_size);
+                win->shm_data = nullptr;
+                win->shm_size = 0;
+            }
+            if (win->shm_fd >= 0)
+            {
+                close(win->shm_fd);
+                win->shm_fd = -1;
+            }
+            
+            // Update client config with new dimensions
+            std::lock_guard<std::mutex> config_lock(config_mutex);
+            current_config.term_pixel_width = width;
+            current_config.term_pixel_height = height;
+            send_client_config(current_config);
+        }
+    }
+}
+
+static void xdg_toplevel_close(void *data, xdg_toplevel *)
+{
+    GUIWindow *win = static_cast<GUIWindow *>(data);
+    win->running = false;
+    running = false;
+}
+
+static const xdg_toplevel_listener xdg_toplevel_listener = {
+    xdg_toplevel_configure,
+    xdg_toplevel_close};
+
+static void cleanup_gui_window()
+{
+    std::lock_guard<std::mutex> lock(gui_window.mutex);
+
+    if (gui_window.shm_data)
+    {
+        munmap(gui_window.shm_data, gui_window.shm_size);
+        gui_window.shm_data = nullptr;
+    }
+
+    if (gui_window.shm_fd >= 0)
+    {
+        close(gui_window.shm_fd);
+        gui_window.shm_fd = -1;
+    }
+
+    if (gui_window.buffer)
+    {
+        wl_buffer_destroy(gui_window.buffer);
+        gui_window.buffer = nullptr;
+    }
+
+    if (gui_window.pool)
+    {
+        wl_shm_pool_destroy(gui_window.pool);
+        gui_window.pool = nullptr;
+    }
+
+    if (gui_window.toplevel)
+    {
+        xdg_toplevel_destroy(gui_window.toplevel);
+        gui_window.toplevel = nullptr;
+    }
+
+    if (gui_window.xdgsurface)
+    {
+        xdg_surface_destroy(gui_window.xdgsurface);
+        gui_window.xdgsurface = nullptr;
+    }
+
+    if (gui_window.surface)
+    {
+        wl_surface_destroy(gui_window.surface);
+        gui_window.surface = nullptr;
+    }
+
+    if (gui_window.display)
+    {
+        wl_display_disconnect(gui_window.display);
+        gui_window.display = nullptr;
+    }
+
+    gui_window.running = false;
+    std::cerr << "[GUI] Window cleaned up\n";
+}
+
+static void gui_event_thread()
+{
+    std::cerr << "[GUI] Event thread started\n";
+    
+    // Set display fd to non-blocking for poll()
+    int fd = wl_display_get_fd(gui_window.display);
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    
+    while (running && gui_window.running)
+    {
+        // Flush outgoing requests
+        while (wl_display_flush(gui_window.display) < 0)
+        {
+            if (errno != EAGAIN)
+            {
+                std::cerr << "[GUI] Display flush error: " << strerror(errno) << "\n";
+                running = false;
+                return;
+            }
+        }
+        
+        // Wait for events with timeout
+        int ret = poll(&pfd, 1, 100); // 100ms timeout keeps compositor responsive
+        
+        if (ret < 0)
+        {
+            if (errno == EINTR)
+                continue;
+            std::cerr << "[GUI] Poll error: " << strerror(errno) << "\n";
+            break;
+        }
+        
+        if (ret > 0 && (pfd.revents & POLLIN))
+        {
+            // Read events from socket
+            if (wl_display_dispatch(gui_window.display) < 0)
+            {
+                std::cerr << "[GUI] Display dispatch error\n";
+                break;
+            }
+        }
+    }
+    
+    std::cerr << "[GUI] Event thread stopped\n";
+}
+
+static bool init_gui_window()
+{
+    std::lock_guard<std::mutex> lock(gui_window.mutex);
+
+    if (gui_window.display)
+    {
+        return true; // Already initialized
+    }
+
+    std::cerr << "[GUI] Initializing Wayland window...\n";
+
+    gui_window.display = wl_display_connect(nullptr);
+    if (!gui_window.display)
+    {
+        std::cerr << "[GUI] Failed to connect to Wayland display\n";
+        std::cerr << "[GUI] Make sure you're running in a Wayland session\n";
+        std::cerr << "[GUI] Check WAYLAND_DISPLAY environment variable\n";
+        return false;
+    }
+
+    std::cerr << "[GUI] Connected to Wayland display\n";
+
+    // Get registry and globals
+    gui_window.registry = wl_display_get_registry(gui_window.display);
+    wl_registry_add_listener(gui_window.registry, &gui_registry_listener, &gui_window);
+    
+    wl_display_flush(gui_window.display);
+    
+    // Read events from socket (non-blocking with timeout)
+    struct pollfd pfd = {wl_display_get_fd(gui_window.display), POLLIN, 0};
+    for (int i = 0; i < 10; i++)
+    {
+        if (poll(&pfd, 1, 100) > 0)
+        {
+            wl_display_dispatch(gui_window.display);
+        }
+        
+        // Check if we got everything
+        if (gui_window.compositor && gui_window.shm && gui_window.shell)
+            break;
+    }
+
+    if (!gui_window.compositor || !gui_window.shm || !gui_window.shell)
+    {
+        std::cerr << "[GUI] Missing required Wayland protocols:\n";
+        std::cerr << "[GUI]   Compositor: " << (gui_window.compositor ? "OK" : "MISSING") << "\n";
+        std::cerr << "[GUI]   SHM: " << (gui_window.shm ? "OK" : "MISSING") << "\n";
+        std::cerr << "[GUI]   XDG Shell: " << (gui_window.shell ? "OK" : "MISSING") << "\n";
+        cleanup_gui_window();
+        return false;
+    }
+
+    std::cerr << "[GUI] All required protocols available\n";
+
+    xdg_wm_base_add_listener(gui_window.shell, &xdg_shell_listener, nullptr);
+
+    gui_window.surface = wl_compositor_create_surface(gui_window.compositor);
+    if (!gui_window.surface)
+    {
+        std::cerr << "[GUI] Failed to create surface\n";
+        cleanup_gui_window();
+        return false;
+    }
+
+    gui_window.xdgsurface = xdg_wm_base_get_xdg_surface(gui_window.shell, gui_window.surface);
+    if (!gui_window.xdgsurface)
+    {
+        std::cerr << "[GUI] Failed to create XDG surface\n";
+        cleanup_gui_window();
+        return false;
+    }
+
+    xdg_surface_add_listener(gui_window.xdgsurface, &xdg_surface_listener, &gui_window);
+
+    gui_window.toplevel = xdg_surface_get_toplevel(gui_window.xdgsurface);
+    if (!gui_window.toplevel)
+    {
+        std::cerr << "[GUI] Failed to create toplevel\n";
+        cleanup_gui_window();
+        return false;
+    }
+
+    xdg_toplevel_add_listener(gui_window.toplevel, &xdg_toplevel_listener, &gui_window);
+    xdg_toplevel_set_title(gui_window.toplevel, "Waytermirror Client");
+    xdg_toplevel_set_app_id(gui_window.toplevel, "waytermirror-client");
+
+    std::cerr << "[GUI] Window structure created\n";
+
+    // Some compositors need a buffer attached before configure
+    // Create a small initial buffer
+    size_t initial_size = 1920 * 1080 * 4;
+    gui_window.shm_fd = create_shm_file(initial_size);
+    if (gui_window.shm_fd < 0)
+    {
+        std::cerr << "[GUI] Failed to create initial buffer\n";
+        cleanup_gui_window();
+        return false;
+    }
+
+    gui_window.shm_data = mmap(nullptr, initial_size, PROT_READ | PROT_WRITE,
+                               MAP_SHARED, gui_window.shm_fd, 0);
+    if (gui_window.shm_data == MAP_FAILED)
+    {
+        std::cerr << "[GUI] Failed to mmap initial buffer\n";
+        close(gui_window.shm_fd);
+        gui_window.shm_fd = -1;
+        cleanup_gui_window();
+        return false;
+    }
+
+    gui_window.shm_size = initial_size;
+    gui_window.pool = wl_shm_create_pool(gui_window.shm, gui_window.shm_fd, initial_size);
+    gui_window.buffer = wl_shm_pool_create_buffer(gui_window.pool, 0,
+                                                   1920, 1080,
+                                                   1920 * 4, WL_SHM_FORMAT_XRGB8888);
+
+    // Clear to black
+    memset(gui_window.shm_data, 0, initial_size);
+
+    wl_surface_commit(gui_window.surface);
+    
+    // Flush the commit
+    wl_display_flush(gui_window.display);
+    
+    std::cerr << "[GUI] Initial buffer attached and committed\n";
+    std::cerr << "[GUI] Window will configure asynchronously\n";
+    
+    // Set default dimensions (will be updated by configure event)
+    gui_window.width = 1920;
+    gui_window.height = 1080;
+    gui_window.running = true;
+    
+    return true;
+}
+
+static void render_to_gui(const std::vector<uint8_t> &data)
+{
+    // Initialize window if needed
+    if (!gui_window.display)
+    {
+        std::cerr << "[GUI] Window not initialized, skipping frame\n";
+        return;
+    }
+
+    // *** FIX: Process events BEFORE checking configured state ***
+    if (wl_display_dispatch_pending(gui_window.display) < 0)
+    {
+        std::cerr << "[GUI] Display dispatch error\n";
+        running = false;
+        return;
+    }
+    wl_display_flush(gui_window.display);
+
+    // Check if configured now (might configure late)
+    if (!gui_window.configured)
+    {
+        // Try one more roundtrip
+        wl_display_roundtrip(gui_window.display);
+        
+        if (!gui_window.configured)
+        {
+            // Still not configured, skip but don't spam
+            static int skip_count = 0;
+            if (skip_count % 30 == 0)
+            {
+                std::cerr << "[GUI] Window not configured yet (skipped " << skip_count << " frames)\n";
+            }
+            skip_count++;
+            return;
+        }
+        else
+        {
+            std::cerr << "[GUI] Window configured after delay (" 
+                      << gui_window.width << "x" << gui_window.height << ")\n";
+        }
+    }
+
+    if (data.size() < sizeof(HEVCFrameHeader))
+    {
+        std::cerr << "[GUI] Packet too small\n";
+        return;
+    }
+
+    HEVCFrameHeader header;
+    memcpy(&header, data.data(), sizeof(header));
+
+    if (header.width == 0 || header.height == 0 ||
+        header.width > 8192 || header.height > 8192)
+    {
+        std::cerr << "[GUI] Invalid dimensions\n";
+        return;
+    }
+
+    size_t expected_size = sizeof(header) + header.extradata_size + header.compressed_size;
+    if (data.size() < expected_size)
+    {
+        std::cerr << "[GUI] Truncated packet\n";
+        return;
+    }
+
+    // Check sequence
+    uint32_t expected = hevc_decoder.expected_sequence.load();
+    if (header.sequence_number != expected && expected != 0)
+    {
+        uint32_t dropped = header.sequence_number - expected;
+        hevc_decoder.total_drops.fetch_add(dropped);
+
+        std::cerr << "[HEVC] SEQ GAP: expected " << expected
+                  << " got " << header.sequence_number
+                  << " (dropped " << dropped << ", total "
+                  << hevc_decoder.total_drops.load() << ")\n";
+
+        MessageType msg = MessageType::REQUESTED_KEYFRAME;
+        send(config_socket, &msg, sizeof(msg), MSG_NOSIGNAL);
+
+        if (!header.is_keyframe)
+        {
+            hevc_decoder.expected_sequence = header.sequence_number + 1;
+            return;
+        }
+    }
+
+    hevc_decoder.expected_sequence = header.sequence_number + 1;
+
+    const uint8_t *ptr = data.data() + sizeof(header);
+    const uint8_t *extradata = header.extradata_size > 0 ? ptr : nullptr;
+    ptr += header.extradata_size;
+    const uint8_t *hevc_data = ptr;
+
+    std::vector<uint8_t> rgb_data;
+    if (!decode_hevc_to_rgb(hevc_data, extradata, header.extradata_size,
+                            header.compressed_size, header.width, header.height, rgb_data))
+    {
+        std::cerr << "[GUI] Decode failed seq=" << header.sequence_number << "\n";
+        return;
+    }
+
+    uint32_t width = header.width;
+    uint32_t height = header.height;
+
+    size_t expected_rgb_size = (size_t)width * height * 3;
+    if (rgb_data.empty() || rgb_data.size() != expected_rgb_size)
+    {
+        return;
+    }
+
+    // Initialize window if needed
+    if (!gui_window.display && !init_gui_window())
+    {
+        std::cerr << "[GUI] Failed to initialize window\n";
+        return;
+    }
+
+    // Process Wayland events
+    wl_display_dispatch_pending(gui_window.display);
+    wl_display_flush(gui_window.display);
+
+    if (!gui_window.configured)
+    {
+        return;
+    }
+
+    uint32_t win_width, win_height;
+    {
+        std::lock_guard<std::mutex> lock(gui_window.mutex);
+        win_width = gui_window.width;
+        win_height = gui_window.height;
+    }
+
+    // Calculate aspect ratio preserving dimensions
+    bool keep_aspect = (current_config.keep_aspect_ratio != 0);
+    int img_width = width;
+    int img_height = height;
+
+    if (keep_aspect)
+    {
+        double src_aspect = (double)width / height;
+        double win_aspect = (double)win_width / win_height;
+
+        if (src_aspect > win_aspect)
+        {
+            img_width = win_width;
+            img_height = (int)(img_width / src_aspect);
+        }
+        else
+        {
+            img_height = win_height;
+            img_width = (int)(img_height * src_aspect);
+        }
+    }
+    else
+    {
+        img_width = win_width;
+        img_height = win_height;
+    }
+
+    // Create/update shared memory buffer
+    {
+        std::lock_guard<std::mutex> lock(gui_window.mutex);
+
+        size_t stride = win_width * 4;
+        size_t new_size = stride * win_height;
+
+        if (gui_window.shm_size != new_size)
+        {
+            if (gui_window.buffer)
+            {
+                wl_buffer_destroy(gui_window.buffer);
+                gui_window.buffer = nullptr;
+            }
+
+            if (gui_window.pool)
+            {
+                wl_shm_pool_destroy(gui_window.pool);
+                gui_window.pool = nullptr;
+            }
+
+            if (gui_window.shm_data)
+            {
+                munmap(gui_window.shm_data, gui_window.shm_size);
+                gui_window.shm_data = nullptr;
+            }
+
+            if (gui_window.shm_fd >= 0)
+            {
+                close(gui_window.shm_fd);
+            }
+
+            gui_window.shm_fd = create_shm_file(new_size);
+            if (gui_window.shm_fd < 0)
+            {
+                return;
+            }
+
+            gui_window.shm_data = mmap(nullptr, new_size, PROT_READ | PROT_WRITE,
+                                       MAP_SHARED, gui_window.shm_fd, 0);
+            if (gui_window.shm_data == MAP_FAILED)
+            {
+                close(gui_window.shm_fd);
+                gui_window.shm_fd = -1;
+                return;
+            }
+
+            gui_window.pool = wl_shm_create_pool(gui_window.shm, gui_window.shm_fd, new_size);
+            gui_window.buffer = wl_shm_pool_create_buffer(gui_window.pool, 0,
+                                                          win_width, win_height,
+                                                          stride, WL_SHM_FORMAT_XRGB8888);
+            gui_window.shm_size = new_size;
+        }
+
+        // Clear to black
+        memset(gui_window.shm_data, 0, gui_window.shm_size);
+
+        // Calculate letterbox offsets
+        int off_x = (win_width - img_width) / 2;
+        int off_y = (win_height - img_height) / 2;
+
+        // Scale and copy RGB data
+        uint8_t *dst = static_cast<uint8_t *>(gui_window.shm_data);
+
+        for (int y = 0; y < img_height; y++)
+        {
+            int win_y = off_y + y;
+            if (win_y < 0 || win_y >= (int)win_height)
+                continue;
+
+            for (int x = 0; x < img_width; x++)
+            {
+                int win_x = off_x + x;
+                if (win_x < 0 || win_x >= (int)win_width)
+                    continue;
+
+                // Map to source pixel
+                int src_x = (x * width) / img_width;
+                int src_y = (y * height) / img_height;
+                src_x = std::min(src_x, (int)width - 1);
+                src_y = std::min(src_y, (int)height - 1);
+                int src_idx = (src_y * width + src_x) * 3;
+                int dst_idx = (win_y * win_width + win_x) * 4;
+
+                dst[dst_idx + 0] = rgb_data[src_idx + 2]; // B
+                dst[dst_idx + 1] = rgb_data[src_idx + 1]; // G
+                dst[dst_idx + 2] = rgb_data[src_idx + 0]; // R
+                dst[dst_idx + 3] = 0xFF;                  // X
+            }
+        }
+
+        // Attach and commit
+        wl_surface_attach(gui_window.surface, gui_window.buffer, 0, 0);
+        wl_surface_damage_buffer(gui_window.surface, 0, 0, win_width, win_height);
+        wl_surface_commit(gui_window.surface);
+    }
+
+    wl_display_flush(gui_window.display);
+}
+
 static void render_to_kms(const std::vector<uint8_t> &data)
 {
     std::lock_guard<std::mutex> lock(kms_mutex);
@@ -1889,33 +2590,6 @@ static void send_zoom_config()
               << " level=" << config.zoom_level
               << " viewport=" << config.view_width << "x" << config.view_height
               << " follow=" << (config.follow_mouse ? "YES" : "NO") << "\n";
-}
-
-static bool send_client_config(const ClientConfig &config)
-{
-    if (config_socket < 0)
-    {
-        std::cerr << "[CONFIG] Socket not connected\n";
-        return false;
-    }
-
-    MessageType type = MessageType::CLIENT_CONFIG;
-    if (send(config_socket, &type, sizeof(type), MSG_NOSIGNAL) != sizeof(type))
-    {
-        std::cerr << "[CONFIG] Failed to send message type\n";
-        return false;
-    }
-    if (send(config_socket, &config, sizeof(config), MSG_NOSIGNAL) != sizeof(config))
-    {
-        std::cerr << "[CONFIG] Failed to send config data\n";
-        return false;
-    }
-
-    std::cerr << "[CONFIG] Sent: " << config.term_width << "x" << config.term_height
-              << " fps=" << config.fps << " renderer=" << (int)config.renderer
-              << " detail=" << (int)config.detail_level
-              << " follow_focus=" << (int)config.follow_focus << "\n";
-    return true;
 }
 
 static void get_terminal_size(int &tw, int &th)
@@ -2925,24 +3599,45 @@ static void toggle_exclusive_grab()
 static void cycle_renderer()
 {
     std::lock_guard<std::mutex> lock(config_mutex);
-    // Cycle through all 7 renderers: 0=braille, 1=blocks, 2=ascii, 3=hybrid, 4=sixel, 5=kitty, 6=framebuffer, 7=kms
-    current_config.renderer = (current_config.renderer + 1) % 8;
+    // Cycle through all 9 renderers: 0=braille, 1=blocks, 2=ascii, 3=hybrid, 4=sixel, 5=kitty, 6=framebuffer, 7=kms, 8=gui
+    current_config.renderer = (current_config.renderer + 1) % 9;
 
-    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty", "framebuffer", "kms"};
+    const char *names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty", "framebuffer", "kms", "gui"};
     std::cerr << "[RENDERER] Switched to: " << names[current_config.renderer] << "\n";
 
     get_terminal_size((int &)current_config.term_width, (int &)current_config.term_height);
 
-    // Query actual pixel dimensions if using sixel or kitty
-    if (current_config.renderer == 4 || current_config.renderer == 5) // 4 = sixel, 5 = kitty
+    // Query actual pixel dimensions if using sixel, kitty, or gui
+    if (current_config.renderer == 4 || current_config.renderer == 5 || current_config.renderer == 8)
     {
-        query_terminal_geometry(current_config.renderer == 4, (int &)current_config.term_pixel_width,
-                                (int &)current_config.term_pixel_height);
-        const char *proto = (current_config.renderer == 4) ? "SIXEL" : "KITTY";
-        std::cerr << "[" << proto << "] Detected geometry: " << current_config.term_pixel_width << "x"
-                  << current_config.term_pixel_height << " pixels\n";
+        if (current_config.renderer == 8)
+        {
+            // GUI mode - use window dimensions
+            if (gui_window.display)
+            {
+                std::lock_guard<std::mutex> lock(gui_window.mutex);
+                current_config.term_pixel_width = gui_window.width;
+                current_config.term_pixel_height = gui_window.height;
+                std::cerr << "[GUI] Using window dimensions: " << gui_window.width << "x"
+                          << gui_window.height << " pixels\n";
+            }
+            else
+            {
+                current_config.term_pixel_width = 1920;
+                current_config.term_pixel_height = 1080;
+                std::cerr << "[GUI] Window not initialized, using default 1920x1080\n";
+            }
+        }
+        else
+        {
+            query_terminal_geometry(current_config.renderer == 4, (int &)current_config.term_pixel_width,
+                                    (int &)current_config.term_pixel_height);
+            const char *proto = (current_config.renderer == 4) ? "SIXEL" : "KITTY";
+            std::cerr << "[" << proto << "] Detected geometry: " << current_config.term_pixel_width << "x"
+                      << current_config.term_pixel_height << " pixels\n";
+        }
     }
-    else if (current_config.renderer == 7) // 7 = kms
+    else if (current_config.renderer == 7)
     {
         query_kms_geometry((int &)current_config.term_pixel_width,
                            (int &)current_config.term_pixel_height);
@@ -2951,7 +3646,7 @@ static void cycle_renderer()
     }
     else
     {
-        current_config.term_pixel_width = current_config.term_width * 10; // Fallback estimates
+        current_config.term_pixel_width = current_config.term_width * 10;
         current_config.term_pixel_height = current_config.term_height * 20;
     }
 
@@ -3188,7 +3883,7 @@ static void print_shortcuts_help()
     std::cout << "║   6            Cycle microphone compression (off→Opus)                 ║\n";
     std::cout << "╠════════════════════════════════════════════════════════════════════════╣\n";
     std::cout << "║ CURRENT STATE                                                          ║\n";
-    const char *renderer_names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty", "framebuffer", "kms"};
+    const char *renderer_names[] = {"braille", "blocks", "ascii", "hybrid", "sixel", "kitty", "framebuffer", "kms", "gui"};
     int renderer_idx = std::min((int)current_config.renderer, 7);
     std::cout << "║   Renderer:       " << std::setw(8) << std::left << renderer_names[renderer_idx] << "  Color: " << std::setw(9) << (const char *[]){"16", "256", "truecolor"}[current_config.color_mode] << "  Device: " << std::setw(4) << (current_config.render_device ? "CUDA" : "CPU") << "   ║\n";
     std::cout << "║   Detail: " << std::setw(3) << (int)current_config.detail_level << "       Quality: " << std::setw(3) << (int)current_config.quality << "       FPS: " << std::setw(3) << current_config.fps << "             ║\n";
@@ -5303,6 +5998,7 @@ int main(int argc, char **argv)
                                                             : (renderer == "kitty")       ? 5
                                                             : (renderer == "framebuffer") ? 6
                                                             : (renderer == "kms")         ? 7
+                                                            : (renderer == "gui")         ? 8
                                                                                           : 3;
 
         // Query actual pixel dimensions if using sixel or kitty
@@ -5518,7 +6214,7 @@ int main(int argc, char **argv)
         current_mouse_x = output_offset_x.load() + (screen_width.load() / 2);
         current_mouse_y = output_offset_y.load() + (screen_height.load() / 2);
         std::cerr << "[INIT] Mouse centered at global (" << current_mouse_x.load()
-                << "," << current_mouse_y.load() << ")\n";
+                  << "," << current_mouse_y.load() << ")\n";
     }
 
     // Start threads based on enabled features
@@ -5579,6 +6275,31 @@ int main(int argc, char **argv)
     }
     std::cerr << "================================================\n\n";
 
+    std::thread gui_event_thr;
+    if (feature_video && current_config.renderer == 8)
+    {
+        std::cerr << "[GUI] Initializing GUI renderer...\n";
+        if (!init_gui_window())
+        {
+            std::cerr << "[GUI] Failed to initialize, falling back to braille renderer\n";
+            std::lock_guard<std::mutex> lock(config_mutex);
+            current_config.renderer = 0; // Fallback to braille
+            send_client_config(current_config);
+        }
+        else
+        {
+            // Start GUI event thread
+            gui_event_thr = std::thread(gui_event_thread);
+            std::cerr << "[GUI] Window ready for rendering\n";
+            
+            // Update config with actual window dimensions
+            std::lock_guard<std::mutex> lock(config_mutex);
+            current_config.term_pixel_width = gui_window.width;
+            current_config.term_pixel_height = gui_window.height;
+            send_client_config(current_config);
+        }
+    }
+
     // Main loop
     while (running)
     {
@@ -5601,8 +6322,7 @@ int main(int argc, char **argv)
                 current_config.term_width = new_term_width;
                 current_config.term_height = new_term_height;
 
-                // Query actual pixel dimensions if using sixel or kitty
-                if (current_config.renderer == 4 || current_config.renderer == 5) // 4 = sixel, 5 = kitty
+                if (current_config.renderer == 4 || current_config.renderer == 5)
                 {
                     query_terminal_geometry(current_config.renderer == 4, (int &)current_config.term_pixel_width,
                                             (int &)current_config.term_pixel_height);
@@ -5611,16 +6331,36 @@ int main(int argc, char **argv)
                               << new_term_height << " cells (" << current_config.term_pixel_width << "x"
                               << current_config.term_pixel_height << " pixels via " << proto << ")\n";
                 }
+                else if (current_config.renderer == 7)
+                {
+                    query_kms_geometry((int &)current_config.term_pixel_width,
+                                       (int &)current_config.term_pixel_height);
+                    std::cerr << "[KMS] Detected geometry: " << current_config.term_pixel_width << "x"
+                              << current_config.term_pixel_height << " pixels\n";
+                }
+                else if (current_config.renderer == 8)
+                {
+                    // GUI mode - window dimensions handled automatically
+                    if (gui_window.display)
+                    {
+                        std::lock_guard<std::mutex> lock(gui_window.mutex);
+                        current_config.term_pixel_width = gui_window.width;
+                        current_config.term_pixel_height = gui_window.height;
+                    }
+                }
                 else
                 {
-                    current_config.term_pixel_width = new_term_width * 10; // Fallback estimates
-                    current_config.term_pixel_height = new_term_height * 20;
+                    current_config.term_pixel_width = current_config.term_width * 10;
+                    current_config.term_pixel_height = current_config.term_height * 20;
                     std::cerr << "[RESIZE] Terminal resized to " << new_term_width << "x"
                               << new_term_height << "\n";
                 }
                 send_client_config(current_config);
 
-                std::cout << "\033[2J";
+                if (current_config.renderer != 8)
+                {
+                    std::cout << "\033[2J";
+                }
             }
 
             // Handle clear screen request
@@ -5629,17 +6369,19 @@ int main(int argc, char **argv)
                 if (clear_screen_requested.load())
                 {
                     clear_screen_requested.store(false);
-                    std::cout << "\033[H\033[2J" << std::flush;
+                    if (current_config.renderer != 8)
+                    {
+                        std::cout << "\033[H\033[2J" << std::flush;
+                    }
                     std::cerr << "[CLEAR] Screen cleared as requested\n";
                 }
             }
 
-            // Skip frames if counter is active (waiting for server to process config changes)
+            // Skip frames if counter is active
             int skip_count = skip_frames_counter.load();
             if (skip_count > 0)
             {
                 skip_frames_counter.store(skip_count - 1);
-                // Still consume frames to prevent buffer buildup
                 std::vector<uint8_t> dummy;
                 receive_newest_frame(dummy);
                 std::this_thread::sleep_for(std::chrono::milliseconds(16));
@@ -5647,53 +6389,51 @@ int main(int argc, char **argv)
             else if (!video_paused.load() && receive_newest_frame(rendered))
             {
                 if (current_config.renderer == 4)
-                { // Renderer sixel(4) - render
+                {
                     render_to_sixel(rendered);
                 }
-                // Renderer kitty(5) - render
                 else if (current_config.renderer == 5)
                 {
                     render_to_kitty(rendered);
                 }
-                // Renderer 6 = framebuffer - write to /dev/fb0 instead of terminal
                 else if (current_config.renderer == 6)
                 {
                     render_to_framebuffer(rendered);
                 }
                 else if (current_config.renderer == 7)
-                { // KMS direct rendering mode
+                {
                     render_to_kms(rendered);
+                }
+                else if (current_config.renderer == 8)
+                {
+                    render_to_gui(rendered);
                 }
                 else
                 {
-                    std::cerr << "[FRAME] Rendering frame, size: " << rendered.size() << " bytes\n";
                     std::cout << "\033[H" << std::flush;
                     write(STDOUT_FILENO, rendered.data(), rendered.size());
                 }
             }
             else if (video_paused.load())
             {
-                // Still consume frames to prevent buffer buildup, but don't display
                 receive_newest_frame(rendered);
                 std::this_thread::sleep_for(std::chrono::milliseconds(16));
             }
             else
             {
-                // No frame available, sleep briefly to avoid busy-looping
                 std::this_thread::sleep_for(std::chrono::microseconds(1000));
             }
         }
         else
         {
-            // No video - just wait for exit combo or Ctrl+C
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 
     std::cerr << "\n[EXIT] Shutting down...\n";
 
-    // Cleanup terminal (only if video enabled)
-    if (feature_video)
+    // Cleanup terminal (only if not GUI mode)
+    if (feature_video && current_config.renderer != 8)
     {
         std::cout << "\033[0m\033[2J\033[H\033[?47l\033[?25h" << std::flush;
     }
@@ -5704,6 +6444,11 @@ int main(int argc, char **argv)
     if (feature_microphone && microphone_thr.joinable())
     {
         microphone_thr.join();
+    }
+
+    if (gui_event_thr.joinable())
+    {
+        gui_event_thr.join();
     }
 
     // Input thread runs if libinput initialized (for local shortcuts)
@@ -5763,6 +6508,7 @@ int main(int argc, char **argv)
 
     cleanup_kms_display();
     cleanup_framebuffer();
+    cleanup_gui_window();
     cleanup_hevc_decoder(hevc_decoder);
 
     std::cerr << "[EXIT] Shutdown complete.\n";

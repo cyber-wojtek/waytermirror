@@ -4094,6 +4094,113 @@ static std::vector<uint8_t> render_sixel(
                                    is_keyframe, *hevc_enc);
 }
 
+
+static std::vector<uint8_t> render_gui(
+    const uint8_t *frame_data,
+    uint32_t frame_width,
+    uint32_t frame_height,
+    uint32_t frame_stride,
+    int term_width,
+    int term_height,
+    int term_pixel_width,
+    int term_pixel_height,
+    ColorMode mode,
+    bool keep_aspect_ratio,
+    double scale_factor,
+    uint8_t detail_level,
+    uint8_t quality,
+    double rotation_angle,
+    PixelFormat pixel_format,
+    HEVCEncoder *hevc_enc,
+    int fps)
+{
+    if (!frame_data || frame_width == 0 || frame_height == 0)
+        return {};
+
+    uint32_t rot_width, rot_height;
+    get_rotated_dimensions(frame_width, frame_height, rotation_angle, rot_width, rot_height);
+
+    int terminal_pixel_width = (term_pixel_width > 0) ? term_pixel_width : (term_width * 10);
+    int terminal_pixel_height = (term_pixel_height > 0) ? term_pixel_height : (term_height * 20);
+
+    int img_width, img_height;
+
+    if (keep_aspect_ratio)
+    {
+        double src_aspect = (double)rot_width / rot_height;
+        double term_aspect = (double)terminal_pixel_width / terminal_pixel_height;
+
+        if (src_aspect > term_aspect)
+        {
+            img_width = terminal_pixel_width;
+            img_height = (int)(img_width / src_aspect);
+        }
+        else
+        {
+            img_height = terminal_pixel_height;
+            img_width = (int)(img_height * src_aspect);
+        }
+
+        img_width = (int)(img_width * scale_factor);
+        img_height = (int)(img_height * scale_factor);
+    }
+    else
+    {
+        img_width = (int)(terminal_pixel_width * scale_factor);
+        img_height = (int)(terminal_pixel_height * scale_factor);
+    }
+
+    // Ensure img_width is divisible by 2 (required for YUV420)
+    if (img_width & 1)
+        --img_width;
+    if (img_height & 1)
+        --img_height;
+
+    // Build RGB24 data
+    std::vector<uint8_t> rgb_data(img_width * img_height * 3);
+
+    for (int y = 0; y < img_height; y++)
+    {
+        for (int x = 0; x < img_width; x++)
+        {
+            double rot_x = (double)x * rot_width / img_width;
+            double rot_y = (double)y * rot_height / img_height;
+
+            uint8_t r, g, b;
+            sample_rotated_pixel(frame_data, frame_width, frame_height, frame_stride,
+                                 (int)rot_x, (int)rot_y, rot_width, rot_height,
+                                 rotation_angle, r, g, b, pixel_format);
+
+            int idx = (y * img_width + x) * 3;
+            rgb_data[idx + 0] = r;
+            rgb_data[idx + 1] = g;
+            rgb_data[idx + 2] = b;
+        }
+    }
+
+    bool is_keyframe = false;
+    std::vector<uint8_t> hevc_data = encode_hevc_frame(
+        *hevc_enc, rgb_data.data(), img_width, img_height, quality, fps, is_keyframe);
+
+    if (hevc_data.empty())
+    {
+        return {};
+    }
+
+    // Get extradata
+    std::vector<uint8_t> extradata;
+    if (hevc_enc->codec_ctx && hevc_enc->codec_ctx->extradata)
+    {
+        extradata.insert(extradata.end(),
+                         hevc_enc->codec_ctx->extradata,
+                         hevc_enc->codec_ctx->extradata + hevc_enc->codec_ctx->extradata_size);
+    }
+
+    // Build packet with sequence number
+    return build_hevc_frame_packet(hevc_data, extradata, img_width, img_height,
+                                   is_keyframe, *hevc_enc);
+}
+
 static std::vector<uint8_t> render_kitty(
     const uint8_t *frame_data,
     uint32_t frame_width,
@@ -6233,6 +6340,17 @@ static void handle_frame_client(int client_socket, sockaddr_in client_addr)
                 case 7:
                 {
                     rendered_buf = std::move(render_kms(
+                        frame_to_render.data(), render_width, render_height, render_stride,
+                        config.term_width, config.term_height,
+                        config.term_pixel_width, config.term_pixel_height,
+                        mode, keep_aspect_ratio, config.scale_factor,
+                        config.detail_level, config.quality, config.rotation_angle,
+                        pixel_fmt, &conn->hevc_encoder, config.fps));
+                }
+                break;
+                case 8:
+                {
+                    rendered_buf = std::move(render_gui(
                         frame_to_render.data(), render_width, render_height, render_stride,
                         config.term_width, config.term_height,
                         config.term_pixel_width, config.term_pixel_height,
