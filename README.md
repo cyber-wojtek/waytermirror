@@ -292,7 +292,8 @@ sudo apt install build-essential git gcc libwayland-dev wayland-protocols libinp
 | -U <Hz>      | --microphone-sample-rate <Hz>                    | Microphone opus sample rate                | 48000   |
 | -V <n>       | --microphone-channels <n>                        | Microphone opus channels                   | 2       |
 | -B <kbps>    | --microphone-bitrate <kbps>                      | Microphone opus bitrate                    | 64      |
-| -Y <0-10>    | --microphone-complexity <0-10>                   | Microphone opus complexity                 | 5       |
+| -Y <0-10>    | --microphone-complexity <0-10>                   | Microphon- See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
+e opus complexity                 | 5       |
 | -W <type>    | --microphone-application <voip\|audio\|lowdelay> | Microphone opus application mode           | voip    |
 
 **Zoom / viewport**
