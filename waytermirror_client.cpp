@@ -1945,7 +1945,7 @@ static bool init_gui_window()
 
     // Maximize window by default
     xdg_toplevel_set_maximized(gui_window.toplevel);
-    xdg_toplevel_set_fullscreen(gui_window.toplevel);
+    xdg_toplevel_set_fullscreen(gui_window.toplevel, nullptr);
 
     xdg_toplevel_add_listener(gui_window.toplevel, &xdg_toplevel_listener, &gui_window);
     xdg_toplevel_set_title(gui_window.toplevel, "Waytermirror Client");
