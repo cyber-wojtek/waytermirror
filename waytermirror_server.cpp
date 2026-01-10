@@ -1515,6 +1515,8 @@ static void handle_key_event(const KeyEvent &evt)
 static void handle_mouse_move(const MouseMove &evt, const std::string &client_id)
 {
     std::shared_ptr<ClientConnection> conn;
+    std::cerr << "[SERVER] Mouse move from client " << client_id
+              << " to (" << evt.x << "," << evt.y << ")\n"; 
 
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
@@ -1551,6 +1553,7 @@ static void handle_mouse_move(const MouseMove &evt, const std::string &client_id
 
     // Send to compositor using global coordinates
     virtual_input_mgr.send_mouse_move(adjusted_x, adjusted_y, virtual_width, virtual_height);
+    std::cerr << "[SERVER] Mouse move sent\n";
 }
 
 static void handle_mouse_button(const MouseButton &evt)
