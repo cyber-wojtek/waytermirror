@@ -2008,7 +2008,6 @@ static void render_to_gui(const std::vector<uint8_t> &data)
         return;
     }
 
-    // *** FIX: Process events BEFORE checking configured state ***
     if (wl_display_dispatch_pending(gui_window.display) < 0)
     {
         std::cerr << "[GUI] Display dispatch error\n";
