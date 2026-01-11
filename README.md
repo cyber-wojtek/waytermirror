@@ -107,12 +107,12 @@ https://github.com/user-attachments/assets/089d1c60-c502-4422-892c-fb83e392149a
      ./waytermirror_client -H <host> -R gui
      ```
    
-   - **Framebuffer mode** (TTY/console - requires root):
+   - **Framebuffer mode** (TTY/console - requires root/video group):
      ```bash
      sudo ./waytermirror_client -H <host> -R framebuffer
      ```
    
-   - **KMS direct rendering** (TTY/console - requires root/DRM permissions):
+   - **KMS direct rendering** (TTY/console - requires root/video group):
      ```bash
      sudo ./waytermirror_client -H <host> -R kms
      ```
