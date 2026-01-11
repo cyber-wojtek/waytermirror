@@ -1,0 +1,23 @@
+option('nvidia_cuda',
+  type: 'boolean',
+  value: false,
+  description: 'Enable CUDA-accelerated rendering'
+)
+
+option('nvidia_cuda_path',
+  type: 'string',
+  value: '/opt/cuda',
+  description: 'Path to CUDA installation (when pkg-config detection fails)'
+)
+
+option('wayland_protocols_dir',
+  type: 'string',
+  value: '',
+  description: 'Path to wayland-protocols directory (auto-detected if empty)'
+)
+
+option('wlr_protocols_dir',
+  type: 'string',
+  value: '',
+  description: 'Path to wlr-protocols directory (auto-detected if empty)'
+)
