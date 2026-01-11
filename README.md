@@ -2,15 +2,15 @@
 
 Real-time Wayland screen mirroring to a terminal or native window using Unicode braille characters, half‑blocks, ASCII, sixels, kitty graphics, framebuffer, KMS direct rendering, native GUI window, or hybrid rendering. Includes bidirectional input forwarding, audio streaming (PipeWire), zooming, focus-follow, and optional NVIDIA CUDA acceleration (server-side).
 
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
-![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
-![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)
-![Releases](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=Releases&sort=semver)
-![Stars](https://img.shields.io/github/stars/cyber-wojtek/waytermirror?style=)
-![Forks](https://img.shields.io/github/forks/cyber-wojtek/waytermirror?style=)
-![Issues](https://img.shields.io/github/issues/cyber-wojtek/waytermirror)
-![Contributions welcome](https://img.shields.io/badge/Contributions-welcome-brightgreen.svg)
-![Build Status](https://img.shields.io/github/actions/workflow/status/cyber-wojtek/waytermirror/build.yml?branch=main)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/cyber-wojtek/waytermirror/blob/main/LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)](https://www.kernel.org/)
+[![Display](https://img.shields.io/badge/Display-Wayland-1E88E5)](https://wayland.freedesktop.org/)
+[![Releases](https://img.shields.io/github/v/release/cyber-wojtek/waytermirror?label=Releases&sort=semver)](https://github.com/cyber-wojtek/waytermirror/releases)
+[![Stars](https://img.shields.io/github/stars/cyber-wojtek/waytermirror?style=)](https://github.com/cyber-wojtek/waytermirror/stargazers)
+[![Forks](https://img.shields.io/github/forks/cyber-wojtek/waytermirror?style=)](https://github.com/cyber-wojtek/waytermirror/network/members)
+[![Issues](https://img.shields.io/github/issues/cyber-wojtek/waytermirror)](https://github.com/cyber-wojtek/waytermirror/issues)
+[![Contributions welcome](https://img.shields.io/badge/Contributions-welcome-brightgreen.svg)](https://github.com/cyber-wojtek/waytermirror/blob/main/CONTRIBUTING.md)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/cyber-wojtek/waytermirror/build.yml?branch=main)](https://github.com/cyber-wojtek/waytermirror/actions/workflows/build.yml)
 
 ## Table of contents
 - [Waytermirror](#waytermirror)
@@ -108,12 +108,12 @@ https://github.com/user-attachments/assets/089d1c60-c502-4422-892c-fb83e392149a
      ./waytermirror_client -H <host> -R gui
      ```
    
-   - **Framebuffer mode** (TTY/console - requires root):
+   - **Framebuffer mode** (TTY/console - requires root/video group):
      ```bash
      sudo ./waytermirror_client -H <host> -R framebuffer
      ```
    
-   - **KMS direct rendering** (TTY/console - requires root/DRM permissions):
+   - **KMS direct rendering** (TTY/console - requires root/video group):
      ```bash
      sudo ./waytermirror_client -H <host> -R kms
      ```
