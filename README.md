@@ -129,7 +129,7 @@ https://github.com/user-attachments/assets/089d1c60-c502-4422-892c-fb83e392149a
 
 ### Arch Linux-based
 ```bash
-sudo pacman -S base-devel git gcc wayland wayland-protocols libinput pipewire lz4 rapidjson systemd argparse libsixel libpng ffmpeg opus libudev0 libdrm mesa meson
+sudo pacman -S base-devel git gcc wayland wayland-protocols libinput pipewire lz4 rapidjson systemd argparse libsixel libpng ffmpeg opus libdrm mesa meson
 # Optional for CUDA:
 sudo pacman -S cuda
 ```
