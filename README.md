@@ -87,7 +87,8 @@ https://github.com/user-attachments/assets/089d1c60-c502-4422-892c-fb83e392149a
    ```bash
    git clone https://github.com/cyber-wojtek/waytermirror.git
    cd waytermirror
-   make -j$(nproc)
+   meson setup builddir
+   meson compile -C builddir -j$(nproc)
    ```
    This produces `waytermirror_server` and `waytermirror_client`.
 
@@ -128,25 +129,27 @@ https://github.com/user-attachments/assets/089d1c60-c502-4422-892c-fb83e392149a
 
 ### Arch Linux-based
 ```bash
-sudo pacman -S base-devel git gcc wayland wayland-protocols libinput pipewire lz4 rapidjson systemd argparse libsixel libpng ffmpeg opus libudev0 libdrm mesa
+sudo pacman -S base-devel git gcc wayland wayland-protocols libinput pipewire lz4 rapidjson systemd argparse libsixel libpng ffmpeg opus libudev0 libdrm mesa meson
 # Optional for CUDA:
 sudo pacman -S cuda
 ```
 
 ### Debian-based
 ```bash
-sudo apt install build-essential git gcc libwayland-dev wayland-protocols libinput-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libsystemd-dev pkg-config cmake libargparse-dev libsixel-dev libpng-dev libavcodec-dev libavutil-dev libswscale-dev libavformat-dev libopus-dev libudev-dev libdrm-dev libgbm-dev
+sudo apt install build-essential git gcc libwayland-dev wayland-protocols libinput-dev libpipewire-0.3-dev liblz4-dev rapidjson-dev libsystemd-dev pkg-config meson libargparse-dev libsixel-dev libpng-dev libavcodec-dev libavutil-dev libswscale-dev libavformat-dev libopus-dev libudev-dev libdrm-dev libgbm-dev
 # For CUDA: install NVIDIA CUDA toolkit from https://developer.nvidia.com/cuda-toolkit
 ```
 
 ### Building
 - **CPU-only** (default):
   ```bash
-  make -j$(nproc)
+  meson setup builddir
+  meson compile -C builddir -j$(nproc)
   ```
 - **CUDA-enabled** (if you have nvcc and CUDA libs):
   ```bash
-  make CUDA=true -j$(nproc)
+  meson setup builddir -Dnvidia_cuda=true
+  meson compile -C builddir -j$(nproc)
   ```
 - The provided PKGBUILD auto-detects nvcc. Override with `WAYTERMIRROR_CUDA=1` or `WAYTERMIRROR_NO_CUDA`.
 
