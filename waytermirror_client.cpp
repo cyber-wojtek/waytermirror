@@ -849,7 +849,6 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
                 continue;
             }
 
-            // 1. ALLOCATE CONTEXT FIRST (critical fix - was done AFTER device creation in old code)
             dec.codec_ctx = avcodec_alloc_context3(codec);
             if (!dec.codec_ctx)
             {
@@ -5328,7 +5327,6 @@ static void render_to_sixel(const std::vector<uint8_t> &data)
         return;
     }
 
-    // ===== CRITICAL FIX: Add error handling for libsixel =====
 
     // Use libsixel to encode
     sixel_output_t *output = nullptr;
@@ -5402,7 +5400,6 @@ static void render_to_sixel(const std::vector<uint8_t> &data)
 
     sixel_dither_set_diffusion_type(dither, diffusion_type);
 
-    // ===== CRITICAL FIX: Validate buffer before passing to libsixel =====
     size_t required_size = (size_t)width * height * 3;
     if (rgb_data.size() < required_size)
     {

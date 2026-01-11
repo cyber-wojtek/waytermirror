@@ -3216,28 +3216,22 @@ static bool configure_nvenc(AVCodecContext *ctx, int quality, int fps, int64_t b
     }
     av_opt_set(ctx->priv_data, "preset", preset, 0);
 
-    // === CRITICAL: Ultra-low-latency tune (this is the most important setting) ===
     av_opt_set(ctx->priv_data, "tune", "ull", 0);
 
-    // === CRITICAL: Use CBR (Constant Bitrate) for streaming ===
     // CBR is more reliable than VBR for real-time streaming
     av_opt_set(ctx->priv_data, "rc", "cbr", 0);
 
-    // === CRITICAL: Explicitly disable B-frames multiple ways ===
     ctx->max_b_frames = 0;
     av_opt_set(ctx->priv_data, "bf", "0", 0);
     av_opt_set(ctx->priv_data, "b_ref_mode", "0", 0); // Disable B-frame references
 
-    // === CRITICAL: Set bitrate (use the calculated value, don't modify it) ===
     ctx->bit_rate = bitrate;
     ctx->rc_max_rate = bitrate;
     ctx->rc_buffer_size = bitrate / fps; // 1 frame buffer
 
-    // === CRITICAL: Short, strict GOP ===
     ctx->gop_size = fps; // Keyframe every second
     av_opt_set(ctx->priv_data, "forced-idr", "1", 0);
 
-    // === CRITICAL: Zero latency settings ===
     av_opt_set(ctx->priv_data, "zerolatency", "1", 0);
     av_opt_set(ctx->priv_data, "delay", "0", 0);
     av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
