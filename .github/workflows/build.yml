@@ -36,7 +36,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Build (CPU-only)
-      run: make
+      run: meson setup builddir && meson compile -C builddir
 
     - name: Verify binaries
       run: |
@@ -71,7 +71,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Build (CPU-only)
-      run: make
+      run: meson setup builddir && meson compile -C builddir
 
     - name: Verify binaries
       run: |
