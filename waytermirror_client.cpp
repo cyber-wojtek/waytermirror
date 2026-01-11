@@ -3148,9 +3148,56 @@ static void audio_receive_thread()
 
     while (running && audio_playback.running)
     {
-        if (recv(audio_socket, &type, sizeof(type), 0) != sizeof(type))
+        int n = recv(audio_socket, &type, sizeof(type), 0);
+        if (n == 0)
         {
-            continue; 
+            // Connection closed gracefully
+            std::lock_guard<std::mutex> lock(terminal_query_mutex);
+            std::cerr << "[AUDIO] Connection closed by server\n";
+            fflush(stderr);
+            break;
+        }
+        else if (n < 0)
+        {
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK || errno == ECONNRESET)
+            {
+                continue;  // Retry on interrupt/would-block
+            }
+            // Socket error - exit
+            std::lock_guard<std::mutex> lock(terminal_query_mutex);
+            std::cerr << "[AUDIO] Socket error: " << strerror(errno) << "\n";
+            fflush(stderr);
+            break;
+        }
+        else
+        {
+            // Incomplete read
+            continue;
+        }
+        if (n == 0)
+        {
+            // Connection closed gracefully
+            std::lock_guard<std::mutex> lock(terminal_query_mutex);
+            std::cerr << "[AUDIO] Connection closed by server\n";
+            fflush(stderr);
+            break;  // ✅ Exit the loop
+        }
+        else if (n < 0)
+        {
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                continue;  // Retry on interrupt/would-block
+            }
+            // Socket error - exit
+            std::lock_guard<std::mutex> lock(terminal_query_mutex);
+            std::cerr << "[AUDIO] Socket error: " << strerror(errno) << "\n";
+            fflush(stderr);
+            break;  // ✅ Exit the loop
+        }
+        else
+        {
+            // Incomplete read - treat as error
+            break;  // ✅ Exit the loop
         }
         packets_received++;
         auto now = std::chrono::steady_clock::now();
