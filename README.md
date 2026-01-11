@@ -10,7 +10,7 @@ Real-time Wayland screen mirroring to a terminal or native window using Unicode 
 ![Forks](https://img.shields.io/github/forks/cyber-wojtek/waytermirror?style=)
 ![Issues](https://img.shields.io/github/issues/cyber-wojtek/waytermirror)
 ![Contributions welcome](https://img.shields.io/badge/Contributions-welcome-brightgreen.svg)
-![Build Status](https://img.shields.io/github/actions/workflow/status/cyber-wojtek/waytermirror/build.yml?branch=main)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/cyber-wojtek/waytermirror/build.yml?branch=main)](https://github.com/cyber-wojtek/waytermirror/actions)
 
 ## Table of contents
 - [Waytermirror](#waytermirror)
