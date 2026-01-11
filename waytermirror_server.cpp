@@ -3874,6 +3874,10 @@ static std::vector<uint8_t> encode_hevc_frame(
         return {};
     }
 
+    memset(enc.frame->data[0], 0, enc.frame->linesize[0] * height);     // Y plane
+    memset(enc.frame->data[1], 128, enc.frame->linesize[1] * height/2); // U plane (128 = gray in YUV)
+    memset(enc.frame->data[2], 128, enc.frame->linesize[2] * height/2); // V plane (128 = gray in YUV)
+
     // Convert RGB24 to YUV420P
     const uint8_t *src_data[1] = {rgb_data};
     int src_linesize[1] = {(int)(width * 3)};

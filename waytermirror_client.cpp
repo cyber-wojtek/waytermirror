@@ -181,6 +181,7 @@ static bool feature_video = true;
 static bool feature_audio = true;
 static bool feature_input = true;
 static bool feature_microphone = true;
+static bool feature_hw_decode = true;
 
 // Last received frame for delta encoding
 static std::vector<uint8_t> last_received_frame;
@@ -791,6 +792,162 @@ static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelF
     return AV_PIX_FMT_NONE;
 }
 
+// Configure NVENC decoder (NVIDIA)
+static bool configure_nvenc_decoder(AVCodecContext *ctx, AVBufferRef **hw_device_ctx)
+{
+    std::cerr << "[HEVC DECODER] Configuring NVENC decoder...\n";
+    
+    int ret = av_hwdevice_ctx_create(hw_device_ctx, AV_HWDEVICE_TYPE_CUDA, nullptr, nullptr, 0);
+    if (ret < 0)
+    {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[HEVC DECODER] Failed to create CUDA device: " << errbuf << "\n";
+        return false;
+    }
+    
+    ctx->hw_device_ctx = av_buffer_ref(*hw_device_ctx);
+    ctx->thread_count = 1;
+    ctx->thread_type = 0;
+    
+    std::cerr << "[HEVC DECODER] NVENC decoder configured\n";
+    return true;
+}
+
+// Configure QSV decoder (Intel QuickSync)
+static bool configure_qsv_decoder(AVCodecContext *ctx, uint32_t width, uint32_t height, AVBufferRef **hw_device_ctx)
+{
+    std::cerr << "[HEVC DECODER] Configuring QSV decoder...\n";
+    
+    // Step 1: Create VAAPI device first
+    AVBufferRef *vaapi_device = nullptr;
+    const char *device = getenv("LIBVA_DEVICE_PATH");
+    if (!device) device = "/dev/dri/renderD128";
+    
+    int ret = av_hwdevice_ctx_create(&vaapi_device, AV_HWDEVICE_TYPE_VAAPI, device, nullptr, 0);
+    if (ret < 0)
+    {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[HEVC DECODER] Failed to create VAAPI device: " << errbuf << "\n";
+        return false;
+    }
+    
+    // Step 2: Derive QSV device from VAAPI
+    ret = av_hwdevice_ctx_create_derived(hw_device_ctx, AV_HWDEVICE_TYPE_QSV, vaapi_device, 0);
+    av_buffer_unref(&vaapi_device);  // QSV now owns the reference
+    
+    if (ret < 0)
+    {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[HEVC DECODER] Failed to derive QSV from VAAPI: " << errbuf << "\n";
+        return false;
+    }
+    
+    ctx->hw_device_ctx = av_buffer_ref(*hw_device_ctx);
+    ctx->thread_count = 1;
+    ctx->thread_type = 0;
+    ctx->extra_hw_frames = 64;
+    
+    std::cerr << "[HEVC DECODER] QSV decoder configured via VAAPI derivation\n";
+    return true;
+}
+
+// Configure VAAPI decoder (Intel/AMD Linux)
+static bool configure_vaapi_decoder(AVCodecContext *ctx, uint32_t width, uint32_t height, AVBufferRef **hw_device_ctx)
+{
+    std::cerr << "[HEVC DECODER] Configuring VAAPI decoder...\n";
+    
+    int ret = av_hwdevice_ctx_create(hw_device_ctx, AV_HWDEVICE_TYPE_VAAPI, nullptr, nullptr, 0);
+    if (ret < 0)
+    {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[HEVC DECODER] Failed to create VAAPI device: " << errbuf << "\n";
+        return false;
+    }
+    
+    // Create hardware frames context
+    AVBufferRef *hw_frames_ref = av_hwframe_ctx_alloc(*hw_device_ctx);
+    if (!hw_frames_ref)
+    {
+        std::cerr << "[HEVC DECODER] Failed to allocate VAAPI frames context\n";
+        av_buffer_unref(hw_device_ctx);
+        return false;
+    }
+    
+    AVHWFramesContext *frames_ctx = (AVHWFramesContext *)hw_frames_ref->data;
+    frames_ctx->format = AV_PIX_FMT_VAAPI;
+    frames_ctx->sw_format = AV_PIX_FMT_NV12;
+    frames_ctx->width = width;
+    frames_ctx->height = height;
+    frames_ctx->initial_pool_size = 20;
+    
+    ret = av_hwframe_ctx_init(hw_frames_ref);
+    if (ret < 0)
+    {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[HEVC DECODER] Failed to initialize VAAPI frames context: " << errbuf << "\n";
+        av_buffer_unref(&hw_frames_ref);
+        av_buffer_unref(hw_device_ctx);
+        return false;
+    }
+    
+    ctx->hw_device_ctx = av_buffer_ref(*hw_device_ctx);
+    ctx->hw_frames_ctx = hw_frames_ref;
+    ctx->thread_count = 1;
+    ctx->thread_type = 0;
+    
+    std::cerr << "[HEVC DECODER] VAAPI decoder configured\n";
+    return true;
+}
+
+// Configure VDPAU decoder (NVIDIA Legacy)
+static bool configure_vdpau_decoder(AVCodecContext *ctx, AVBufferRef **hw_device_ctx)
+{
+    std::cerr << "[HEVC DECODER] Configuring VDPAU decoder...\n";
+    
+    int ret = av_hwdevice_ctx_create(hw_device_ctx, AV_HWDEVICE_TYPE_VDPAU, nullptr, nullptr, 0);
+    if (ret < 0)
+    {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[HEVC DECODER] Failed to create VDPAU device: " << errbuf << "\n";
+        return false;
+    }
+    
+    ctx->hw_device_ctx = av_buffer_ref(*hw_device_ctx);
+    ctx->thread_count = 1;
+    ctx->thread_type = 0;
+    
+    std::cerr << "[HEVC DECODER] VDPAU decoder configured\n";
+    return true;
+}
+
+// Configure VideoToolbox decoder (macOS)
+static bool configure_videotoolbox_decoder(AVCodecContext *ctx, AVBufferRef **hw_device_ctx)
+{
+    std::cerr << "[HEVC DECODER] Configuring VideoToolbox decoder...\n";
+    
+    int ret = av_hwdevice_ctx_create(hw_device_ctx, AV_HWDEVICE_TYPE_VIDEOTOOLBOX, nullptr, nullptr, 0);
+    if (ret < 0)
+    {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "[HEVC DECODER] Failed to create VideoToolbox device: " << errbuf << "\n";
+        return false;
+    }
+    
+    ctx->hw_device_ctx = av_buffer_ref(*hw_device_ctx);
+    ctx->thread_count = 1;
+    ctx->thread_type = 0;
+    
+    std::cerr << "[HEVC DECODER] VideoToolbox decoder configured\n";
+    return true;
+}
+
 static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
                               const uint8_t *extradata, size_t extradata_size,
                               bool try_hw = true)
@@ -845,50 +1002,68 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
             codec = avcodec_find_decoder_by_name(hw_info.codec_name);
             if (!codec)
             {
-                std::cerr << "[HEVC DECODER]   ✗ Codec not found: " << hw_info.codec_name << "\n";
+                std::cerr << "[HEVC DECODER] Codec not found: " << hw_info.codec_name << "\n";
                 continue;
             }
 
             dec.codec_ctx = avcodec_alloc_context3(codec);
             if (!dec.codec_ctx)
             {
-                std::cerr << "[HEVC DECODER]   ✗ Failed to allocate codec context\n";
+                std::cerr << "[HEVC DECODER] Failed to allocate codec context\n";
                 continue;
             }
 
-            // 2. SET BASIC PARAMETERS
+            // SET BASIC PARAMETERS
             dec.codec_ctx->width = width;
             dec.codec_ctx->height = height;
             dec.codec_ctx->time_base = {1, 30};
             dec.codec_ctx->framerate = {30, 1};
 
-            // 3. CREATE HARDWARE DEVICE CONTEXT
-            int ret = av_hwdevice_ctx_create(&dec.hw_device_ctx, hw_info.type, NULL, NULL, 0);
-            if (ret < 0)
+            // CONFIGURE HARDWARE DECODER (type-specific)
+            bool config_ok = false;
+            switch (hw_info.type)
             {
-                char errbuf[256];
-                av_strerror(ret, errbuf, sizeof(errbuf));
-                std::cerr << "[HEVC DECODER]   ✗ Hardware device creation failed: " << errbuf << "\n";
+                case AV_HWDEVICE_TYPE_CUDA:
+                    config_ok = configure_nvenc_decoder(dec.codec_ctx, &dec.hw_device_ctx);
+                    break;
+                case AV_HWDEVICE_TYPE_QSV:
+                    config_ok = configure_qsv_decoder(dec.codec_ctx, width, height, &dec.hw_device_ctx);
+                    break;
+                case AV_HWDEVICE_TYPE_VAAPI:
+                    config_ok = configure_vaapi_decoder(dec.codec_ctx, width, height, &dec.hw_device_ctx);
+                    break;
+                case AV_HWDEVICE_TYPE_VDPAU:
+                    config_ok = configure_vdpau_decoder(dec.codec_ctx, &dec.hw_device_ctx);
+                    break;
+                case AV_HWDEVICE_TYPE_VIDEOTOOLBOX:
+                    config_ok = configure_videotoolbox_decoder(dec.codec_ctx, &dec.hw_device_ctx);
+                    break;
+                default:
+                    std::cerr << "[HEVC DECODER] Unknown hardware type\n";
+                    config_ok = false;
+            }
 
-                // Cleanup and try next decoder
+            if (!config_ok)
+            {
+                std::cerr << "[HEVC DECODER] Hardware configuration failed\n";
                 avcodec_free_context(&dec.codec_ctx);
                 continue;
             }
 
-            // 4. LINK DEVICE TO CONTEXT
-            dec.codec_ctx->hw_device_ctx = av_buffer_ref(dec.hw_device_ctx);
+            // Set up get_format callback
             dec.codec_ctx->get_format = get_hw_format;
             dec.codec_ctx->opaque = const_cast<AVPixelFormat *>(&hw_info.hw_pix_fmt);
             dec.hw_pix_fmt = hw_info.hw_pix_fmt;
 
-            // 5. SET EXTRADATA (SPS/PPS) before opening codec
+            // SET EXTRADATA (SPS/PPS) before opening codec
             if (extradata && extradata_size > 0)
             {
                 dec.codec_ctx->extradata = (uint8_t *)av_malloc(extradata_size + AV_INPUT_BUFFER_PADDING_SIZE);
                 if (!dec.codec_ctx->extradata)
                 {
-                    std::cerr << "[HEVC DECODER]   ✗ Failed to allocate extradata\n";
-                    av_buffer_unref(&dec.hw_device_ctx);
+                    std::cerr << "[HEVC DECODER] Failed to allocate extradata\n";
+                    if (dec.hw_device_ctx)
+                        av_buffer_unref(&dec.hw_device_ctx);
                     avcodec_free_context(&dec.codec_ctx);
                     continue;
                 }
@@ -897,45 +1072,34 @@ static bool init_hevc_decoder(HEVCDecoder &dec, uint32_t width, uint32_t height,
                 dec.codec_ctx->extradata_size = extradata_size;
             }
 
-            // 6. CONFIGURE FLAGS
-            // Hardware decoders handle threading internally
-            dec.codec_ctx->thread_count = 1;
-            dec.codec_ctx->thread_type = 0;
-
-            // Low delay flags for streaming
+            // CONFIGURE FLAGS
             dec.codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
             dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
             dec.codec_ctx->flags2 |= AV_CODEC_FLAG2_CHUNKS;
-
-            // Error concealment
             dec.codec_ctx->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
             dec.codec_ctx->skip_loop_filter = AVDISCARD_ALL;
 
-            // 7. OPEN CODEC
-            ret = avcodec_open2(dec.codec_ctx, codec, nullptr);
+            // OPEN CODEC
+            int ret = avcodec_open2(dec.codec_ctx, codec, nullptr);
             if (ret < 0)
             {
                 char errbuf[256];
                 av_strerror(ret, errbuf, sizeof(errbuf));
-                std::cerr << "[HEVC DECODER]   ✗ Failed to open codec: " << errbuf << "\n";
+                std::cerr << "[HEVC DECODER] Failed to open codec: " << errbuf << "\n";
 
                 // Complete cleanup and try next decoder
                 if (dec.codec_ctx->extradata)
                     av_free(dec.codec_ctx->extradata);
-                av_buffer_unref(&dec.hw_device_ctx);
+                if (dec.hw_device_ctx)
+                    av_buffer_unref(&dec.hw_device_ctx);
                 avcodec_free_context(&dec.codec_ctx);
                 continue;
             }
 
             // SUCCESS!
-            std::cerr << "[HEVC DECODER]   ✓ Successfully opened: " << hw_info.name << "\n";
+            std::cerr << "[HEVC DECODER] Successfully opened: " << hw_info.name << "\n";
             dec.use_hw = true;
             decoder_opened = true;
-        }
-
-        if (!decoder_opened)
-        {
-            std::cerr << "[HEVC DECODER]   ✗ All hardware decoders failed\n";
         }
     }
 
@@ -1243,7 +1407,7 @@ static bool decode_hevc_to_rgb(
             cleanup_hevc_decoder(hevc_decoder);
         }
 
-        if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size))
+        if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size, feature_hw_decode))
         {
             return false;
         }
@@ -1395,7 +1559,7 @@ static bool decode_hevc_to_rgb(
                               << hevc_decoder.consecutive_decode_failures
                               << ") - resetting decoder\n";
                     cleanup_hevc_decoder(hevc_decoder);
-                    if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size))
+                    if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size, feature_hw_decode))
                     {
                         return false;
                     }
@@ -1445,7 +1609,7 @@ static bool decode_hevc_to_rgb(
                           << hevc_decoder.consecutive_decode_failures
                           << ") - resetting decoder\n";
                 cleanup_hevc_decoder(hevc_decoder);
-                if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size))
+                if (!init_hevc_decoder(hevc_decoder, width, height, extradata, extradata_size, feature_hw_decode))
                 {
                     return false;
                 }
@@ -1501,7 +1665,11 @@ static bool decode_hevc_to_rgb(
         if (!hevc_decoder.sws_ctx)
         {
             if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+            {
+                av_frame_unref(sw_frame);
                 av_frame_free(&sw_frame);
+            }
+            av_frame_unref(hevc_decoder.frame);
             av_frame_unref(hevc_decoder.frame);
             hevc_decoder.consecutive_decode_failures++;
             std::cerr << "[HEVC] Failed to create SWS context\n";
@@ -1523,7 +1691,11 @@ static bool decode_hevc_to_rgb(
         if (av_frame_get_buffer(hevc_decoder.rgb_frame, 32) < 0)
         {
             if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+            {
+                av_frame_unref(sw_frame);
                 av_frame_free(&sw_frame);
+            }
+            av_frame_unref(hevc_decoder.frame);
             av_frame_unref(hevc_decoder.frame);
             std::cerr << "[HEVC] Failed to allocate RGB frame buffer\n";
             return false;
@@ -1533,11 +1705,20 @@ static bool decode_hevc_to_rgb(
     if (av_frame_make_writable(hevc_decoder.rgb_frame) < 0)
     {
         if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+        {
+            av_frame_unref(sw_frame);
             av_frame_free(&sw_frame);
+        }
+        av_frame_unref(hevc_decoder.frame);
         av_frame_unref(hevc_decoder.frame);
         std::cerr << "[HEVC] RGB frame not writable\n";
         return false;
     }
+
+    memset(hevc_decoder.rgb_frame->data[0], 0, hevc_decoder.rgb_frame->linesize[0] * height);     // Y plane
+    memset(hevc_decoder.rgb_frame->data[1], 128, hevc_decoder.rgb_frame->linesize[1] * height/2); // U plane (128 = gray in YUV)
+    memset(hevc_decoder.rgb_frame->data[2], 128, hevc_decoder.rgb_frame->linesize[2] * height/2); // V plane (128 = gray in YUV)
+
 
     // Convert YUV to RGB
     int converted_height = sws_scale(
@@ -1552,7 +1733,11 @@ static bool decode_hevc_to_rgb(
     if (converted_height != hevc_decoder.rgb_frame->height)
     {
         if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
+        {
+            av_frame_unref(sw_frame);
             av_frame_free(&sw_frame);
+        }
+        av_frame_unref(hevc_decoder.frame);
         av_frame_unref(hevc_decoder.frame);
         std::cerr << "[HEVC] WARNING: Incomplete conversion, expected "
                   << hevc_decoder.rgb_frame->height << " lines, got "
@@ -1572,8 +1757,10 @@ static bool decode_hevc_to_rgb(
     av_frame_unref(hevc_decoder.frame);
     if (hevc_decoder.use_hw && sw_frame != hevc_decoder.frame)
     {
+        av_frame_unref(sw_frame);
         av_frame_free(&sw_frame);
     }
+    av_frame_unref(hevc_decoder.frame);
 
     return true;
 }
@@ -5114,7 +5301,7 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
 {
     if (data.size() < sizeof(HEVCFrameHeader))
     {
-        std::cerr << "[SIXEL] Packet too small\n";
+        std::cerr << "[FRAMEBUFFER] Packet too small\n";
         return;
     }
 
@@ -5124,14 +5311,14 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
     if (header.width == 0 || header.height == 0 ||
         header.width > 8192 || header.height > 8192)
     {
-        std::cerr << "[SIXEL] Invalid dimensions\n";
+        std::cerr << "[FRAMEBUFFER] Invalid dimensions\n";
         return;
     }
 
     size_t expected_size = sizeof(header) + header.extradata_size + header.compressed_size;
     if (data.size() < expected_size)
     {
-        std::cerr << "[SIXEL] Truncated packet\n";
+        std::cerr << "[FRAMEBUFFER] Truncated packet\n";
         return;
     }
 
@@ -5168,7 +5355,7 @@ static void render_to_framebuffer(const std::vector<uint8_t> &data)
     if (!decode_hevc_to_rgb(hevc_data, extradata, header.extradata_size,
                             header.compressed_size, header.width, header.height, rgb_data))
     {
-        std::cerr << "[SIXEL] Decode failed seq=" << header.sequence_number << "\n";
+        std::cerr << "[FRAMEBUFFER] Decode failed seq=" << header.sequence_number << "\n";
         return;
     }
 
@@ -5703,6 +5890,11 @@ int main(int argc, char **argv)
         .default_value(std::string("voip"))
         .help("Microphone opus application: voip, audio, lowdelay");
 
+    program.add_argument("-e", "--no-hw-decode")
+        .default_value(false)
+        .implicit_value(true)
+        .help("Disable hardware video decoding");
+
     try
     {
         program.parse_args(argc, argv);
@@ -5718,6 +5910,7 @@ int main(int argc, char **argv)
     feature_audio = !program.get<bool>("--no-audio");
     feature_input = !program.get<bool>("--no-input");
     feature_microphone = !program.get<bool>("--no-microphone");
+    feature_hw_decode = !program.get<bool>("--no-hw-decode");
 
     exclusive_mode = program.get<bool>("--exclusive-input");
 
