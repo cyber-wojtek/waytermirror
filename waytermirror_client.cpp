@@ -3180,7 +3180,7 @@ static void audio_receive_thread()
             std::lock_guard<std::mutex> lock(terminal_query_mutex);
             std::cerr << "[AUDIO] Connection closed by server\n";
             fflush(stderr);
-            break;  // ✅ Exit the loop
+            break;  // Exit the loop
         }
         else if (n < 0)
         {
@@ -3192,12 +3192,12 @@ static void audio_receive_thread()
             std::lock_guard<std::mutex> lock(terminal_query_mutex);
             std::cerr << "[AUDIO] Socket error: " << strerror(errno) << "\n";
             fflush(stderr);
-            break;  // ✅ Exit the loop
+            break;  // Exit the loop
         }
         else
         {
             // Incomplete read - treat as error
-            break;  // ✅ Exit the loop
+            break;  // Exit the loop
         }
         packets_received++;
         auto now = std::chrono::steady_clock::now();
