@@ -1530,19 +1530,6 @@ static void handle_mouse_move(const MouseMove &evt, const std::string &client_id
     int32_t global_x = evt.x;
     int32_t global_y = evt.y;
 
-    // Calculate total virtual desktop bounds for validation
-    int32_t min_x = 0, min_y = 0, max_x = 0, max_y = 0;
-    for (const auto &geom : output_geometries)
-    {
-        min_x = std::min(min_x, geom.x);
-        min_y = std::min(min_y, geom.y);
-        max_x = std::max(max_x, geom.x + geom.width);
-        max_y = std::max(max_y, geom.y + geom.height);
-    }
-
-    uint32_t virtual_width = max_x - min_x;
-    uint32_t virtual_height = max_y - min_y;
-
     // Adjust coordinates to be relative to virtual desktop origin (if needed)
     int32_t adjusted_x = global_x/* - min_x*/;
     int32_t adjusted_y = global_y/* - min_y*/;
@@ -1552,7 +1539,7 @@ static void handle_mouse_move(const MouseMove &evt, const std::string &client_id
     host_cursor_y = global_y;
 
     // Send to compositor using global coordinates
-    virtual_input_mgr.send_mouse_move(adjusted_x, adjusted_y, virtual_width, virtual_height);
+    virtual_input_mgr.send_mouse_move(adjusted_x, adjusted_y, evt.width, evt.height);
     std::cerr << "[SERVER] Mouse move sent\n";
 }
 

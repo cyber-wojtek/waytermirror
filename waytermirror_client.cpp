@@ -4644,13 +4644,13 @@ static void send_key_event(uint32_t keycode, bool pressed)
 static void send_mouse_move(int x, int y)
 {
     // x and y are already global coordinates
-    current_mouse_x = x;
-    current_mouse_y = y;
-
     int w = screen_width.load();
     int h = screen_height.load();
     int off_x = output_offset_x.load();
     int off_y = output_offset_y.load();
+ 
+    current_mouse_x = x;
+    current_mouse_y = y;
 
     // Calculate local coordinates for zoom (relative to current output)
     int local_x = x - off_x;
@@ -4774,6 +4774,11 @@ static void process_libinput_events()
             // Update global position directly
             int new_x = current_mouse_x.load() + (int)dx;
             int new_y = current_mouse_y.load() + (int)dy;
+           
+            new_x = std::max(new_x, 0);
+            new_y = std::max(new_y, 0);
+
+            //std::cerr << new_x << ' ' << new_y << '\n';
 
             send_mouse_move(new_x, new_y);
             break;
@@ -4799,7 +4804,6 @@ static void process_libinput_events()
         case LIBINPUT_EVENT_POINTER_AXIS:
         {
             struct libinput_event_pointer *ptr = libinput_event_get_pointer_event(event);
-
             if (libinput_event_pointer_has_axis(ptr, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL))
             {
                 double value = libinput_event_pointer_get_axis_value(ptr, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL);
